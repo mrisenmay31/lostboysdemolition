@@ -1,0 +1,188 @@
+Good. Let me update the schema to reflect the Scope Library addition, then we'll write the Claude Code prompt.
+
+**Two schema updates before building:**
+
+The **Scope Library** table gets added as Table 7, and the **Invoice Line Items** table gets one additional field — Scope Library Reference (Linked Record → Scope Library).
+
+The **Job Scope** multi-select on Jobs stays exactly as designed — it's still the fast tagging field. The Scope Library is what gives each tag a default description and estimate inputs that flow into Invoice Line Items automatically.
+
+---
+
+Here's the Claude Code prompt. Copy and paste this exactly:
+
+---
+
+> *I'm building an Airtable operations system for a demolition company. The base already has these tables: Clients, Change Orders, Expenses, Pricing Variables. I need you to add three new tables: Jobs, Invoice Line Items, and Scope Library. Please write an idempotent Node.js script using the Airtable Metadata API that creates these tables and their fields. Use environment variables AIRTABLE_API_KEY and AIRTABLE_BASE_ID. Add a 250ms delay between API calls. Log every field as created, skipped, or needs manual setup. At the end, output a post-run checklist of anything requiring manual setup in the Airtable UI.*
+>
+> *Do not create formula fields, rollup fields, lookup fields, count fields, linked record fields, autonumber fields, or created time fields via the API — these all require manual setup. Create all other field types via the API. Log each of these as "MANUAL SETUP REQUIRED" with exact instructions.*
+>
+> *Here is the complete schema to build:*
+>
+> ---
+>
+> **TABLE: Jobs**
+>
+> *Section 1 — Job Info:*
+> - Job Name — single line text (primary field)
+> - Job Address — single line text
+> - Engagement Type — single select: Contractor Job, Homeowner Direct, Subcontract Work
+> - Job Type — single select: Residential, Commercial
+> - Job Scope — multi-select: Kitchen Demo, Bathroom Demo, Full House Gut, Flooring Removal, Concrete Demo, Drywall-Wall Demo, Ceiling Demo, Exterior Demo, Fireplace Demo, Stair-Trim Demo, Window-Door Removal, Cabinet Removal, Shed-Structure Removal, Deck-Patio Removal, Pool-Water Feature Demo, Carport Removal, Junk Removal-Cleanout, Construction Debris Hauling, Jobsite Cleanup
+> - Estimator — single select: Dane, Jackson
+> - Crew — single select: Crew 1, Crew 2, Crew 3, Crew 4, Jackson, Other
+> - Status — single select: Lead-Request, Scheduled, In Progress, Completed, Ready for Invoice, Invoiced, Paid, Cancelled
+> - Start Date — date
+> - End Date — date
+> - Job Start Time — single line text
+> - Scope Notes — long text
+> - Days at Job — number, precision 0
+> - Number of Employees — number, precision 0
+> - Total Number of Dumps — number, precision 0
+>
+> *Section 2 — Estimate Inputs:*
+> - Estimated Labor Hours — number, precision 2
+> - Labor Rate — currency, precision 2
+> - Overhead Rate — currency, precision 2
+> - Estimated Materials — currency, precision 2
+> - Disposal Charge Revenue — currency, precision 2
+> - Disposal Estimated Cost — currency, precision 2
+> - Target Margin Percent — percent, precision 2
+> - Credit Card Fee Percent — percent, precision 2
+>
+> *Section 2 — Estimate Formulas (ALL MANUAL SETUP):*
+> - Estimated Labor Cost — formula: {Estimated Labor Hours} * {Labor Rate}
+> - Estimated Overhead — formula: {Estimated Labor Hours} * {Overhead Rate}
+> - Disposal Buffer — formula: {Disposal Charge Revenue} - {Disposal Estimated Cost}
+> - Estimated Base Cost — formula: {Estimated Labor Cost} + {Estimated Overhead} + {Estimated Materials} + {Disposal Estimated Cost}
+> - Price Before Fees — formula: IF({Target Margin Percent}, {Estimated Base Cost} / (1 - {Target Margin Percent}), BLANK())
+> - Final Estimated Price — formula: IF({Credit Card Fee Percent}, {Price Before Fees} / (1 - {Credit Card Fee Percent}), {Price Before Fees})
+> - Estimated Profit — formula: {Final Estimated Price} - {Estimated Base Cost}
+> - Estimated Profit Margin — formula: IF({Final Estimated Price}, {Estimated Profit} / {Final Estimated Price}, BLANK()) — format as percent
+>
+> *Section 3 — Actuals:*
+> - Actual Labor Hours — number, precision 2
+> - Actual Materials — currency, precision 2
+> - Actual Disposal Cost — currency, precision 2
+> - Actual Revenue — currency, precision 2
+>
+> *Section 3 — Actual Formulas (ALL MANUAL SETUP):*
+> - Actual Labor Cost — formula: {Actual Labor Hours} * {Labor Rate}
+> - Actual Overhead — formula: {Actual Labor Hours} * {Overhead Rate}
+> - Actual Total Cost — formula: {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Disposal Cost}
+> - Actual Profit — formula: {Actual Revenue} - {Actual Total Cost}
+> - Actual Profit Margin — formula: IF({Actual Revenue}, {Actual Profit} / {Actual Revenue}, BLANK()) — format as percent
+>
+> *Section 4 — Variance Formulas (ALL MANUAL SETUP):*
+> - Labor Hour Variance — formula: {Actual Labor Hours} - {Estimated Labor Hours}
+> - Labor Cost Variance — formula: {Actual Labor Cost} - {Estimated Labor Cost}
+> - Material Variance — formula: {Actual Materials} - {Estimated Materials}
+> - Disposal Variance — formula: {Actual Disposal Cost} - {Disposal Estimated Cost}
+> - Revenue Variance — formula: {Actual Revenue} - {Final Estimated Price}
+> - Profit Variance — formula: {Actual Profit} - {Estimated Profit}
+> - Profit Variance Percent — formula: IF({Estimated Profit}, {Profit Variance} / {Estimated Profit}, BLANK()) — format as percent
+>
+> *Section 5 — Invoice:*
+> - Invoice Amount Override — currency, precision 2
+> - Invoice Notes — long text
+> - Deposit Required — checkbox
+> - Deposit Type — single select: Percentage, Fixed Amount
+> - Deposit Value — currency, precision 2
+> - Deposit Invoice Sent — checkbox
+> - Deposit Collected — checkbox
+> - Ready for Invoice — checkbox
+> - Invoice Sent Date — date
+> - Payment Date — date
+>
+> *Section 6 — Integrations:*
+> - GHL Opportunity ID — single line text
+> - GHL Invoice ID — single line text
+> - Stripe Payment ID — single line text
+> - Stripe Payment Link — url
+> - Slack Channel ID — single line text
+> - Slack Thread ID — single line text
+> - Gusto Project ID — single line text
+> - Divvy Job Tag — single line text
+> - Google Calendar Event ID — single line text
+> - Calendar Sync Status — single line text
+> - Slack Message Sent — checkbox
+>
+> *Section 7 — Admin:*
+> - Estimate Locked — checkbox
+> - Internal Notes — long text
+> - Last Updated Source — single line text
+> - Labor Estimation Method — single line text
+>
+> *Manual setup required for Jobs table (log these clearly):*
+> - Job Number — autonumber
+> - Job ID — formula: "JOB-" & ({Job Number} + 1000) — set as primary field
+> - Client — linked record to Clients table
+> - Client Type Lookup — lookup from Clients.Client Type
+> - Invoice Email Lookup — lookup from Clients.Invoice Email Final
+> - Change Orders — linked record to Change Orders table
+> - Change Order Total — rollup: SUM of Change Orders.Approved Value
+> - Expenses — linked record to Expenses table
+> - Expense Total — rollup: SUM of Expenses.Amount
+> - Invoice Line Items — linked record to Invoice Line Items table
+>
+> ---
+>
+> **TABLE: Invoice Line Items**
+>
+> - Line Item Name — single line text (primary field)
+> - Description — long text
+> - Amount — currency, precision 2
+> - Quantity — number, precision 2
+> - Sort Order — number, precision 0
+> - Line Item Type — single select: Scope Item, Change Order, Deposit, Materials Reimbursement, Labor, Other
+> - Invoice Group — single select: Deposit Invoice, Final Invoice
+> - Include on Invoice — checkbox
+>
+> *Manual setup required for Invoice Line Items (log these clearly):*
+> - Job — linked record to Jobs table
+> - Scope Library Reference — linked record to Scope Library table
+> - Line Item ID — autonumber
+>
+> ---
+>
+> **TABLE: Scope Library**
+>
+> - Scope Name — single line text (primary field)
+> - Default Description — long text
+> - Default Labor Hours — number, precision 2
+> - Default Materials Cost — currency, precision 2
+> - Default Dump Count — number, precision 0
+> - Job Type Applicability — multi-select: Residential, Commercial
+> - Active — checkbox
+>
+> *Manual setup required for Scope Library (log these clearly):*
+> - Jobs — linked record to Jobs table
+>
+> *After creating the Scope Library table, seed it with these records. Set Active = true and Job Type Applicability to both Residential and Commercial unless noted:*
+>
+> 1. Scope Name: Kitchen Demo | Default Description: Remove and haul off all kitchen cabinets, countertops, and backsplash. Ensure proper floor and wall protection throughout. Haul off all debris and dump. | Default Labor Hours: 8 | Default Dump Count: 1
+> 2. Scope Name: Bathroom Demo | Default Description: Full bathroom demolition including tile, fixtures, vanity, and drywall as designated. Ensure proper protection of adjacent areas. Haul off all debris and dump. | Default Labor Hours: 6 | Default Dump Count: 1
+> 3. Scope Name: Full House Gut | Default Description: Complete interior demolition down to studs including flooring, walls, ceilings, trim, and fixtures as designated. Provide dust control and floor protection throughout. Haul off all debris and dump. | Default Labor Hours: 40 | Default Dump Count: 4
+> 4. Scope Name: Flooring Removal | Default Description: Remove existing flooring throughout designated areas. Ensure proper preparation of substrate. Provide dust control and protection of adjacent areas. Haul off all debris and dump. | Default Labor Hours: 6 | Default Dump Count: 1
+> 5. Scope Name: Concrete Demo | Default Description: Break up and remove designated concrete. Haul off all concrete and dump at approved facility. | Default Labor Hours: 8 | Default Dump Count: 2
+> 6. Scope Name: Drywall-Wall Demo | Default Description: Remove drywall and framing in designated areas per plans. Ensure proper dust control and protection of adjacent surfaces. Haul off all debris and dump. | Default Labor Hours: 6 | Default Dump Count: 1
+> 7. Scope Name: Ceiling Demo | Default Description: Remove ceiling material in designated areas. Provide dust control and floor protection throughout. Haul off all debris and dump. | Default Labor Hours: 5 | Default Dump Count: 1
+> 8. Scope Name: Exterior Demo | Default Description: Remove designated exterior materials including siding, stucco, soffit, and fascia as specified. Haul off all debris and dump. | Default Labor Hours: 16 | Default Dump Count: 2
+> 9. Scope Name: Fireplace Demo | Default Description: Demolish designated fireplace and surround. Provide dust control, floor protection, and plastic barriers. Haul off all debris and dump. | Default Labor Hours: 6 | Default Dump Count: 1
+> 10. Scope Name: Stair-Trim Demo | Default Description: Remove stair finishes and trim throughout designated areas. Haul off all debris and dump. | Default Labor Hours: 4 | Default Dump Count: 1
+> 11. Scope Name: Window-Door Removal | Default Description: Remove designated windows and doors. Protect surrounding surfaces. Haul off all debris and dump. | Default Labor Hours: 4 | Default Dump Count: 1
+> 12. Scope Name: Cabinet Removal | Default Description: Remove and save or dispose of cabinets as designated. Ensure proper protection of adjacent surfaces. Haul off all debris and dump. | Default Labor Hours: 4 | Default Dump Count: 1
+> 13. Scope Name: Shed-Structure Removal | Default Description: Demolish and remove designated structure. Haul off all debris and dump. | Default Labor Hours: 6 | Default Dump Count: 1
+> 14. Scope Name: Deck-Patio Removal | Default Description: Remove designated deck or patio structure. Haul off all debris and dump. | Default Labor Hours: 8 | Default Dump Count: 1
+> 15. Scope Name: Pool-Water Feature Demo | Default Description: Demolish and remove designated water feature or pool structure. Haul off all debris and dump at approved facility. | Default Labor Hours: 16 | Default Dump Count: 2
+> 16. Scope Name: Carport Removal | Default Description: Remove designated carport structure. Haul off all debris and dump. | Default Labor Hours: 6 | Default Dump Count: 1
+> 17. Scope Name: Junk Removal-Cleanout | Default Description: Remove all designated junk and debris from property. Haul off and dump at approved facility. | Default Labor Hours: 4 | Default Dump Count: 1
+> 18. Scope Name: Construction Debris Hauling | Default Description: Load and haul off all construction debris from designated areas. Dump at approved facility. | Default Labor Hours: 4 | Default Dump Count: 1
+> 19. Scope Name: Jobsite Cleanup | Default Description: Final broom-clean of all designated interior and exterior areas. Remove remaining debris and haul off. Leave jobsite in clean condition. | Default Labor Hours: 3 | Default Dump Count: 1
+>
+> ---
+>
+> *Please produce: (1) the complete Node.js script, (2) a post-run manual setup checklist organized by table, (3) console output showing every field created, skipped, or flagged for manual setup.*
+
+---
+
+Run that in Claude Code and paste the console output back here. Once the tables are built we'll move into the manual setup checklist together — the linked records and formula fields — and then we'll be ready to start populating the Scope Library and migrating your existing job data.

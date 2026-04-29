@@ -1,0 +1,434 @@
+Here’s a comprehensive prompt you can paste into Claude Code:
+
+```text
+You are helping me build the Airtable backend for a demolition company operations system called Lost Boys Demolition.
+
+The goal is to create an Airtable base that functions as a Job Costing + Pricing Engine + Operations System.
+
+This system needs to track:
+1. Clients
+2. Jobs
+3. Pricing estimates
+4. Actual job costs
+5. Job profitability
+6. Change orders
+7. Expenses
+8. Pricing variables
+9. CRM / invoicing / payment integration IDs
+
+The company uses:
+- Airtable as the operational database / source of truth
+- Fillout for pricing/job creation forms
+- Gusto for labor time tracking
+- Bill/Divvy for job expenses
+- Go High Level for CRM and invoicing
+- Stripe for payments
+- Slack for crew communication
+- Zapier as the automation layer
+
+Important system principle:
+Every job must have a unique Job ID that flows through Airtable, Gusto, Bill/Divvy, GHL, Stripe, Slack, and Zapier.
+
+Please write a script that builds the Airtable base structure described below using Airtable’s API.
+
+Before writing code, inspect the current Airtable API requirements and choose the safest implementation approach. If Airtable’s API does not support creating bases/tables directly with my available API access, then write the script to create/update tables and fields inside an existing Airtable base using a provided AIRTABLE_BASE_ID.
+
+The script should be written in Node.js unless Python is clearly better. Use environment variables for:
+- AIRTABLE_API_KEY
+- AIRTABLE_BASE_ID
+
+The script should be idempotent where possible:
+- If a table already exists, do not duplicate it.
+- If a field already exists, do not duplicate it.
+- If a field cannot be updated safely, log a warning.
+- Provide clear console output showing what was created, skipped, or needs manual setup.
+
+Build the following Airtable schema.
+
+====================================================
+TABLE 1: Clients
+====================================================
+
+Purpose:
+Master record for contractors and homeowners.
+
+Primary field:
+- Client Name
+
+Fields:
+
+Core:
+- Client Name — single line text / primary field
+- Client Type — single select
+  Options:
+  - Contractor
+  - Homeowner
+- Company Name — single line text
+- Contact Name — single line text
+- Email — email
+- Phone — phone number
+- Notes — long text
+
+Address:
+- Address — single line text
+- City — single line text
+- State — single line text
+- Zip — single line text
+
+Billing / Invoicing:
+- Billing Contact Name — single line text
+- Billing Email — email
+- Billing Phone — phone number
+- Billing Notes — long text
+- Invoice Email Final — formula
+
+Formula:
+IF({Billing Email}, {Billing Email}, {Email})
+
+CRM Sync:
+- GHL Contact ID — single line text
+- GHL Company ID — single line text
+
+Rollups from Jobs:
+- Jobs — linked record to Jobs
+- Total Jobs — count of linked Jobs
+- Total Revenue — rollup from Jobs.Actual Revenue using SUM(values)
+- Total Profit — rollup from Jobs.Actual Profit using SUM(values)
+
+====================================================
+TABLE 2: Jobs
+====================================================
+
+Purpose:
+Core operational and financial record. This is the heart of the system.
+
+Primary field:
+- Job ID
+
+Fields:
+
+Section 1 — Job Info:
+- Job ID — autonumber or single line text if autonumber formatting is not possible through API
+  Desired display format: JOB-1001, JOB-1002, etc.
+  If Airtable cannot create formatted autonumber fields by API, create:
+    - Job Number — autonumber
+    - Job ID — formula using "JOB-" & ({Job Number} + 1000)
+- Client — linked record to Clients
+- Client Type Lookup — lookup from Clients.Client Type
+- Invoice Email Lookup — lookup from Clients.Invoice Email Final
+- Engagement Type — single select
+  Options:
+  - Contractor Job
+  - Homeowner Direct
+  - Subcontract Work
+- Job Type — single select
+  Initial options:
+  - Interior Demo
+  - Full Gut
+  - Selective Demo
+  - Concrete Demo
+  - Exterior Demo
+  - Hauling / Disposal
+  - Other
+- Estimator — single select
+  Options:
+  - Dane
+  - Jackson
+- Crew — single select
+  Options:
+  - Crew 1
+  - Crew 2
+  - Crew 3
+  - Crew 4
+  - Jackson
+  - Other
+- Status — single select
+  Options:
+  - Lead / Request
+  - Scheduled
+  - In Progress
+  - Completed
+  - Ready for Invoice
+  - Invoiced
+  - Paid
+  - Cancelled
+- Start Date — date
+- End Date — date
+- Job Address — single line text
+- Scope Notes — long text
+
+Section 2 — Estimate:
+Inputs:
+- Estimated Labor Hours — number, precision 2
+- Labor Rate — currency or number, default desired value 26
+- Overhead Rate — currency or number, default desired value 23
+- Estimated Materials — currency
+- Disposal Charge Revenue — currency, default desired value 300
+- Disposal Estimated Cost — currency
+- Target Margin Percent — percent, default desired value 25%
+- Credit Card Fee Percent — percent, default desired value 3%
+
+Estimate Formulas:
+- Disposal Buffer — formula:
+  {Disposal Charge Revenue} - {Disposal Estimated Cost}
+
+- Estimated Labor Cost — formula:
+  {Estimated Labor Hours} * {Labor Rate}
+
+- Estimated Overhead — formula:
+  {Estimated Labor Hours} * {Overhead Rate}
+
+- Estimated Base Cost — formula:
+  {Estimated Labor Cost} + {Estimated Overhead} + {Estimated Materials} + {Disposal Estimated Cost}
+
+- Price Before Fees — formula:
+  IF({Target Margin Percent}, {Estimated Base Cost} / (1 - {Target Margin Percent}), BLANK())
+
+- Final Estimated Price — formula:
+  IF({Credit Card Fee Percent}, {Price Before Fees} / (1 - {Credit Card Fee Percent}), {Price Before Fees})
+
+- Estimated Profit — formula:
+  {Final Estimated Price} - {Estimated Base Cost}
+
+- Estimated Profit Margin — formula:
+  IF({Final Estimated Price}, {Estimated Profit} / {Final Estimated Price}, BLANK())
+
+Section 3 — Actuals:
+Inputs / synced values:
+- Actual Labor Hours — number, precision 2
+- Actual Materials — currency
+- Actual Disposal Cost — currency
+- Actual Revenue — currency
+
+Actual formulas:
+- Actual Labor Cost — formula:
+  {Actual Labor Hours} * {Labor Rate}
+
+- Actual Overhead — formula:
+  {Actual Labor Hours} * {Overhead Rate}
+
+- Actual Total Cost — formula:
+  {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Disposal Cost}
+
+- Actual Profit — formula:
+  {Actual Revenue} - {Actual Total Cost}
+
+- Actual Profit Margin — formula:
+  IF({Actual Revenue}, {Actual Profit} / {Actual Revenue}, BLANK())
+
+Section 4 — Variance:
+- Labor Hour Variance — formula:
+  {Actual Labor Hours} - {Estimated Labor Hours}
+
+- Labor Cost Variance — formula:
+  {Actual Labor Cost} - {Estimated Labor Cost}
+
+- Material Variance — formula:
+  {Actual Materials} - {Estimated Materials}
+
+- Disposal Variance — formula:
+  {Actual Disposal Cost} - {Disposal Estimated Cost}
+
+- Revenue Variance — formula:
+  {Actual Revenue} - {Final Estimated Price}
+
+- Profit Variance — formula:
+  {Actual Profit} - {Estimated Profit}
+
+- Profit Variance Percent — formula:
+  IF({Estimated Profit}, {Profit Variance} / {Estimated Profit}, BLANK())
+
+Section 5 — Change Orders / Expenses Rollups:
+- Change Orders — linked record to Change Orders
+- Change Order Total — rollup from Change Orders.Approved Value using SUM(values)
+- Expenses — linked record to Expenses
+- Expense Total — rollup from Expenses.Amount using SUM(values)
+
+Section 6 — Integrations:
+- GHL Opportunity ID — single line text
+- GHL Invoice ID — single line text
+- Stripe Payment ID — single line text
+- Stripe Payment Link — url
+- Slack Channel ID — single line text
+- Slack Thread ID — single line text
+- Gusto Project ID — single line text
+- Bill / Divvy Job Tag — single line text
+- Google Calendar Event ID — single line text
+
+Section 7 — Admin:
+- Estimate Locked — checkbox
+- Ready for Invoice — checkbox
+- Invoice Sent Date — date
+- Payment Date — date
+- Internal Notes — long text
+
+====================================================
+TABLE 3: Change Orders
+====================================================
+
+Purpose:
+Capture scope changes, extra work, and recovered revenue.
+
+Primary field:
+- Change Order ID
+
+Fields:
+- Change Order ID — autonumber or formula like "CO-" & autonumber
+- Job — linked record to Jobs
+- Description — long text
+- Source — single select
+  Options:
+  - Slack
+  - Admin
+  - Estimator
+  - Client
+- Estimated Value — currency
+- Approved Value — currency
+- Status — single select
+  Options:
+  - Pending
+  - Approved
+  - Rejected
+  - Invoiced
+- Created Date — created time
+- Approved Date — date
+- Notes — long text
+
+====================================================
+TABLE 4: Expenses
+====================================================
+
+Purpose:
+Track job-level expenses from Bill/Divvy.
+
+Primary field:
+- Expense ID
+
+Fields:
+- Expense ID — autonumber or formula like "EXP-" & autonumber
+- Job — linked record to Jobs
+- Amount — currency
+- Vendor — single line text
+- Date — date
+- Category — single select
+  Options:
+  - Materials
+  - Disposal
+  - Fuel
+  - Equipment Rental
+  - Subcontractor
+  - Other
+- Payment Source — single select
+  Options:
+  - Bill
+  - Divvy
+  - Manual
+- Bill Transaction ID — single line text
+- Receipt URL — url
+- Notes — long text
+
+Rollup behavior:
+Jobs should roll up Expenses.Amount into Expense Total.
+
+====================================================
+TABLE 5: Pricing Variables
+====================================================
+
+Purpose:
+A centralized control panel for pricing assumptions.
+
+Primary field:
+- Variable Name
+
+Fields:
+- Variable Name — single line text
+- Value — number
+- Percent Value — percent
+- Currency Value — currency
+- Description — long text
+- Active — checkbox
+
+Seed the table with these initial records:
+1. Labor Rate
+   Currency Value: 26
+   Description: Blended hourly labor rate based on 2025 hourly payroll spend divided by productive hours. Includes overtime and payroll taxes.
+   Active: true
+
+2. Overhead Rate
+   Currency Value: 23
+   Description: Overhead allocation rate based on 2025 overhead expenses divided by productive hours.
+   Active: true
+
+3. Target Margin Percent
+   Percent Value: 25%
+   Description: Target gross profit margin used for pricing.
+   Active: true
+
+4. Credit Card Fee Percent
+   Percent Value: 3%
+   Description: Estimated card processing fee adjustment.
+   Active: true
+
+5. Default Disposal Charge
+   Currency Value: 300
+   Description: Standard estimated disposal charge per dump/disposal unit.
+   Active: true
+
+====================================================
+IMPORTANT FORMULA / STRUCTURE NOTES
+====================================================
+
+1. Airtable formula field names must exactly match the field names used in formulas.
+2. If Airtable API requires formula syntax to use exact field names with braces, use the names exactly as defined.
+3. For percent fields, confirm whether Airtable API expects 0.25 or 25. Use the correct Airtable API format.
+4. For currency fields, set precision to 2 if supported.
+5. For linked records, create linked fields only after the linked table exists.
+6. If rollup/count fields cannot be created via API easily, log instructions for manual creation.
+7. If default field values cannot be set through API, create the fields and then log the recommended default values.
+8. Preserve the intended table relationships:
+   Clients → Jobs
+   Jobs → Change Orders
+   Jobs → Expenses
+   Jobs uses Pricing Variables conceptually, but not necessarily as a linked table yet.
+
+====================================================
+DELIVERABLES
+====================================================
+
+Please produce:
+
+1. A working script that creates/updates this Airtable schema.
+2. A .env.example file showing required environment variables.
+3. Clear instructions for running the script.
+4. A post-run checklist of any fields that must be manually configured in Airtable if the API does not support them.
+5. Console logs that summarize:
+   - Tables created
+   - Fields created
+   - Fields skipped
+   - Manual setup required
+6. Do not hardcode my API key or base ID.
+7. Use clean, maintainable code with helper functions:
+   - getTables()
+   - createTableIfMissing()
+   - createFieldIfMissing()
+   - seedPricingVariables()
+   - main()
+
+====================================================
+SYSTEM CONTEXT
+====================================================
+
+This Airtable base is the foundation for a larger operations system.
+
+Eventually:
+- Fillout will create new Jobs from pricing estimates.
+- Gusto project hours will update Actual Labor Hours.
+- Bill/Divvy job expenses will create records in Expenses.
+- GHL will create invoices and store Opportunity/Invoice IDs.
+- Stripe will update Actual Revenue and Payment Date.
+- Slack threads will capture job changes and create Change Orders.
+
+The system should be built MVP-first, but clean enough to support automations later.
+
+Please now write the implementation.
+```
