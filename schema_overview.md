@@ -131,12 +131,12 @@ Fillout calculates these in real time during estimating using rates pre-filled f
 | Target Margin Percent | Percent | Fillout input (slider) | Default 25% |
 | Credit Card Fee Percent | Percent | Fillout pre-fill from Pricing Variables | Default 3% |
 | Estimated Materials | Currency | Fillout input | |
-| Disposal Charge Revenue | Currency | Fillout pre-fill from Pricing Variables | Default $300 |
-| Disposal Estimated Cost | Currency | Fillout input | |
+| Dump Fee Revenue | Currency | Fillout pre-fill from Pricing Variables | Default $300 |
+| Estimated Dump Cost | Currency | Fillout input | |
 | Estimated Labor Cost | Currency | Fillout calculated → submitted | Hours × Labor Rate |
 | Estimated Overhead | Currency | Fillout calculated → submitted | Hours × Overhead Rate |
-| Disposal Buffer | Currency | Fillout calculated → submitted | Disposal Revenue - Disposal Cost |
-| Estimated Base Cost | Currency | Fillout calculated → submitted | Labor + Overhead + Materials + Disposal Cost |
+| Dump Fee Buffer | Currency | Fillout calculated → submitted | Dump Fee Revenue - Estimated Dump Cost |
+| Estimated Base Cost | Currency | Fillout calculated → submitted | Labor + Overhead + Materials + Estimated Dump Cost |
 | Price Before Fees | Currency | Fillout calculated → submitted | Base Cost / (1 - Margin %) |
 | Final Estimated Price | Currency | Fillout calculated → submitted | Price Before Fees / (1 - CC Fee %) |
 | Estimated Profit | Currency | Fillout calculated → submitted | Final Price - Base Cost |
@@ -153,7 +153,7 @@ Airtable formula fields calculate cost and margin automatically once actuals are
 |---|---|---|---|
 | Actual Labor Hours | Number | Gusto → Zapier → Airtable | Populated after payroll run |
 | Actual Materials | Currency | Divvy → Zapier → Airtable | Job-tagged Divvy transactions |
-| Actual Disposal Cost | Currency | Divvy → Zapier → Airtable | Disposal-tagged Divvy transactions |
+| Actual Dump Cost | Currency | Divvy → Zapier → Airtable | Dump-tagged Divvy transactions |
 | Actual Revenue | Currency | Manual or GHL/Stripe webhook | Invoice amount paid |
 
 **Actual Formula Fields — Airtable calculates automatically (manual setup required):**
@@ -162,7 +162,7 @@ Airtable formula fields calculate cost and margin automatically once actuals are
 |---|---|
 | Actual Labor Cost | {Actual Labor Hours} * {Labor Rate} |
 | Actual Overhead | {Actual Labor Hours} * {Overhead Rate} |
-| Actual Total Cost | {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Disposal Cost} |
+| Actual Total Cost | {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Dump Cost} |
 | Actual Profit | {Actual Revenue} - {Actual Total Cost} |
 | Actual Profit Margin | IF({Actual Revenue}, {Actual Profit} / {Actual Revenue}, BLANK()) — format as Percent |
 
@@ -178,7 +178,7 @@ Most valuable fields in the system: show whether estimates are accurate over tim
 | Labor Hour Variance | {Actual Labor Hours} - {Estimated Labor Hours} |
 | Labor Cost Variance | {Actual Labor Cost} - {Estimated Labor Cost} |
 | Material Variance | {Actual Materials} - {Estimated Materials} |
-| Disposal Variance | {Actual Disposal Cost} - {Disposal Estimated Cost} |
+| Dump Fee Variance | {Actual Dump Cost} - {Estimated Dump Cost} |
 | Revenue Variance | {Actual Revenue} - {Final Estimated Price} |
 | Profit Variance | {Actual Profit} - {Estimated Profit} |
 | Profit Variance Percent | IF({Estimated Profit}, {Profit Variance} / {Estimated Profit}, BLANK()) — format as Percent |
@@ -298,7 +298,7 @@ Most valuable fields in the system: show whether estimates are accurate over tim
 | Overhead Rate | $23/hr | Quarterly — verify against P&L |
 | Target Margin Percent | 25% | As needed |
 | Credit Card Fee Percent | 3% | As needed |
-| Default Disposal Charge | $300 | As needed |
+| Dump Fee | $300 | As needed |
 
 ---
 
@@ -415,7 +415,7 @@ Complete in this exact order:
 ### Round 4 — Actual Formula Fields (enter in this order)
 - [ ] Actual Labor Cost → {Actual Labor Hours} * {Labor Rate}
 - [ ] Actual Overhead → {Actual Labor Hours} * {Overhead Rate}
-- [ ] Actual Total Cost → {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Disposal Cost}
+- [ ] Actual Total Cost → {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Dump Cost}
 - [ ] Actual Profit → {Actual Revenue} - {Actual Total Cost}
 - [ ] Actual Profit Margin → IF({Actual Revenue}, {Actual Profit} / {Actual Revenue}, BLANK()) — format as Percent
 
@@ -423,7 +423,7 @@ Complete in this exact order:
 - [ ] Labor Hour Variance → {Actual Labor Hours} - {Estimated Labor Hours}
 - [ ] Labor Cost Variance → {Actual Labor Cost} - {Estimated Labor Cost}
 - [ ] Material Variance → {Actual Materials} - {Estimated Materials}
-- [ ] Disposal Variance → {Actual Disposal Cost} - {Disposal Estimated Cost}
+- [ ] Dump Fee Variance → {Actual Dump Cost} - {Estimated Dump Cost}
 - [ ] Revenue Variance → {Actual Revenue} - {Final Estimated Price}
 - [ ] Profit Variance → {Actual Profit} - {Estimated Profit}
 - [ ] Profit Variance Percent → IF({Estimated Profit}, {Profit Variance} / {Estimated Profit}, BLANK()) — format as Percent
@@ -438,7 +438,7 @@ Complete in this exact order:
 ### Round 7 — Default Values
 - [ ] Jobs → Labor Rate: default $26
 - [ ] Jobs → Overhead Rate: default $23
-- [ ] Jobs → Disposal Charge Revenue: default $300
+- [ ] Jobs → Dump Fee Revenue: default $300
 - [ ] Jobs → Target Margin Percent: default 25%
 - [ ] Jobs → Credit Card Fee Percent: default 3%
 - [ ] Invoice Line Items → Quantity: default 1
@@ -456,7 +456,7 @@ Complete in this exact order:
 
 **Rename:** Any Other Details → Scope Notes
 
-**Configure pre-fill:** Labor Rate, Overhead Rate, CC Fee %, Default Disposal Charge pulled from Pricing Variables table
+**Configure pre-fill:** Labor Rate, Overhead Rate, CC Fee %, Dump Fee pulled from Pricing Variables table
 
 **Field mapping updates to new Airtable field names:**
 
@@ -464,7 +464,7 @@ Complete in this exact order:
 |---|---|
 | Direct Labor Costs Estimate | Estimated Labor Cost |
 | Other Job Specific Costs Estimate | Estimated Materials |
-| Dump Fees Estimate | Disposal Estimated Cost |
+| Dump Fee Estimate | Estimated Dump Cost |
 | Total Direct Costs | Estimated Base Cost |
 | Overhead Allocation | Estimated Overhead |
 | Total Bid Amount | Final Estimated Price |
@@ -480,7 +480,7 @@ Complete in this exact order:
 | Overhead Rate | $23/hr | Review quarterly against P&L |
 | Target Gross Margin | 25% | Minimum floor |
 | Credit Card Fee | 3% | Stripe processing estimate |
-| Typical Dump Fee | $300/load | Update Disposal Estimated Cost per job |
+| Typical Dump Fee | $300/load | Update Estimated Dump Cost per job |
 
 ---
 
