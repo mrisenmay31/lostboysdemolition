@@ -1,0 +1,3007 @@
+{
+  "auditedAt": "2026-04-29T22:16:56.167Z",
+  "baseId": "apptzp0IclCaAtOk2",
+  "tableCount": 9,
+  "tables": [
+    {
+      "id": "tbl6WcLuLL0uUcpI1",
+      "name": "Jobs",
+      "primaryFieldId": "fldNrP1Z8Ngcsyarz",
+      "fields": [
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "\"JOB-\" & ({fld1ZeDoChO0h9QXO} + 1000)",
+            "referencedFieldIds": [
+              "fld1ZeDoChO0h9QXO"
+            ],
+            "result": {
+              "type": "singleLineText"
+            }
+          },
+          "id": "fldNrP1Z8Ngcsyarz",
+          "name": "Job ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldbKNw609rqD97Gi",
+          "name": "Job Name"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldSmr1YCORDoagb6",
+          "name": "Job Address"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tblSJkwDdupKzsst7",
+            "isReversed": false,
+            "prefersSingleRecordLink": true,
+            "inverseLinkFieldId": "fldQvLnbflwL0cAgU"
+          },
+          "id": "fldzu6hA8zr9Hjbfz",
+          "name": "Client"
+        },
+        {
+          "type": "multipleLookupValues",
+          "options": {
+            "isValid": true,
+            "recordLinkFieldId": "fldzu6hA8zr9Hjbfz",
+            "fieldIdInLinkedTable": "fldJoDlrTMUu99YQw",
+            "result": {
+              "type": "singleSelect",
+              "options": {
+                "choices": [
+                  {
+                    "id": "seloaR8Psz2c4g9IL",
+                    "name": "Contractor",
+                    "color": "grayLight2"
+                  },
+                  {
+                    "id": "seltknoNkr9BxNUJv",
+                    "name": "Homeowner",
+                    "color": "grayLight2"
+                  }
+                ]
+              }
+            }
+          },
+          "id": "fldEezZCIVesZ2glm",
+          "name": "Client Type Lookup"
+        },
+        {
+          "type": "multipleLookupValues",
+          "options": {
+            "isValid": true,
+            "recordLinkFieldId": "fldzu6hA8zr9Hjbfz",
+            "fieldIdInLinkedTable": "fldk2oESou2GSongH",
+            "result": {
+              "type": "email"
+            }
+          },
+          "id": "fldpvpTIld3zjT0xD",
+          "name": "Invoice Email Lookup"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tblJX8j98yVIczHbH",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldM7CDXMErjd7MFB"
+          },
+          "id": "fldCYWaMoFRoixXUg",
+          "name": "Change Orders"
+        },
+        {
+          "type": "rollup",
+          "options": {
+            "isValid": true,
+            "recordLinkFieldId": "fldCYWaMoFRoixXUg",
+            "fieldIdInLinkedTable": "fldBAPo5JCmPpdA1k",
+            "referencedFieldIds": [],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldXnAh09OArpfzuE",
+          "name": "Change Order Total"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tbl15dxzhB1kvDeB3",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldBpgyo0rL6QTt1z"
+          },
+          "id": "fldynj4KuybEk5pOM",
+          "name": "Expenses"
+        },
+        {
+          "type": "rollup",
+          "options": {
+            "isValid": true,
+            "recordLinkFieldId": "fldynj4KuybEk5pOM",
+            "fieldIdInLinkedTable": "fldyen5XEoGy24kZZ",
+            "referencedFieldIds": [],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldbBbnBhCFmp7nf8",
+          "name": "Expense Total"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tblTwK8K0HkyluBec",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldh9U7Gxh2kYMmqN"
+          },
+          "id": "fldD6xumylrVQEVMo",
+          "name": "Invoice Line Items"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fld6Wxf2aFXLi8FEg} * {fldduPjuhcSKbubdn}",
+            "referencedFieldIds": [
+              "fld6Wxf2aFXLi8FEg",
+              "fldduPjuhcSKbubdn"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldBLRg32QxBVNBRr",
+          "name": "Estimated Labor Cost"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fld6Wxf2aFXLi8FEg} * {flddTODdKQqqiKpMc}",
+            "referencedFieldIds": [
+              "fld6Wxf2aFXLi8FEg",
+              "flddTODdKQqqiKpMc"
+            ],
+            "result": {
+              "type": "number",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fldaSPS0tZmSsd8zQ",
+          "name": "Estimated Overhead"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldDnuvr2hnB8CNFw} - {fldkk0jYAocHCeWIX}",
+            "referencedFieldIds": [
+              "fldDnuvr2hnB8CNFw",
+              "fldkk0jYAocHCeWIX"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldyYV2BBMmr4gnPh",
+          "name": "Disposal Buffer"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldBLRg32QxBVNBRr} + {fldaSPS0tZmSsd8zQ} + {fldSNQL1aibTvwwP9} + {fldkk0jYAocHCeWIX}",
+            "referencedFieldIds": [
+              "fldBLRg32QxBVNBRr",
+              "fldaSPS0tZmSsd8zQ",
+              "fldSNQL1aibTvwwP9",
+              "fldkk0jYAocHCeWIX"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldTYmcsu1iJkVVso",
+          "name": "Estimated Base Cost"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "IF({fldekpmkIHPX0cITe}, {fldTYmcsu1iJkVVso}/(1-{fldekpmkIHPX0cITe}), BLANK())",
+            "referencedFieldIds": [
+              "fldekpmkIHPX0cITe",
+              "fldTYmcsu1iJkVVso"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldu3h9YcDCvqqhEg",
+          "name": "Price Before Fees"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "IF({fldPXyYOx526AqT8k}, {fldu3h9YcDCvqqhEg}/(1 - {fldPXyYOx526AqT8k}), {fldu3h9YcDCvqqhEg})",
+            "referencedFieldIds": [
+              "fldPXyYOx526AqT8k",
+              "fldu3h9YcDCvqqhEg"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldO4T2ChPZgL2kCZ",
+          "name": "Final Estimated Price"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldO4T2ChPZgL2kCZ} - {fldTYmcsu1iJkVVso}",
+            "referencedFieldIds": [
+              "fldO4T2ChPZgL2kCZ",
+              "fldTYmcsu1iJkVVso"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fld8qD8jNqeUyA4PQ",
+          "name": "Estimated Profit"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "IF({fldO4T2ChPZgL2kCZ}, {fld8qD8jNqeUyA4PQ} /{fldO4T2ChPZgL2kCZ}, BLANK())",
+            "referencedFieldIds": [
+              "fldO4T2ChPZgL2kCZ",
+              "fld8qD8jNqeUyA4PQ"
+            ],
+            "result": {
+              "type": "percent",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fldSdB3JalBor1Phy",
+          "name": "Estimated Profit Margin"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldDeKExrSrn6X3dQ} * {fldduPjuhcSKbubdn} ",
+            "referencedFieldIds": [
+              "fldDeKExrSrn6X3dQ",
+              "fldduPjuhcSKbubdn"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldFyiFhm49t3MXdT",
+          "name": "Actual Labor Cost"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldDeKExrSrn6X3dQ} * {flddTODdKQqqiKpMc}    ",
+            "referencedFieldIds": [
+              "fldDeKExrSrn6X3dQ",
+              "flddTODdKQqqiKpMc"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldfXKp5YWrE1iM9c",
+          "name": "Actual Overhead"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldFyiFhm49t3MXdT} + {fldfXKp5YWrE1iM9c} + {fldQK98TyWVa59QWP} + {fldCnGqmhZYY8rrgg} ",
+            "referencedFieldIds": [
+              "fldFyiFhm49t3MXdT",
+              "fldfXKp5YWrE1iM9c",
+              "fldQK98TyWVa59QWP",
+              "fldCnGqmhZYY8rrgg"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldvg49s1MZ4wCgho",
+          "name": "Actual Total Cost"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldeJ9XvNLieNWbw3} - {fldvg49s1MZ4wCgho} ",
+            "referencedFieldIds": [
+              "fldeJ9XvNLieNWbw3",
+              "fldvg49s1MZ4wCgho"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fld7NypVfitMQdagi",
+          "name": "Actual Profit  "
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "IF({fldeJ9XvNLieNWbw3}, {fld7NypVfitMQdagi} / {fldeJ9XvNLieNWbw3}, BLANK())",
+            "referencedFieldIds": [
+              "fldeJ9XvNLieNWbw3",
+              "fld7NypVfitMQdagi"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldRbbaLSTIwlC0XM",
+          "name": " Actual Profit Margin"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldDeKExrSrn6X3dQ} - {fld6Wxf2aFXLi8FEg}",
+            "referencedFieldIds": [
+              "fldDeKExrSrn6X3dQ",
+              "fld6Wxf2aFXLi8FEg"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldbPKLQY0eCj4onI",
+          "name": "Labor Hour Variance"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldFyiFhm49t3MXdT} - {fldBLRg32QxBVNBRr} ",
+            "referencedFieldIds": [
+              "fldFyiFhm49t3MXdT",
+              "fldBLRg32QxBVNBRr"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fld5pKKhsSHP5eQVT",
+          "name": "Labor Cost "
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldQK98TyWVa59QWP} - {fldSNQL1aibTvwwP9} ",
+            "referencedFieldIds": [
+              "fldQK98TyWVa59QWP",
+              "fldSNQL1aibTvwwP9"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldbigYzITty2z0hm",
+          "name": "Material Variance"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldCnGqmhZYY8rrgg} - {fldkk0jYAocHCeWIX}",
+            "referencedFieldIds": [
+              "fldCnGqmhZYY8rrgg",
+              "fldkk0jYAocHCeWIX"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldOqhv5fqo0KhOh9",
+          "name": "Disposal Variance"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldeJ9XvNLieNWbw3} - {fldO4T2ChPZgL2kCZ} ",
+            "referencedFieldIds": [
+              "fldeJ9XvNLieNWbw3",
+              "fldO4T2ChPZgL2kCZ"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fld5FnWhKc2yF2JWg",
+          "name": "Revenue Variance"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fld7NypVfitMQdagi} - {fld8qD8jNqeUyA4PQ}",
+            "referencedFieldIds": [
+              "fld7NypVfitMQdagi",
+              "fld8qD8jNqeUyA4PQ"
+            ],
+            "result": {
+              "type": "currency",
+              "options": {
+                "precision": 2,
+                "symbol": "$"
+              }
+            }
+          },
+          "id": "fldf0GNlgclpqDJH4",
+          "name": "Profit Variance"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "IF({fld8qD8jNqeUyA4PQ}, {fldf0GNlgclpqDJH4} / {fld8qD8jNqeUyA4PQ}, BLANK())",
+            "referencedFieldIds": [
+              "fld8qD8jNqeUyA4PQ",
+              "fldf0GNlgclpqDJH4"
+            ],
+            "result": {
+              "type": "percent",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fldLwi23yweD53wAL",
+          "name": "Profit Variance Percent"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selKNPpM1P3TTVu3U",
+                "name": "Contractor Job",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seltcVC7auSDdPGUw",
+                "name": "Homeowner Direct",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel0AnIZ0nglHRnD9",
+                "name": "Subcontract Work",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldheJRxYQ4CsBNSg",
+          "name": "Engagement Type"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selLKQPn0cHYSnLAH",
+                "name": "Residential",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seli0Y0jwg4FRJMqo",
+                "name": "Commercial",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldc1zsXLZTY9fBQm",
+          "name": "Job Type"
+        },
+        {
+          "type": "multipleSelects",
+          "options": {
+            "choices": [
+              {
+                "id": "selraUJs2ieRK89PS",
+                "name": "Kitchen Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selAk9EcCKwtq0tnU",
+                "name": "Bathroom Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selbKnBbKJSKPB2tn",
+                "name": "Full House Gut",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selQasL8AyAHtlOWq",
+                "name": "Flooring Removal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selSKNceUHFV6pYrI",
+                "name": "Concrete Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sele6bIZSJYTjFl6q",
+                "name": "Drywall-Wall Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selNcaZmMzrsaAAXI",
+                "name": "Ceiling Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seledDGc5bIKgd0HC",
+                "name": "Exterior Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seljK8UzV3hlZOKIK",
+                "name": "Fireplace Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selfqnMmukF8lRLvA",
+                "name": "Stair-Trim Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selwmfw6w28c642Eb",
+                "name": "Window-Door Removal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selazsdWSNGzkbSVh",
+                "name": "Cabinet Removal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel5RyszUXtpynRU3",
+                "name": "Shed-Structure Removal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel7G91JzDBTj1OJD",
+                "name": "Deck-Patio Removal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selDNXaT84BX2gukR",
+                "name": "Pool-Water Feature Demo",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selbuhsJ3VN3cl3eI",
+                "name": "Carport Removal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seljTVDMS947O4ype",
+                "name": "Junk Removal-Cleanout",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selzWJ9CW0iiq9G0C",
+                "name": "Construction Debris Hauling",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selgbMo8uxFdDWpmS",
+                "name": "Jobsite Cleanup",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fld86pwp6U60w1EoM",
+          "name": "Job Scope"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "seluzm7QfsXuqSOxQ",
+                "name": "Dane",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selvlg5RYGLuHKt7y",
+                "name": "Jackson",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldyyF2DeUFX15sXx",
+          "name": "Estimator"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "seltTubcjPbB61L8U",
+                "name": "Crew 1",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selFFMREh8sD6rAym",
+                "name": "Crew 2",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selhXznedyXhkQw9N",
+                "name": "Crew 3",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selcVjJ6iJM23tCet",
+                "name": "Crew 4",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selsLOLgt4phjDwMC",
+                "name": "Jackson",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selS19qYUlFTZQxps",
+                "name": "Other",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldkP651iKPZMQ9pe",
+          "name": "Crew"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selAqPFeQUP3gJdb3",
+                "name": "Lead-Request",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selaBCgPmwo8NGFcQ",
+                "name": "Scheduled",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selYAGsdT4ce06S7e",
+                "name": "In Progress",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel3KYuLFEOBEtlxG",
+                "name": "Completed",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selhMBBPDAUExXaAc",
+                "name": "Ready for Invoice",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selfGjiVH0RAAn10P",
+                "name": "Invoiced",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selbHJJfh2xx9z9Yf",
+                "name": "Paid",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sele3H3y8zZ29sBRr",
+                "name": "Cancelled",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldoASoygIp8FpYsd",
+          "name": "Status"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldOnf1hrnhJNFuRL",
+          "name": "Start Date"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldI6lw2qIwgbYE6G",
+          "name": "End Date"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fld5ROFJNTb36WixD",
+          "name": "Job Start Time"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld7XO87Pwpin5VqC",
+          "name": "Scope Notes"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldNAas92Qh0Pmo2V",
+          "name": "Days at Job"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldxKf9n3wCn8WQMJ",
+          "name": "Number of Employees"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fld4heXFFQioYoUhs",
+          "name": "Total Number of Dumps"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 2
+          },
+          "id": "fld6Wxf2aFXLi8FEg",
+          "name": "Estimated Labor Hours"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldduPjuhcSKbubdn",
+          "name": "Labor Rate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "flddTODdKQqqiKpMc",
+          "name": "Overhead Rate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldSNQL1aibTvwwP9",
+          "name": "Estimated Materials"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldDnuvr2hnB8CNFw",
+          "name": "Disposal Charge Revenue"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldkk0jYAocHCeWIX",
+          "name": "Disposal Estimated Cost"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldekpmkIHPX0cITe",
+          "name": "Target Margin Percent"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldPXyYOx526AqT8k",
+          "name": "Credit Card Fee Percent"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldDeKExrSrn6X3dQ",
+          "name": "Actual Labor Hours"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldQK98TyWVa59QWP",
+          "name": "Actual Materials"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldCnGqmhZYY8rrgg",
+          "name": "Actual Disposal Cost"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldeJ9XvNLieNWbw3",
+          "name": "Actual Revenue"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldcQtMmSTGv9vNw3",
+          "name": "Invoice Amount Override"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldpMa3sJUkbBVrS2",
+          "name": "Invoice Notes"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fld9keD4aTrmWEtpS",
+          "name": "Deposit Required"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selh5H3Xwq17QKYeP",
+                "name": "Percentage",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selAGUEk84MumCEsF",
+                "name": "Fixed Amount",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldS1cM5RI3kazVAT",
+          "name": "Deposit Type"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldyovnzUGCqTRrLw",
+          "name": "Deposit Value"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldBTl2DmY34ahAXV",
+          "name": "Deposit Invoice Sent"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldUWWX5AsrLiwkVh",
+          "name": "Deposit Collected"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "flds670XLkxXjLTcB",
+          "name": "Ready for Invoice"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fld7gTBKmYPADRuee",
+          "name": "Invoice Sent Date"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldzPmGZ1WKlpNbVd",
+          "name": "Payment Date"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldc2Od8JX3Se1gJN",
+          "name": "GHL Opportunity ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fld3STJeRlbHT4FFQ",
+          "name": "GHL Invoice ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldZstsmLeeJeNK1h",
+          "name": "Stripe Payment ID"
+        },
+        {
+          "type": "url",
+          "id": "fldGBnl6IQ2YxEAF2",
+          "name": "Stripe Payment Link"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fld1yn9ibxRCeL5jc",
+          "name": "Slack Channel ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldx53z9OUTiVxPoO",
+          "name": "Slack Thread ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldzc7nxwVhtiKiCb",
+          "name": "Gusto Project ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldUIWrncF0auNeYc",
+          "name": "Divvy Job Tag"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldry3k8ZNGGbm1aJ",
+          "name": "Google Calendar Event ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldlbTRJtPAKIDr7l",
+          "name": "Calendar Sync Status"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldP7q2DrTh7m9p69",
+          "name": "Slack Message Sent"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fld9vsdMI84WHUJdp",
+          "name": "Estimate Locked"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldoAPSD2HBZmCLEa",
+          "name": "Internal Notes"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldNcEHHtlEubnvNH",
+          "name": "Last Updated Source"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldh6ysXATbwDGOlI",
+          "name": "Labor Estimation Method"
+        },
+        {
+          "type": "autoNumber",
+          "id": "fld1ZeDoChO0h9QXO",
+          "name": "Job Number"
+        }
+      ],
+      "views": [
+        {
+          "id": "viw3eB5oy8DTJ0M1i",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tblXr4V0W78g5pOYs",
+      "name": "Estimates",
+      "primaryFieldId": "fld71SWSicItAre2f",
+      "fields": [
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldzt6kPZTsokAeJK} + 1000",
+            "referencedFieldIds": [
+              "fldzt6kPZTsokAeJK"
+            ],
+            "result": {
+              "type": "number",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fld71SWSicItAre2f",
+          "name": "﻿Estimate ID"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "RECORD_ID()",
+            "referencedFieldIds": [],
+            "result": {
+              "type": "singleLineText"
+            }
+          },
+          "id": "fldpbVUgYhoMmonN5",
+          "name": "Calculation"
+        },
+        {
+          "type": "autoNumber",
+          "id": "fldzt6kPZTsokAeJK",
+          "name": "Estimate ID (Autonumber)"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selbs3SYyePs0Yhq0",
+                "name": "Draft",
+                "color": "blueLight2"
+              }
+            ]
+          },
+          "id": "fldQHzOxTdfXwCyCI",
+          "name": "Estimate Status"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "us",
+              "format": "M/D/YYYY"
+            }
+          },
+          "id": "fldB7Q6gHKZuTDMho",
+          "name": "Estimate Date"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldpVl5oQMrcoyenc",
+          "name": "Job Name"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selc4OduNWK20v8jC",
+                "name": "Contractor",
+                "color": "blueLight2"
+              },
+              {
+                "id": "sel4FgCCyaYni4YMa",
+                "name": "Homeowner",
+                "color": "cyanLight2"
+              },
+              {
+                "id": "selzo0P9g1fGkF3Yc",
+                "name": "",
+                "color": "tealLight2"
+              }
+            ]
+          },
+          "id": "fldBQvI5YlpwqNlsd",
+          "name": "Client Type"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldy6sJhsNdhqKW8Z",
+          "name": "Name of Client"
+        },
+        {
+          "type": "phoneNumber",
+          "id": "fldRYQkj9EHf8r3xt",
+          "name": "Client Phone Number"
+        },
+        {
+          "type": "email",
+          "id": "fld4V0tZmekr1JgxO",
+          "name": "Client Email"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "us",
+              "format": "M/D/YYYY"
+            }
+          },
+          "id": "fldl3zNw4LY5tzwFE",
+          "name": "Start Date (if known)"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldwPmN2plJera3Rd",
+          "name": "Job Address"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selw1cPgJ1kOEDQBU",
+                "name": "Residential",
+                "color": "blueLight2"
+              },
+              {
+                "id": "selfGIZnsMuqnuwho",
+                "name": "Commercial",
+                "color": "tealLight1"
+              }
+            ]
+          },
+          "id": "fld9RuNPxuqhTZgB6",
+          "name": "Job Type"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selaB5MSGd5SBWIEP",
+                "name": "Total Job Hours",
+                "color": "blueLight2"
+              },
+              {
+                "id": "selmFJ7NQbOOzKJrv",
+                "name": "Days at job/Number of Employees",
+                "color": "cyanLight2"
+              }
+            ]
+          },
+          "id": "fld5l2WCKZmoJarGT",
+          "name": "Labor Estimation Method"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldskXybexHVXZuhJ",
+          "name": "Days at job"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldIvIK8cphAGxjFA",
+          "name": "Number of employees"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldp4FNplbTIOdGs8",
+          "name": "Total Job Hours"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fld3h36mVJskHFmqA",
+          "name": "Total number of dumps"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldcgBPco3f32VOwj",
+          "name": "Job Specific Costs"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldu4zVn8znuCeOP7",
+          "name": "Job Details"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 0
+          },
+          "id": "flds6O5AOYKBOIoOn",
+          "name": "Profit Percentage input"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{flds6O5AOYKBOIoOn} / 100",
+            "referencedFieldIds": [
+              "flds6O5AOYKBOIoOn"
+            ],
+            "result": {
+              "type": "percent",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fldfKbZXcBy7ssUUp",
+          "name": "Profit Percentage"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldpPzkp19RB6B8mJ",
+          "name": "Direct Labor Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldjdbZwnCo033Jsb",
+          "name": "Dump Fee Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldyVruifwTkHf6xO",
+          "name": "Job Supplies/Direct Job Costs Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldHtQ271JdHZcEcQ",
+          "name": "Total Direct Costs Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldkYpafnAksnXekG",
+          "name": "Overhead Allocation Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldl7Y5QayL2OAe4g",
+          "name": "Profit Margin Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldTB65MSlTK3wmCg",
+          "name": "Credit Card Processing Fee Estimate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldabSUp1FHVuc1Rk",
+          "name": "Total Estimated Revenue"
+        }
+      ],
+      "views": [
+        {
+          "id": "viwasa1DwEhv6SI8e",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tblSJkwDdupKzsst7",
+      "name": "Clients",
+      "primaryFieldId": "fldyIBidorXegZFHf",
+      "fields": [
+        {
+          "type": "singleLineText",
+          "id": "fldyIBidorXegZFHf",
+          "name": "Client Name"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "seloaR8Psz2c4g9IL",
+                "name": "Contractor",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seltknoNkr9BxNUJv",
+                "name": "Homeowner",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldJoDlrTMUu99YQw",
+          "name": "Client Type"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldxc5LB2eKwEuSTX",
+          "name": "Company Name"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldI5frhZxRY16DgS",
+          "name": "Contact Name"
+        },
+        {
+          "type": "email",
+          "id": "fldMVOoOV9TRdUAyC",
+          "name": "Email"
+        },
+        {
+          "type": "phoneNumber",
+          "id": "fldzROwSsF7IoYYqN",
+          "name": "Phone"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldQx6TD9FQOfbb9v",
+          "name": "Notes"
+        },
+        {
+          "type": "singleLineText",
+          "id": "flduZxnUCTtHJA7rX",
+          "name": "Address"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldzZjHtd0GjGva2L",
+          "name": "City"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldtQwUkBuMYQU2Eq",
+          "name": "State"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldtTY6m3aAvi2CX6",
+          "name": "Zip"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldOORbLGt8nQCunl",
+          "name": "Billing Contact Name"
+        },
+        {
+          "type": "email",
+          "id": "fldk2oESou2GSongH",
+          "name": "Billing Email"
+        },
+        {
+          "type": "phoneNumber",
+          "id": "fldJakPFiE8AzMQcB",
+          "name": "Billing Phone"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldfJE8vg31D22MPo",
+          "name": "Billing Notes"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldC4zAieX10BVacc",
+          "name": "GHL Contact ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldd3U0I423OVOJER",
+          "name": "GHL Company ID"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tblUXBjLXbvP8FqYS",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldeUsh0WjNqfmccw"
+          },
+          "id": "fldefnvFlGeJSUeFx",
+          "name": "Jobs"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tbl6WcLuLL0uUcpI1",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldzu6hA8zr9Hjbfz"
+          },
+          "id": "fldQvLnbflwL0cAgU",
+          "name": "Jobs 2"
+        }
+      ],
+      "views": [
+        {
+          "id": "viweivIwypuuXFQr4",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tblvWpyPs5vrssG9A",
+      "name": "Pricing Variables",
+      "primaryFieldId": "fldhc9Owp7oLSYSjY",
+      "fields": [
+        {
+          "type": "singleLineText",
+          "id": "fldhc9Owp7oLSYSjY",
+          "name": "Variable Name"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 4
+          },
+          "id": "fldyM8IRLMa8X0yIm",
+          "name": "Value"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldP1WfcqjBGkGK8A",
+          "name": "Percent Value"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldxLPiltsxHnS8Gp",
+          "name": "Currency Value"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldqbSYKZExcumDSK",
+          "name": "Description"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldXrpxUT0hvsDxja",
+          "name": "Active"
+        }
+      ],
+      "views": [
+        {
+          "id": "viw2h28nludIMUS29",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tblJX8j98yVIczHbH",
+      "name": "Change Orders",
+      "primaryFieldId": "fldSINqn2MUpSB1Bi",
+      "fields": [
+        {
+          "type": "singleLineText",
+          "id": "fldSINqn2MUpSB1Bi",
+          "name": "Change Order ID"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldiDubv2qyzbGfa2",
+          "name": "Description"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selnZIpQoRihPsGZk",
+                "name": "Slack",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selnSLHgsAo3hgUQl",
+                "name": "Admin",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selYrZ6NUTKyW8ffW",
+                "name": "Estimator",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selsGFodl4yi4slpv",
+                "name": "Client",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldLrelllJoIJzzt1",
+          "name": "Source"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldotcB5R8kOEG34t",
+          "name": "Estimated Value"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldBAPo5JCmPpdA1k",
+          "name": "Approved Value"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "seluqd7poRgAPtgtQ",
+                "name": "Pending",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel39kyw8GhZkZrKv",
+                "name": "Approved",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel5slOzXJrJlLJDd",
+                "name": "Rejected",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selClMGun6966nLxG",
+                "name": "Invoiced",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fld5SgyGerF6LS7HY",
+          "name": "Status"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldzFynVgNILjioPT",
+          "name": "Approved Date"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldguvuB9IyprWxx4",
+          "name": "Notes"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tbl6WcLuLL0uUcpI1",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldCYWaMoFRoixXUg"
+          },
+          "id": "fldM7CDXMErjd7MFB",
+          "name": "Jobs"
+        }
+      ],
+      "views": [
+        {
+          "id": "viwHfFfNJDP1c97B1",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tbl15dxzhB1kvDeB3",
+      "name": "Expenses",
+      "primaryFieldId": "fldbsMhbAIA4jNHue",
+      "fields": [
+        {
+          "type": "singleLineText",
+          "id": "fldbsMhbAIA4jNHue",
+          "name": "Expense ID"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldyen5XEoGy24kZZ",
+          "name": "Amount"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldNYeSiCGnCHQJ7R",
+          "name": "Vendor"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldULnh3GtffHEBZa",
+          "name": "Date"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "seliObjJ1JWHTrQWv",
+                "name": "Materials",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selzX1JqIR8QMucxz",
+                "name": "Disposal",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selbLggSI3RDQ8QTe",
+                "name": "Fuel",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel6jdMRgiOTdCrEA",
+                "name": "Equipment Rental",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel1lAVb0L8OXR37F",
+                "name": "Subcontractor",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selCqENGTzVp34pXP",
+                "name": "Other",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldB4pytvPvgtnhW2",
+          "name": "Category"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selrDM8f9QBu8I2f5",
+                "name": "Bill",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selWhnlTwqet261rE",
+                "name": "Divvy",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selqaH3WeGuX3wmEB",
+                "name": "Manual",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldIMZXvaWkiOPfm9",
+          "name": "Payment Source"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldSuw5feEiWikUBC",
+          "name": "Bill Transaction ID"
+        },
+        {
+          "type": "url",
+          "id": "fldIuoLYAuFbGN73f",
+          "name": "Receipt URL"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld8mTJdmRozVgacs",
+          "name": "Notes"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tbl6WcLuLL0uUcpI1",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldynj4KuybEk5pOM"
+          },
+          "id": "fldBpgyo0rL6QTt1z",
+          "name": "Jobs"
+        }
+      ],
+      "views": [
+        {
+          "id": "viwizdPbgwFLCGUos",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tblTwK8K0HkyluBec",
+      "name": "Invoice Line Items",
+      "primaryFieldId": "fldva3wLkKqJD7t7r",
+      "fields": [
+        {
+          "type": "singleLineText",
+          "id": "fldva3wLkKqJD7t7r",
+          "name": "Line Item Name"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldWGM7wIVac7rxEy",
+          "name": "Description"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldR0cBZlSC25CXhq",
+          "name": "Amount"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldLP3TR2pveYKFOc",
+          "name": "Quantity"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fld5kCTH3LByLIFT8",
+          "name": "Sort Order"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "seliXSHmwkMIThvSp",
+                "name": "Scope Item",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selhQIqie1PHjkSFA",
+                "name": "Change Order",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seleGyu5wixx9OgLq",
+                "name": "Deposit",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selKT9P2mDBny2u2U",
+                "name": "Materials Reimbursement",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selDNsNEnceUVw7QO",
+                "name": "Labor",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selE8yS3tFnc7fpge",
+                "name": "Other",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldeMLnMr5bIXQOv0",
+          "name": "Line Item Type"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selHGS7FCbcr7QXcr",
+                "name": "Deposit Invoice",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selX6jEO2JkHz3RgJ",
+                "name": "Final Invoice",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fld1iM8eUqjOmjE17",
+          "name": "Invoice Group"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldBo2XaZZHFIzJT5",
+          "name": "Include on Invoice"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tbl6WcLuLL0uUcpI1",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldD6xumylrVQEVMo"
+          },
+          "id": "fldh9U7Gxh2kYMmqN",
+          "name": "Jobs"
+        }
+      ],
+      "views": [
+        {
+          "id": "viwRP9OxLGQpQRKJQ",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tbl4DPmtzvJSdOEhU",
+      "name": "Scope Library",
+      "primaryFieldId": "fldEDjmz5ckHkHkY1",
+      "fields": [
+        {
+          "type": "singleLineText",
+          "id": "fldEDjmz5ckHkHkY1",
+          "name": "Scope Name"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldWaO74ehLc6xGzn",
+          "name": "Default Description"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldi3iWiDwFRcuuzZ",
+          "name": "Default Labor Hours"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldZ3xdKZPYC410oq",
+          "name": "Default Materials Cost"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldOCLfiy4krhEmm8",
+          "name": "Default Dump Count"
+        },
+        {
+          "type": "multipleSelects",
+          "options": {
+            "choices": [
+              {
+                "id": "sel7YcVEcHN8HB0yC",
+                "name": "Residential",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel6eMPpzYRjqEyCa",
+                "name": "Commercial",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldQhXZo9osGhAPMX",
+          "name": "Job Type Applicability"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldUCqY45njx9pR0a",
+          "name": "Active"
+        }
+      ],
+      "views": [
+        {
+          "id": "viwE4wQO22uzhcP0q",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    },
+    {
+      "id": "tblUXBjLXbvP8FqYS",
+      "name": "Jobs (old)",
+      "primaryFieldId": "fldSm9onI5sX3OGiL",
+      "fields": [
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fld9yMdqqaKaqzBMt} + 1000",
+            "referencedFieldIds": [
+              "fld9yMdqqaKaqzBMt"
+            ],
+            "result": {
+              "type": "number",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fldSm9onI5sX3OGiL",
+          "name": "Job Number"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldva1H10xVZagknW",
+          "name": "Job Name"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldxFS9ffIIsi2UCE",
+          "name": "Job Address"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "sel0pkwhEGaWhFzJF",
+                "name": "Contractor",
+                "color": "cyanLight2"
+              },
+              {
+                "id": "selCDgUGvc3nHwWrk",
+                "name": "Homeowner",
+                "color": "tealLight2"
+              }
+            ]
+          },
+          "id": "fldvIKR07mYD66DKR",
+          "name": "Client Type"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldcqJWkHnvHxhnMc",
+          "name": "Name of Client"
+        },
+        {
+          "type": "email",
+          "id": "fldHhs8WDrXpBf7UH",
+          "name": "Client Email Address"
+        },
+        {
+          "type": "phoneNumber",
+          "id": "fld1EtrI4rJP7P6VW",
+          "name": "Client Phone Number"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selJtcc0Iczu0xuAz",
+                "name": "Nick (Crew 1)",
+                "color": "yellowBright"
+              },
+              {
+                "id": "sello7BvgSCETihMI",
+                "name": "Alex (Crew 2)",
+                "color": "blueBright"
+              },
+              {
+                "id": "selChprKfJUMVm8lv",
+                "name": "Brady (Crew 3)",
+                "color": "yellowLight1"
+              },
+              {
+                "id": "selUZomI2SHEx2kur",
+                "name": "Cade (Crew 4)",
+                "color": "redBright"
+              }
+            ]
+          },
+          "id": "fldWICBPj4IB8dASy",
+          "name": "Crew"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selJBx7EXkiPmWJP1",
+                "name": "Residential",
+                "color": "cyanLight2"
+              },
+              {
+                "id": "sel8JordzzWi01l4C",
+                "name": "Commercial",
+                "color": "tealLight2"
+              }
+            ]
+          },
+          "id": "fldk3iRHpDudj4uho",
+          "name": "Job Type"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "iso",
+              "format": "YYYY-MM-DD"
+            }
+          },
+          "id": "flddMtXYvwY9XKXMH",
+          "name": "Job Start Date"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldljppcRDKJ2ptye",
+          "name": "Job Start Time"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "iso",
+              "format": "YYYY-MM-DD"
+            }
+          },
+          "id": "fldUu4MoPgXSndtD1",
+          "name": "Job Completion Date"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldMCegBOqDcx46Gt",
+          "name": "Job Completion Date (Actual)"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldqHg2506rGiwnwp",
+          "name": "Estimated Revenue"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldR9nOYl7VdfYgiz",
+          "name": "Job Notes"
+        },
+        {
+          "type": "lastModifiedTime",
+          "options": {
+            "isValid": true,
+            "referencedFieldIds": [],
+            "result": {
+              "type": "dateTime",
+              "options": {
+                "dateFormat": {
+                  "name": "local",
+                  "format": "l"
+                },
+                "timeFormat": {
+                  "name": "12hour",
+                  "format": "h:mma"
+                },
+                "timeZone": "client"
+              }
+            }
+          },
+          "id": "fldm1QC8gq9TLyUVm",
+          "name": "Last Modified Time"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selcA5sdAKQrCHHPS",
+                "name": "Scheduled",
+                "color": "blueLight2"
+              },
+              {
+                "id": "sel0q1xKFoxe41shq",
+                "name": "Completed",
+                "color": "cyanLight2"
+              },
+              {
+                "id": "selmW4Swd2QtGSlVm",
+                "name": "",
+                "color": "tealLight2"
+              }
+            ]
+          },
+          "id": "fldhQkVCm3YvbcW1k",
+          "name": "Job Status"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldudiEiJUsT5fQvY",
+          "name": "Calendar Event ID"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selbFShvklARdacVD",
+                "name": "",
+                "color": "blueLight2"
+              },
+              {
+                "id": "selhcwQnKLpr5ph9f",
+                "name": "Created",
+                "color": "cyanLight2"
+              }
+            ]
+          },
+          "id": "fldn0B1qOeN5Ox81p",
+          "name": "Calendar Sync Status"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldXwyEMm2GceSQkU",
+          "name": "Slack Message Sent?"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "sel26XGZEgH829t0z",
+                "name": "",
+                "color": "blueLight2"
+              },
+              {
+                "id": "selyh7lCYOFZqSUl5",
+                "name": "Calendar",
+                "color": "cyanLight2"
+              },
+              {
+                "id": "selHo1yNmy7cvIf1h",
+                "name": "Airtable",
+                "color": "tealLight2"
+              }
+            ]
+          },
+          "id": "fldBcINlCQdPdJUUf",
+          "name": "Last Updated Source"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "sel7GsHx2Cmjx2E10",
+                "name": "Days at job/Number of Employees",
+                "color": "cyanLight2"
+              },
+              {
+                "id": "selmLcD3Yj97Oy5jr",
+                "name": "Total Job Hours",
+                "color": "tealLight2"
+              }
+            ]
+          },
+          "id": "fldV71pE4SgU502Pq",
+          "name": "Labor Estimation Method"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldDbblIvaa3YwduS",
+          "name": "Days at job"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldVb5rEv3MB02uIE",
+          "name": "Number of employees"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldDEhbEloZvSOkbe",
+          "name": "Total Job Hours (Estimated)"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldp9CWZzaCKSpKcQ",
+          "name": "Total number of dumps (Estimated)"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldx2YswwaS77mLfQ",
+          "name": "Job Specific Costs"
+        },
+        {
+          "type": "formula",
+          "options": {
+            "isValid": true,
+            "formula": "{fldUtb3aV585iqD6c} / 100",
+            "referencedFieldIds": [
+              "fldUtb3aV585iqD6c"
+            ],
+            "result": {
+              "type": "percent",
+              "options": {
+                "precision": 0
+              }
+            }
+          },
+          "id": "fldcrLMOFxbz9HwUk",
+          "name": "Profit Percentage"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldLu516xSLApp0wF",
+          "name": "Direct Labor Costs"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldhRIYSj38qyFj9C",
+          "name": "Other Direct Costs"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldBuTCWfRbzjwjpi",
+          "name": "Estimated Dump Fees"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldBF8GO7Xhk7DOOB",
+          "name": "Total Direct Costs"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldxE3U27pXWOb5lk",
+          "name": "Overhead Allocation"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fld6Tgnwqs8U62dPn",
+          "name": "Credit Card Fee"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldO5NUg5qjmI4Lnj",
+          "name": "Profit Margin"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldzZuHucXiLxJaGz",
+          "name": "Labor Hours (Actual)"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldSyaWOoX6zJ2btl",
+          "name": "Labor Costs (Actual)"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldvxyL1K0Rzx7U9D",
+          "name": "Other Direct Costs (Actual)"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldeNRXFgw0k07pVF",
+          "name": "Line Item 1"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldZpdGUDjPFYiZiH",
+          "name": "Line Item 1 Description"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldlqxlDlkwzSYXpX",
+          "name": "Line Item 1 Price"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldbAYfp5klRLNWOk",
+          "name": "Line Item 2"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld8IlnH5OahQK6Ar",
+          "name": "Line Item 2 Description"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld1yr8WBkEudw8Ld",
+          "name": "Line Item 2 Price"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldA8pNI0tPceIAAr",
+          "name": "Line Item 3"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld4zirPkvmEsSY92",
+          "name": "Line Item 3 Description"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld9Q33zgzQh0hCKl",
+          "name": "Line Item 3 Price"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldS5dVO5KrVDAqzU",
+          "name": "Line Item 4"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldOqv0AqnGkax0Xi",
+          "name": "Line Item 4 Description"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld3zOdVYHbmOr88i",
+          "name": "Line Item 4 Price"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldvbzXXSpYGzEe6Q",
+          "name": "Line Item 5"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldQD9i2k7tviSaJk",
+          "name": "Line Item 5 Description"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldL8k3Lmv2bR0yGp",
+          "name": "Line Item 5 Price"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldW3T2AW5R6qKBIq",
+          "name": "Invoice Amount"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld1Q4COuoh9ujCR6",
+          "name": "Stripe Invoice ID"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldXTr08bJ9LaZl9i",
+          "name": "Stripe Customer ID"
+        },
+        {
+          "type": "autoNumber",
+          "id": "fld9yMdqqaKaqzBMt",
+          "name": "Sequence"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 0
+          },
+          "id": "fldUtb3aV585iqD6c",
+          "name": "Profit Percentage (from Fillout)"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selqY0uMuZhgwnAwa",
+                "name": "Contractor Job",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selScDLgZmdbwatbn",
+                "name": "Homeowner Direct",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selrXSJXiG04iBTsi",
+                "name": "Subcontract Work",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fld4LGZbCYzHiCNtd",
+          "name": "Engagement Type"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selYStGj6VDGELYON",
+                "name": "Dane",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selo7eIfP3PI1QCSj",
+                "name": "Jackson",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "fldjJCGmyGbma38mH",
+          "name": "Estimator"
+        },
+        {
+          "type": "singleSelect",
+          "options": {
+            "choices": [
+              {
+                "id": "selsTPTAIsfyljxWs",
+                "name": "Lead / Request",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selwJ0nKo5Lrrhpfm",
+                "name": "Scheduled",
+                "color": "grayLight2"
+              },
+              {
+                "id": "selPvBxs1qHzdeKYs",
+                "name": "In Progress",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel6P752RTlqtrl8L",
+                "name": "Completed",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel3anpJIvJE5IKlB",
+                "name": "Ready for Invoice",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel15pjptMqiD4ZLf",
+                "name": "Invoiced",
+                "color": "grayLight2"
+              },
+              {
+                "id": "sel5OCAXYlKTk60d3",
+                "name": "Paid",
+                "color": "grayLight2"
+              },
+              {
+                "id": "seld5nlWkakysQRyh",
+                "name": "Cancelled",
+                "color": "grayLight2"
+              }
+            ]
+          },
+          "id": "flds2WG0v2hElNILu",
+          "name": "Status"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldYMjQr3WhZx3tIv",
+          "name": "Start Date"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldbljXhn4hHzyrih",
+          "name": "End Date"
+        },
+        {
+          "type": "multilineText",
+          "id": "fldnb8TIzJIZc84SX",
+          "name": "Scope Notes"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldeOdABeHYn2SNPX",
+          "name": "Estimated Labor Hours"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldntDvsVQAHMtpaI",
+          "name": "Labor Rate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldSDuIcaIo3P1jXL",
+          "name": "Overhead Rate"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fld4E5GaOHOHLCJ9g",
+          "name": "Estimated Materials"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldfs5h7CzoEnIBHE",
+          "name": "Disposal Charge Revenue"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldtc8fKA8AUMHUCA",
+          "name": "Disposal Estimated Cost"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 2
+          },
+          "id": "fldSY6G5fBMjnRdej",
+          "name": "Target Margin Percent"
+        },
+        {
+          "type": "percent",
+          "options": {
+            "precision": 2
+          },
+          "id": "fld3x628W6aHyq0ku",
+          "name": "Credit Card Fee Percent"
+        },
+        {
+          "type": "number",
+          "options": {
+            "precision": 2
+          },
+          "id": "fld1k8WJx1DwNOmWX",
+          "name": "Actual Labor Hours"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldW5kceRfggjUkMI",
+          "name": "Actual Materials"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldNO7YoqjLYUzM2P",
+          "name": "Actual Disposal Cost"
+        },
+        {
+          "type": "currency",
+          "options": {
+            "precision": 2,
+            "symbol": "$"
+          },
+          "id": "fldCStRgf16IenvdZ",
+          "name": "Actual Revenue"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldr45zfpZG0nPch0",
+          "name": "GHL Opportunity ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "flde0v2xqJlo1am1s",
+          "name": "GHL Invoice ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fld2JZmP1PH3xuqhY",
+          "name": "Stripe Payment ID"
+        },
+        {
+          "type": "url",
+          "id": "fldASzKogipanaDSA",
+          "name": "Stripe Payment Link"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldeuZeIoPkcz8CR8",
+          "name": "Slack Channel ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldhWCJZnUadrAipQ",
+          "name": "Slack Thread ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldIiuFDlKla7cTYz",
+          "name": "Gusto Project ID"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldk2C0MzkJcWjtdq",
+          "name": "Bill / Divvy Job Tag"
+        },
+        {
+          "type": "singleLineText",
+          "id": "fldgotLCP8bUKewcj",
+          "name": "Google Calendar Event ID"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldbLurxmtbeI7D4q",
+          "name": "Estimate Locked"
+        },
+        {
+          "type": "checkbox",
+          "options": {
+            "icon": "check",
+            "color": "greenBright"
+          },
+          "id": "fldX5B1YXl06q1TAv",
+          "name": "Ready for Invoice"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fld6JGBLKAtZP3ULZ",
+          "name": "Invoice Sent Date"
+        },
+        {
+          "type": "date",
+          "options": {
+            "dateFormat": {
+              "name": "local",
+              "format": "l"
+            }
+          },
+          "id": "fldGg3plfmQzJSSeB",
+          "name": "Payment Date"
+        },
+        {
+          "type": "multilineText",
+          "id": "fld2vsVabpfTsIdKW",
+          "name": "Internal Notes"
+        },
+        {
+          "type": "multipleRecordLinks",
+          "options": {
+            "linkedTableId": "tblSJkwDdupKzsst7",
+            "isReversed": false,
+            "prefersSingleRecordLink": false,
+            "inverseLinkFieldId": "fldefnvFlGeJSUeFx"
+          },
+          "id": "fldeUsh0WjNqfmccw",
+          "name": "Clients"
+        }
+      ],
+      "views": [
+        {
+          "id": "viwCaty10vhOyNvcN",
+          "name": "Grid view",
+          "type": "grid"
+        }
+      ]
+    }
+  ]
+}
