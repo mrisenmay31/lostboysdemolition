@@ -1,8 +1,27 @@
 # Lost Boys Demolition — Airtable System Schema Overview
 
-**Last Updated:** April 29, 2026  
-**System Purpose:** Job Costing + Pricing Engine + Operations Management  
+**Last Updated:** April 29, 2026
+**System Purpose:** Job Costing + Pricing Engine + Operations Management
 **Base:** Lost Boys Demolition (Airtable)
+
+---
+
+## ARCHITECTURE DECISION — CALCULATION OWNERSHIP
+
+This is a critical design principle. Understanding where calculations live prevents duplicate logic and maintenance problems.
+
+| Layer | Owns | How |
+|---|---|---|
+| **Fillout** | Estimate calculations | Live preview for estimator, submits final numbers to Airtable |
+| **Airtable** | Stores estimate outputs | Plain currency/percent fields — receives Fillout's submitted values, no formula |
+| **Airtable** | Actual cost calculations | Formula fields — calculated post-job as Gusto hours and Divvy expenses sync in |
+| **Airtable** | Variance calculations | Formula fields — compares estimate vs. actual automatically |
+
+**Why this matters:**
+- Fillout uses pre-fill from the Pricing Variables table to pull Labor Rate and Overhead Rate dynamically — no dual maintenance of rates
+- Estimators get live calculation preview in Fillout before submitting
+- Airtable actuals and variances calculate automatically as job data flows in from Gusto and Divvy
+- A system estimators actually use beats a theoretically perfect system they ignore
 
 ---
 
@@ -11,11 +30,11 @@
 | Tool | Role |
 |---|---|
 | Airtable | Operational database / source of truth |
-| Fillout | Job intake and pricing forms |
-| Gusto | Payroll and labor time tracking |
-| Divvy | Job expense tracking (field cards) |
+| Fillout | Job intake form — estimate calculations and job creation |
+| Gusto | Payroll and labor time tracking — populates Actual Labor Hours |
+| Divvy | Job expense tracking — populates Expenses table |
 | GoHighLevel (GHL) | CRM, proposals, and invoicing |
-| Stripe | Payment processing |
+| Stripe | Payment processing (via GHL) |
 | Slack | Crew communication and scheduling |
 | Zapier | Automation layer connecting all systems |
 | Google Calendar | Job scheduling |
@@ -38,7 +57,7 @@
 
 ## Table 1: Clients
 
-**Purpose:** Master record for all contractors and homeowners.  
+**Purpose:** Master record for all contractors and homeowners.
 **Primary Field:** Client Name
 
 | Field | Type | Notes |
@@ -58,34 +77,34 @@
 | Billing Email | Email | |
 | Billing Phone | Phone Number | |
 | Billing Notes | Long Text | |
-| Invoice Email Final | Formula | IF({Billing Email}, {Billing Email}, {Email}) |
+| Invoice Email Final | Formula | IF({Billing Email}, {Billing Email}, {Email}) — manual setup |
 | GHL Contact ID | Single Line Text | |
 | GHL Company ID | Single Line Text | |
-| Jobs | Linked Record → Jobs | |
-| Total Jobs | Count | Count of linked Jobs |
-| Total Revenue | Rollup | SUM of Jobs.Actual Revenue |
-| Total Profit | Rollup | SUM of Jobs.Actual Profit |
+| Jobs | Linked Record → Jobs | Auto-created when Jobs.Client link is added |
+| Total Jobs | Count | Count of linked Jobs — manual setup |
+| Total Revenue | Rollup | SUM of Jobs.Actual Revenue — manual setup |
+| Total Profit | Rollup | SUM of Jobs.Actual Profit — manual setup |
 
 ---
 
 ## Table 2: Jobs
 
-**Purpose:** Core operational and financial record for every job.  
+**Purpose:** Core operational and financial record for every job.
 **Primary Field:** Job ID (Formula: "JOB-" & ({Job Number} + 1000))
 
 ### Section 1 — Job Info
 
 | Field | Type | Notes |
 |---|---|---|
-| Job Number | Autonumber | Required for Job ID formula |
-| Job ID | Formula | "JOB-" & ({Job Number} + 1000) — Primary field |
+| Job Number | Autonumber | Manual setup |
+| Job ID | Formula | "JOB-" & ({Job Number} + 1000) — Primary field — manual setup |
 | Job Name | Single Line Text | |
-| Client | Linked Record → Clients | |
-| Client Type Lookup | Lookup | From Clients.Client Type |
-| Invoice Email Lookup | Lookup | From Clients.Invoice Email Final |
+| Client | Linked Record → Clients | Manual setup — single record |
+| Client Type Lookup | Lookup | From Clients.Client Type — manual setup |
+| Invoice Email Lookup | Lookup | From Clients.Invoice Email Final — manual setup |
 | Engagement Type | Single Select | Contractor Job / Homeowner Direct / Subcontract Work |
 | Job Type | Single Select | Residential / Commercial |
-| Job Scope | Multi-Select | See full options below |
+| Job Scope | Multi-Select | 19 options — see Scope Library table |
 | Estimator | Single Select | Dane / Jackson |
 | Crew | Single Select | Crew 1 / Crew 2 / Crew 3 / Crew 4 / Jackson / Other |
 | Status | Single Select | Lead-Request / Scheduled / In Progress / Completed / Ready for Invoice / Invoiced / Paid / Cancelled |
@@ -97,63 +116,47 @@
 | Number of Employees | Number | Used in labor estimation |
 | Total Number of Dumps | Number | Important for disposal modeling |
 
-**Job Scope Multi-Select Options:**
-- Kitchen Demo
-- Bathroom Demo
-- Full House Gut
-- Flooring Removal
-- Concrete Demo
-- Drywall-Wall Demo
-- Ceiling Demo
-- Exterior Demo
-- Fireplace Demo
-- Stair-Trim Demo
-- Window-Door Removal
-- Cabinet Removal
-- Shed-Structure Removal
-- Deck-Patio Removal
-- Pool-Water Feature Demo
-- Carport Removal
-- Junk Removal-Cleanout
-- Construction Debris Hauling
-- Jobsite Cleanup
+---
 
-### Section 2 — Estimate Inputs
+### Section 2 — Estimate Fields
 
-| Field | Type | Default | Notes |
+**These are plain fields — NOT formulas.**
+Fillout calculates these in real time during estimating using rates pre-filled from Pricing Variables. The final values are submitted to Airtable and stored as static inputs. No Airtable formula needed.
+
+| Field | Type | Source | Notes |
 |---|---|---|---|
-| Estimated Labor Hours | Number | — | |
-| Labor Rate | Currency | $26 | Set manually in field settings |
-| Overhead Rate | Currency | $23 | Set manually in field settings |
-| Estimated Materials | Currency | — | |
-| Disposal Charge Revenue | Currency | $300 | Set manually in field settings |
-| Disposal Estimated Cost | Currency | — | |
-| Target Margin Percent | Percent | 25% | Set manually in field settings |
-| Credit Card Fee Percent | Percent | 3% | Set manually in field settings |
+| Estimated Labor Hours | Number | Fillout input | Raw estimator input |
+| Labor Rate | Currency | Fillout pre-fill from Pricing Variables | Default $26 |
+| Overhead Rate | Currency | Fillout pre-fill from Pricing Variables | Default $23 |
+| Target Margin Percent | Percent | Fillout input (slider) | Default 25% |
+| Credit Card Fee Percent | Percent | Fillout pre-fill from Pricing Variables | Default 3% |
+| Estimated Materials | Currency | Fillout input | |
+| Disposal Charge Revenue | Currency | Fillout pre-fill from Pricing Variables | Default $300 |
+| Disposal Estimated Cost | Currency | Fillout input | |
+| Estimated Labor Cost | Currency | Fillout calculated → submitted | Hours × Labor Rate |
+| Estimated Overhead | Currency | Fillout calculated → submitted | Hours × Overhead Rate |
+| Disposal Buffer | Currency | Fillout calculated → submitted | Disposal Revenue - Disposal Cost |
+| Estimated Base Cost | Currency | Fillout calculated → submitted | Labor + Overhead + Materials + Disposal Cost |
+| Price Before Fees | Currency | Fillout calculated → submitted | Base Cost / (1 - Margin %) |
+| Final Estimated Price | Currency | Fillout calculated → submitted | Price Before Fees / (1 - CC Fee %) |
+| Estimated Profit | Currency | Fillout calculated → submitted | Final Price - Base Cost |
+| Estimated Profit Margin | Percent | Fillout calculated → submitted | Profit / Final Price |
 
-### Section 2 — Estimate Formulas (Manual Setup in Airtable UI)
-
-| Field | Formula |
-|---|---|
-| Estimated Labor Cost | {Estimated Labor Hours} * {Labor Rate} |
-| Estimated Overhead | {Estimated Labor Hours} * {Overhead Rate} |
-| Disposal Buffer | {Disposal Charge Revenue} - {Disposal Estimated Cost} |
-| Estimated Base Cost | {Estimated Labor Cost} + {Estimated Overhead} + {Estimated Materials} + {Disposal Estimated Cost} |
-| Price Before Fees | IF({Target Margin Percent}, {Estimated Base Cost} / (1 - {Target Margin Percent}), BLANK()) |
-| Final Estimated Price | IF({Credit Card Fee Percent}, {Price Before Fees} / (1 - {Credit Card Fee Percent}), {Price Before Fees}) |
-| Estimated Profit | {Final Estimated Price} - {Estimated Base Cost} |
-| Estimated Profit Margin | IF({Final Estimated Price}, {Estimated Profit} / {Final Estimated Price}, BLANK()) — format as Percent |
+---
 
 ### Section 3 — Actuals
 
-| Field | Type | Notes |
-|---|---|---|
-| Actual Labor Hours | Number | |
-| Actual Materials | Currency | |
-| Actual Disposal Cost | Currency | |
-| Actual Revenue | Currency | |
+**Actual inputs populated post-job from Gusto and Divvy via Zapier.**
+Airtable formula fields calculate cost and margin automatically once actuals are populated.
 
-### Section 3 — Actual Formulas (Manual Setup in Airtable UI)
+| Field | Type | Source | Notes |
+|---|---|---|---|
+| Actual Labor Hours | Number | Gusto → Zapier → Airtable | Populated after payroll run |
+| Actual Materials | Currency | Divvy → Zapier → Airtable | Job-tagged Divvy transactions |
+| Actual Disposal Cost | Currency | Divvy → Zapier → Airtable | Disposal-tagged Divvy transactions |
+| Actual Revenue | Currency | Manual or GHL/Stripe webhook | Invoice amount paid |
+
+**Actual Formula Fields — Airtable calculates automatically (manual setup required):**
 
 | Field | Formula |
 |---|---|
@@ -163,7 +166,12 @@
 | Actual Profit | {Actual Revenue} - {Actual Total Cost} |
 | Actual Profit Margin | IF({Actual Revenue}, {Actual Profit} / {Actual Revenue}, BLANK()) — format as Percent |
 
-### Section 4 — Variance Formulas (Manual Setup in Airtable UI)
+---
+
+### Section 4 — Variance Formula Fields
+
+**Airtable calculates all of these automatically — no manual entry ever required.**
+Most valuable fields in the system: show whether estimates are accurate over time and drive continuous improvement in pricing.
 
 | Field | Formula |
 |---|---|
@@ -175,30 +183,32 @@
 | Profit Variance | {Actual Profit} - {Estimated Profit} |
 | Profit Variance Percent | IF({Estimated Profit}, {Profit Variance} / {Estimated Profit}, BLANK()) — format as Percent |
 
+---
+
 ### Section 5 — Invoice
 
 | Field | Type | Notes |
 |---|---|---|
-| Invoice Amount Override | Currency | Manual override of Final Estimated Price — used for Path B jobs and post-estimate adjustments |
-| Invoice Notes | Long Text | Internal notes visible before sending |
+| Invoice Amount Override | Currency | Manual override — Path B jobs and post-estimate adjustments |
+| Invoice Notes | Long Text | Internal notes before sending |
 | Deposit Required | Checkbox | |
 | Deposit Type | Single Select | Percentage / Fixed Amount |
-| Deposit Value | Currency | Dollar amount or percent value depending on Deposit Type |
+| Deposit Value | Currency | |
 | Deposit Invoice Sent | Checkbox | |
 | Deposit Collected | Checkbox | |
-| Ready for Invoice | Checkbox | Zapier trigger — do not check until invoice is reviewed and approved |
+| Ready for Invoice | Checkbox | Zapier trigger — do not check until reviewed and approved |
 | Invoice Sent Date | Date | |
 | Payment Date | Date | |
-| Invoice Line Items | Linked Record → Invoice Line Items | |
+| Invoice Line Items | Linked Record → Invoice Line Items | Manual setup |
 
 ### Section 6 — Change Orders and Expenses
 
 | Field | Type | Notes |
 |---|---|---|
-| Change Orders | Linked Record → Change Orders | |
-| Change Order Total | Rollup | SUM of Change Orders.Approved Value |
-| Expenses | Linked Record → Expenses | |
-| Expense Total | Rollup | SUM of Expenses.Amount |
+| Change Orders | Linked Record → Change Orders | Manual setup |
+| Change Order Total | Rollup | SUM of Change Orders.Approved Value — manual setup |
+| Expenses | Linked Record → Expenses | Manual setup |
+| Expense Total | Rollup | SUM of Expenses.Amount — manual setup |
 
 ### Section 7 — Integrations
 
@@ -210,39 +220,38 @@
 | Stripe Payment Link | URL | |
 | Slack Channel ID | Single Line Text | |
 | Slack Thread ID | Single Line Text | |
-| Gusto Project ID | Single Line Text | |
-| Divvy Job Tag | Single Line Text | |
+| Gusto Project ID | Single Line Text | Required for Gusto → Actual Labor Hours sync |
+| Divvy Job Tag | Single Line Text | Required for Divvy → Expenses sync |
 | Google Calendar Event ID | Single Line Text | |
-| Calendar Sync Status | Single Line Text | Zapier dependent |
-| Slack Message Sent | Checkbox | Zapier dependent |
+| Calendar Sync Status | Single Line Text | |
+| Slack Message Sent | Checkbox | |
 
 ### Section 8 — Admin
 
 | Field | Type | Notes |
 |---|---|---|
-| Estimate Locked | Checkbox | Lock estimate inputs once job is approved |
+| Estimate Locked | Checkbox | Lock estimate inputs once job approved |
 | Internal Notes | Long Text | |
-| Last Updated Source | Single Line Text | Audit trail |
-| Labor Estimation Method | Single Line Text | Keep during migration — remove later |
+| Last Updated Source | Single Line Text | |
+| Labor Estimation Method | Single Line Text | Keep during migration |
 
 ---
 
 ## Table 3: Change Orders
 
-**Purpose:** Capture scope changes, extra work, and recovered revenue.  
-**Primary Field:** Change Order ID (Formula: "CO-" & autonumber)
+**Purpose:** Capture scope changes, extra work, and recovered revenue.
 
 | Field | Type | Notes |
 |---|---|---|
-| Change Order ID | Formula | "CO-" & autonumber — Primary field |
-| Job | Linked Record → Jobs | |
+| Change Order ID | Formula | "CO-" & autonumber — manual setup |
+| Job | Linked Record → Jobs | Manual setup |
 | Description | Long Text | |
 | Source | Single Select | Slack / Admin / Estimator / Client |
 | Estimated Value | Currency | |
 | Approved Value | Currency | |
 | Status | Single Select | Pending / Approved / Rejected / Invoiced |
 | Invoice Behavior | Single Select | Add to Final Invoice / Separate Invoice |
-| Created Date | Created Time | |
+| Created Date | Created Time | Manual setup |
 | Approved Date | Date | |
 | Notes | Long Text | |
 
@@ -250,13 +259,12 @@
 
 ## Table 4: Expenses
 
-**Purpose:** Track all job-level expenses from Divvy and manual entries.  
-**Primary Field:** Expense ID (Formula: "EXP-" & autonumber)
+**Purpose:** Track all job-level expenses. Populated primarily via Divvy → Zapier → Airtable.
 
 | Field | Type | Notes |
 |---|---|---|
-| Expense ID | Formula | "EXP-" & autonumber — Primary field |
-| Job | Linked Record → Jobs | |
+| Expense ID | Formula | "EXP-" & autonumber — manual setup |
+| Job | Linked Record → Jobs | Manual setup |
 | Amount | Currency | |
 | Vendor | Single Line Text | |
 | Date | Date | |
@@ -270,8 +278,7 @@
 
 ## Table 5: Pricing Variables
 
-**Purpose:** Centralized control panel for all pricing assumptions. Update here to affect all job estimates.  
-**Primary Field:** Variable Name
+**Purpose:** Centralized rate control. Fillout pre-fills from this table — rates only need to be maintained in one place.
 
 | Field | Type | Notes |
 |---|---|---|
@@ -281,58 +288,56 @@
 | Currency Value | Currency | |
 | Description | Long Text | |
 | Active | Checkbox | |
-| Last Updated | Date | Audit trail for rate changes |
+| Last Updated | Date | Update whenever rates change |
 
 **Seeded Records:**
 
-| Variable Name | Value | Notes |
+| Variable | Value | Review Frequency |
 |---|---|---|
-| Labor Rate | $26 | Blended hourly rate including payroll taxes. Review quarterly. |
-| Overhead Rate | $23 | Overhead allocation per productive hour. Review quarterly. |
-| Target Margin Percent | 25% | Target gross profit margin for pricing. |
-| Credit Card Fee Percent | 3% | Estimated card processing fee adjustment. |
-| Default Disposal Charge | $300 | Standard estimated disposal charge per dump unit. |
+| Labor Rate | $26/hr | Quarterly — verify against Gusto actuals |
+| Overhead Rate | $23/hr | Quarterly — verify against P&L |
+| Target Margin Percent | 25% | As needed |
+| Credit Card Fee Percent | 3% | As needed |
+| Default Disposal Charge | $300 | As needed |
 
 ---
 
 ## Table 6: Invoice Line Items
 
-**Purpose:** Individual line items that compose each invoice. Auto-generated from Job Scope selections and Scope Library, fully editable before sending.  
-**Primary Field:** Line Item Name
+**Purpose:** Individual line items composing each invoice. Auto-generated from Job Scope + Scope Library, fully editable before sending.
 
 | Field | Type | Notes |
 |---|---|---|
-| Line Item Name | Single Line Text | Primary field — auto-populated from Job Scope |
-| Job | Linked Record → Jobs | |
-| Scope Library Reference | Linked Record → Scope Library | Tracks which template was used |
+| Line Item Name | Single Line Text | Primary — auto-populated from Job Scope |
+| Job | Linked Record → Jobs | Manual setup |
+| Scope Library Reference | Linked Record → Scope Library | Manual setup |
 | Description | Long Text | Auto-generated from Scope Library default, fully editable |
 | Amount | Currency | Pre-filled from estimate, overrideable |
 | Quantity | Number | Default 1 |
 | Sort Order | Number | Controls display order on invoice |
 | Line Item Type | Single Select | Scope Item / Change Order / Deposit / Materials Reimbursement / Labor / Other |
 | Invoice Group | Single Select | Deposit Invoice / Final Invoice |
-| Include on Invoice | Checkbox | Default checked — uncheck to exclude from invoice |
-| Line Item ID | Autonumber | |
+| Include on Invoice | Checkbox | Default checked |
+| Line Item ID | Autonumber | Manual setup |
 
 ---
 
 ## Table 7: Scope Library
 
-**Purpose:** Master library of scope types with default descriptions and estimate inputs. Drives Invoice Line Item auto-generation and provides estimating baselines.  
-**Primary Field:** Scope Name
+**Purpose:** Master library of scope types with default descriptions and estimate inputs.
 
 | Field | Type | Notes |
 |---|---|---|
-| Scope Name | Single Line Text | Primary field — matches Job Scope multi-select options exactly |
-| Default Description | Long Text | Standard invoice language for this scope type — editable per job |
+| Scope Name | Single Line Text | Primary — matches Job Scope multi-select options exactly |
+| Default Description | Long Text | Standard invoice language — editable per job |
 | Default Labor Hours | Number | Baseline estimate input |
 | Default Materials Cost | Currency | Baseline estimate input |
 | Default Dump Count | Number | Typical dump count for this scope |
 | Job Type Applicability | Multi-Select | Residential / Commercial |
 | Active | Checkbox | |
-| Jobs | Linked Record → Jobs | |
+| Jobs | Linked Record → Jobs | Manual setup |
 
-**Seeded Records:**
+**19 Seeded Records:**
 
 | Scope Name | Default Labor Hours | Default Dump Count |
 |---|---|---|
@@ -360,119 +365,110 @@
 
 ## Invoice Workflows
 
-### Path A — Estimate First (standard jobs)
-1. Job scoped and estimate built in Airtable
-2. Job marked Completed
-3. Invoice Line Items auto-generated from Job Scope + Scope Library defaults
-4. Amounts pre-filled from Final Estimated Price
-5. Review and edit descriptions and amounts as needed
-6. Check Ready for Invoice → Zapier triggers GHL invoice creation
-7. GHL Invoice ID written back to Jobs table
+### Path A — Estimate First
+1. Estimator completes Fillout form — live calculations update in real time
+2. Fillout pre-fills Labor Rate, Overhead Rate, CC Fee % from Pricing Variables table
+3. Form submitted → Airtable Jobs record created with all estimate values as plain fields
+4. Job completed → Gusto hours sync to Actual Labor Hours, Divvy expenses sync to Expenses
+5. Airtable automatically calculates all Actual and Variance formula fields
+6. Invoice Line Items auto-generated from Job Scope + Scope Library defaults
+7. Review and edit line items and amounts as needed
+8. Ready for Invoice checked → GHL invoice created
 
-### Path B — Invoice Only (trusted contractor relationships)
-1. Job completed without prior estimate
-2. Actual Labor and Expenses pulled from Gusto and Divvy
+### Path B — Invoice at Completion
+1. Fillout form submitted with job info and scope only — Path B toggle collapses estimate fields
+2. Job completed → Gusto and Divvy sync actual costs
 3. Invoice Amount Override entered manually
 4. Invoice Line Items created manually or from Scope Library
-5. Check Ready for Invoice → Zapier triggers GHL invoice creation
-
-### Deposit Flow
-1. Deposit Required checked on job
-2. Deposit Type set (Percentage or Fixed Amount) and Deposit Value entered
-3. Deposit Invoice line item created with Invoice Group = Deposit Invoice
-4. Deposit invoice sent and collected before work begins
-5. Final invoice sent on completion with deposit noted
-
-### Change Order Flow
-- **Add to Final Invoice:** Change order line item added to Invoice Line Items with Line Item Type = Change Order and Invoice Group = Final Invoice
-- **Separate Invoice:** Zapier generates standalone GHL invoice for the change order only
+5. Ready for Invoice checked → GHL invoice created
 
 ---
 
-## Zapier Automations
+## Manual Setup Checklist — Airtable UI
 
-| Trigger | Action | Notes |
-|---|---|---|
-| Jobs.Status → Scheduled | Post to Slack crew channel | Crew-specific routing by Crew field |
-| Jobs.Ready for Invoice = checked | Create GHL invoice from Invoice Line Items | Deposit vs Final determined by Invoice Group |
-| GHL Invoice paid | Update Jobs.Status → Paid, write Payment Date | Stripe webhook via GHL |
-| Gusto payroll run | Update Actual Labor Hours on linked Job | Requires Gusto Project ID on job |
-| Divvy transaction tagged | Create Expense record in Airtable | Requires Divvy Job Tag on job |
+Complete in this exact order:
 
----
+### Round 1 — Foundation (do first)
+- [ ] Jobs → Job Number (Autonumber)
+- [ ] Jobs → Job ID (Formula: "JOB-" & ({Job Number} + 1000)) → set as primary field
+- [ ] Clients → Invoice Email Final (Formula: IF({Billing Email}, {Billing Email}, {Email}))
 
-## Manual Setup Checklist (Airtable UI — Cannot be Created via API)
+### Round 2 — Linked Records
+- [ ] Jobs → Client (Linked Record → Clients, single record)
+- [ ] Jobs → Client Type Lookup (Lookup from Clients.Client Type)
+- [ ] Jobs → Invoice Email Lookup (Lookup from Clients.Invoice Email Final)
+- [ ] Jobs → Change Orders (Linked Record → Change Orders, multiple)
+- [ ] Jobs → Expenses (Linked Record → Expenses, multiple)
+- [ ] Jobs → Invoice Line Items (Linked Record → Invoice Line Items, multiple)
+- [ ] Invoice Line Items → Job (Linked Record → Jobs, single)
+- [ ] Invoice Line Items → Scope Library Reference (Linked Record → Scope Library, single)
+- [ ] Invoice Line Items → Line Item ID (Autonumber)
+- [ ] Scope Library → Jobs (Linked Record → Jobs, multiple)
 
-### Jobs Table
-- [ ] Job Number — Autonumber field
-- [ ] Job ID — Formula: "JOB-" & ({Job Number} + 1000) — set as primary field
-- [ ] Client — Linked Record → Clients
-- [ ] Client Type Lookup — Lookup from Clients.Client Type
-- [ ] Invoice Email Lookup — Lookup from Clients.Invoice Email Final
-- [ ] Estimated Labor Cost — Formula (see Section 2)
-- [ ] Estimated Overhead — Formula (see Section 2)
-- [ ] Disposal Buffer — Formula (see Section 2)
-- [ ] Estimated Base Cost — Formula (see Section 2)
-- [ ] Price Before Fees — Formula (see Section 2)
-- [ ] Final Estimated Price — Formula (see Section 2)
-- [ ] Estimated Profit — Formula (see Section 2)
-- [ ] Estimated Profit Margin — Formula, format as Percent (see Section 2)
-- [ ] Actual Labor Cost — Formula (see Section 3)
-- [ ] Actual Overhead — Formula (see Section 3)
-- [ ] Actual Total Cost — Formula (see Section 3)
-- [ ] Actual Profit — Formula (see Section 3)
-- [ ] Actual Profit Margin — Formula, format as Percent (see Section 3)
-- [ ] Labor Hour Variance — Formula (see Section 4)
-- [ ] Labor Cost Variance — Formula (see Section 4)
-- [ ] Material Variance — Formula (see Section 4)
-- [ ] Disposal Variance — Formula (see Section 4)
-- [ ] Revenue Variance — Formula (see Section 4)
-- [ ] Profit Variance — Formula (see Section 4)
-- [ ] Profit Variance Percent — Formula, format as Percent (see Section 4)
-- [ ] Change Orders — Linked Record → Change Orders
-- [ ] Change Order Total — Rollup: SUM of Change Orders.Approved Value
-- [ ] Expenses — Linked Record → Expenses
-- [ ] Expense Total — Rollup: SUM of Expenses.Amount
-- [ ] Invoice Line Items — Linked Record → Invoice Line Items
+### Round 3 — Rollups and Counts
+- [ ] Jobs → Change Order Total (Rollup: SUM of Change Orders.Approved Value)
+- [ ] Jobs → Expense Total (Rollup: SUM of Expenses.Amount)
+- [ ] Clients → Total Jobs (Count of linked Jobs)
+- [ ] Clients → Total Revenue (Rollup: SUM of Jobs.Actual Revenue)
+- [ ] Clients → Total Profit (Rollup: SUM of Jobs.Actual Profit)
 
-### Clients Table
-- [ ] Invoice Email Final — Formula: IF({Billing Email}, {Billing Email}, {Email})
-- [ ] Jobs — Linked Record → Jobs (may auto-create when Jobs.Client link is added)
-- [ ] Total Jobs — Count of linked Jobs
-- [ ] Total Revenue — Rollup: SUM of Jobs.Actual Revenue
-- [ ] Total Profit — Rollup: SUM of Jobs.Actual Profit
+### Round 4 — Actual Formula Fields (enter in this order)
+- [ ] Actual Labor Cost → {Actual Labor Hours} * {Labor Rate}
+- [ ] Actual Overhead → {Actual Labor Hours} * {Overhead Rate}
+- [ ] Actual Total Cost → {Actual Labor Cost} + {Actual Overhead} + {Actual Materials} + {Actual Disposal Cost}
+- [ ] Actual Profit → {Actual Revenue} - {Actual Total Cost}
+- [ ] Actual Profit Margin → IF({Actual Revenue}, {Actual Profit} / {Actual Revenue}, BLANK()) — format as Percent
 
-### Change Orders Table
-- [ ] Change Order ID — Formula: "CO-" & autonumber (requires autonumber field first)
-- [ ] Job — Linked Record → Jobs
-- [ ] Created Date — Created Time field
+### Round 5 — Variance Formula Fields (enter in this order)
+- [ ] Labor Hour Variance → {Actual Labor Hours} - {Estimated Labor Hours}
+- [ ] Labor Cost Variance → {Actual Labor Cost} - {Estimated Labor Cost}
+- [ ] Material Variance → {Actual Materials} - {Estimated Materials}
+- [ ] Disposal Variance → {Actual Disposal Cost} - {Disposal Estimated Cost}
+- [ ] Revenue Variance → {Actual Revenue} - {Final Estimated Price}
+- [ ] Profit Variance → {Actual Profit} - {Estimated Profit}
+- [ ] Profit Variance Percent → IF({Estimated Profit}, {Profit Variance} / {Estimated Profit}, BLANK()) — format as Percent
 
-### Expenses Table
-- [ ] Expense ID — Formula: "EXP-" & autonumber (requires autonumber field first)
-- [ ] Job — Linked Record → Jobs
+### Round 6 — Change Orders and Expenses
+- [ ] Change Orders → Job (Linked Record → Jobs)
+- [ ] Change Orders → Change Order ID (Formula: "CO-" & {autonumber field name})
+- [ ] Change Orders → Created Date (Created Time field)
+- [ ] Expenses → Job (Linked Record → Jobs)
+- [ ] Expenses → Expense ID (Formula: "EXP-" & {autonumber field name})
 
-### Invoice Line Items Table
-- [ ] Job — Linked Record → Jobs
-- [ ] Scope Library Reference — Linked Record → Scope Library
-- [ ] Line Item ID — Autonumber
-
-### Scope Library Table
-- [ ] Jobs — Linked Record → Jobs (may auto-create when Jobs.Job Scope link is added)
+### Round 7 — Default Values
+- [ ] Jobs → Labor Rate: default $26
+- [ ] Jobs → Overhead Rate: default $23
+- [ ] Jobs → Disposal Charge Revenue: default $300
+- [ ] Jobs → Target Margin Percent: default 25%
+- [ ] Jobs → Credit Card Fee Percent: default 3%
+- [ ] Invoice Line Items → Quantity: default 1
+- [ ] Invoice Line Items → Include on Invoice: default checked
 
 ---
 
-## Field Default Values (Set Manually in Field Settings)
+## Fillout Form — Planned Updates (Phase 5)
 
-| Table | Field | Default Value |
-|---|---|---|
-| Jobs | Labor Rate | $26 |
-| Jobs | Overhead Rate | $23 |
-| Jobs | Disposal Charge Revenue | $300 |
-| Jobs | Target Margin Percent | 25% |
-| Jobs | Credit Card Fee Percent | 3% |
-| Invoice Line Items | Quantity | 1 |
-| Invoice Line Items | Include on Invoice | Checked |
-| Scope Library | Active | Checked |
+**Add:**
+- Job Scope (multi-select — 19 options)
+- Engagement Type (Contractor Job / Homeowner Direct / Subcontract Work)
+- Estimator (Dane / Jackson)
+- Path B toggle (collapses estimate fields for invoice-at-completion jobs)
+
+**Rename:** Any Other Details → Scope Notes
+
+**Configure pre-fill:** Labor Rate, Overhead Rate, CC Fee %, Default Disposal Charge pulled from Pricing Variables table
+
+**Field mapping updates to new Airtable field names:**
+
+| Current Fillout Field | Maps to Airtable Field |
+|---|---|
+| Direct Labor Costs Estimate | Estimated Labor Cost |
+| Other Job Specific Costs Estimate | Estimated Materials |
+| Dump Fees Estimate | Disposal Estimated Cost |
+| Total Direct Costs | Estimated Base Cost |
+| Overhead Allocation | Estimated Overhead |
+| Total Bid Amount | Final Estimated Price |
+| Profit Percentage (slider) | Target Margin Percent |
 
 ---
 
@@ -482,9 +478,9 @@
 |---|---|---|
 | Blended Labor Rate | $26/hr | Review quarterly against Gusto actuals |
 | Overhead Rate | $23/hr | Review quarterly against P&L |
-| Target Gross Margin | 25% | Minimum floor — adjust per job type |
+| Target Gross Margin | 25% | Minimum floor |
 | Credit Card Fee | 3% | Stripe processing estimate |
-| Typical Dump Fee | $300/load | Varies by haul site — update Disposal Estimated Cost per job |
+| Typical Dump Fee | $300/load | Update Disposal Estimated Cost per job |
 
 ---
 
@@ -495,7 +491,8 @@
 | CFO | Matt Risenmay (CTA Integrity) |
 | Crew 1 Leader | Nick |
 | Crew 2 Leader | Alex |
+| Estimators | Dane, Jackson |
 
 ---
 
-*This file is the source of truth for the Lost Boys Demolition Airtable system. Update it whenever schema changes are made. Reference it at the start of any Claude Code session to provide system context.*
+*Update this file whenever schema or architectural decisions change. Read at the start of every Claude Code session.*
