@@ -118,6 +118,16 @@ function formatJobNumber(n: number | string): string {
   return `JOB-${String(n).padStart(4, '0')}`
 }
 
+async function fetchAirtableJob(recordId: string) {
+  const res = await fetch(
+    `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_JOBS_TABLE}/${recordId}?returnFieldsByFieldId=true`,
+    { headers: { Authorization: `Bearer ${AIRTABLE_API_KEY}` } }
+  )
+  const data = await res.json()
+  console.log('[airtable] job record:', JSON.stringify(data))
+  return data
+}
+
 async function fetchAirtableClient(recordId: string) {
   const res = await fetch(
     `https://api.airtable.com/v0/${AIRTABLE_BASE_ID}/${AIRTABLE_CLIENTS_TABLE}/${recordId}?returnFieldsByFieldId=true`,
@@ -184,13 +194,18 @@ Deno.serve(async (req) => {
   try { payload = await req.json() }
   catch { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 }) }
 
+  const airtableRecordId = payload.recordId
+  if (!airtableRecordId) {
+    return new Response(JSON.stringify({ error: 'Missing recordId' }), { status: 400 })
+  }
+
   if (!PIPELINE) {
     const msg = STARTUP_ERROR ?? 'Pipeline not resolved — check startup logs'
     console.error('[handler] Aborting: pipeline not ready.', msg)
     await supabase.from('sync_log').insert({
       direction: 'airtable_to_ghl', trigger_event: 'job_created',
       action_taken: 'error', status: 'error',
-      airtable_record_id: payload.record_id ?? null,
+      airtable_record_id: airtableRecordId,
       error_message: msg, payload_in: payload,
     })
     return new Response(
@@ -199,8 +214,23 @@ Deno.serve(async (req) => {
     )
   }
 
-  const airtableRecordId = payload.record_id
-  const f                = payload.fields ?? {}
+  let jobRecord: any
+  try {
+    jobRecord = await fetchAirtableJob(airtableRecordId)
+    if (!jobRecord?.fields) throw new Error(`Airtable returned no fields for record ${airtableRecordId}`)
+  } catch (err: any) {
+    const msg = `Failed to fetch job record: ${err.message ?? String(err)}`
+    console.error('[handler]', msg)
+    await supabase.from('sync_log').insert({
+      direction: 'airtable_to_ghl', trigger_event: 'job_created',
+      action_taken: 'error', status: 'error',
+      airtable_record_id: airtableRecordId,
+      error_message: msg, payload_in: payload,
+    })
+    return new Response(JSON.stringify({ success: false, error: msg }), { status: 500 })
+  }
+
+  const f = jobRecord.fields
 
   const jobName         = f[JOB_FIELDS.jobName] ?? ''
   const jobNumberRaw    = f[JOB_FIELDS.jobNumber]
