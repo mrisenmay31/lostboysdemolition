@@ -22,6 +22,10 @@ const GHL_AUTH = {
   Version: '2021-07-28',
 }
 
+// Set this to the Airtable field ID for "Schedule Job Link" once the formula field is live.
+// While empty, the value is skipped and a placeholder is logged instead.
+const FIELD_SCHEDULE_LINK = ''
+
 const JOB_FIELDS = {
   jobName:          'fldbKNw609rqD97Gi',
   jobNumber:        'fld1ZeDoChO0h9QXO',
@@ -244,6 +248,7 @@ Deno.serve(async (req) => {
   const clientRecordId  = Array.isArray(clientLinks)
     ? (clientLinks[0]?.id ?? clientLinks[0])
     : null
+  const scheduleJobLink = FIELD_SCHEDULE_LINK ? (f[FIELD_SCHEDULE_LINK] ?? '') : ''
 
   let actionTaken:      string      = 'error'
   let status:           string      = 'success'
@@ -290,6 +295,11 @@ Deno.serve(async (req) => {
         { key: 'job_address', field_value: jobAddress },
         { key: 'job_type',    field_value: jobType },
       ],
+    }
+    if (FIELD_SCHEDULE_LINK && scheduleJobLink) {
+      oppBody.customFields.push({ key: 'schedule_job_link', field_value: scheduleJobLink })
+    } else if (!FIELD_SCHEDULE_LINK) {
+      console.log('SCHEDULE_LINK_PLACEHOLDER: field ID not yet configured')
     }
     if (assignedTo) oppBody.assignedTo = assignedTo
 
