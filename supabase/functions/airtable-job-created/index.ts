@@ -248,7 +248,8 @@ Deno.serve(async (req) => {
   const clientRecordId  = Array.isArray(clientLinks)
     ? (clientLinks[0]?.id ?? clientLinks[0])
     : null
-  const scheduleJobLink = FIELD_SCHEDULE_LINK ? (f[FIELD_SCHEDULE_LINK] ?? '') : ''
+  const scheduleJobLink        = FIELD_SCHEDULE_LINK ? (f[FIELD_SCHEDULE_LINK] ?? '') : ''
+  const existingGhlOpportunityId = f[JOB_FIELDS.ghlOpportunityId] ?? null
 
   let actionTaken:      string      = 'error'
   let status:           string      = 'success'
@@ -303,22 +304,32 @@ Deno.serve(async (req) => {
     }
     if (assignedTo) oppBody.assignedTo = assignedTo
 
-    const existing = jobNumber ? await searchGhlOpportunity(ghlContactId, jobNumber) : null
-
-    if (existing) {
-      const updated    = await updateGhlOpportunity(existing.id, oppBody)
-      ghlOpportunityId = updated.opportunity?.id ?? updated.id ?? existing.id
+    if (existingGhlOpportunityId) {
+      // Opportunity ID already written back to Airtable — update directly, no search needed
+      console.log(`[info] Existing GHL Opportunity ID found on Airtable record: ${existingGhlOpportunityId}`)
+      const updated    = await updateGhlOpportunity(existingGhlOpportunityId, oppBody)
+      ghlOpportunityId = updated.opportunity?.id ?? updated.id ?? existingGhlOpportunityId
       actionTaken      = 'opportunity_updated'
       console.log(`[info] Updated GHL opportunity ${ghlOpportunityId} for ${jobNumber}`)
     } else {
-      const created    = await createGhlOpportunity(oppBody)
-      console.log('[info] GHL create response:', JSON.stringify(created))
-      ghlOpportunityId = created.opportunity?.id ?? created.id
-      if (!ghlOpportunityId) {
-        throw new Error(`GHL opportunity create returned no ID. Response: ${JSON.stringify(created)}`)
+      // No Opportunity ID on record — search by contact + job_id custom field before creating
+      const existing = jobNumber ? await searchGhlOpportunity(ghlContactId, jobNumber) : null
+
+      if (existing) {
+        const updated    = await updateGhlOpportunity(existing.id, oppBody)
+        ghlOpportunityId = updated.opportunity?.id ?? updated.id ?? existing.id
+        actionTaken      = 'opportunity_updated'
+        console.log(`[info] Found existing GHL opportunity via search: ${ghlOpportunityId} for ${jobNumber}`)
+      } else {
+        const created    = await createGhlOpportunity(oppBody)
+        console.log('[info] GHL create response:', JSON.stringify(created))
+        ghlOpportunityId = created.opportunity?.id ?? created.id
+        if (!ghlOpportunityId) {
+          throw new Error(`GHL opportunity create returned no ID. Response: ${JSON.stringify(created)}`)
+        }
+        actionTaken = 'opportunity_created'
+        console.log(`[info] Created GHL opportunity ${ghlOpportunityId} for ${jobNumber}`)
       }
-      actionTaken = 'opportunity_created'
-      console.log(`[info] Created GHL opportunity ${ghlOpportunityId} for ${jobNumber}`)
     }
 
     if (ghlOpportunityId && airtableRecordId) {
