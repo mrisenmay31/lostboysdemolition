@@ -24,7 +24,7 @@ const GHL_AUTH = {
 
 // Set this to the Airtable field ID for "Schedule Job Link" once the formula field is live.
 // While empty, the value is skipped and a placeholder is logged instead.
-const FIELD_SCHEDULE_LINK = ''
+const FIELD_SCHEDULE_LINK = 'fldYAfiWiqMu8SP89'
 
 const JOB_FIELDS = {
   jobName:          'fldbKNw609rqD97Gi',
