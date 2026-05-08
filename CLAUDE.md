@@ -5,6 +5,23 @@
 
 ---
 
+## Standing Instructions
+
+### Build Planning Rule
+
+Before writing any code for a **new build** (new edge function, new feature, significant refactor), you MUST:
+
+1. Spawn a Plan subagent with `model: "opus"` to produce a plan covering:
+   - Step-by-step implementation plan
+   - Architecture decisions
+   - Risk flags
+   - Open questions that need answers before coding starts
+2. Present the plan to Matt and **wait for explicit approval** before writing any code.
+
+**Small changes** (targeted bug fixes, field ID swaps, minor edits to existing functions) do not require a planning subagent. If unsure whether something qualifies as a build, ask before proceeding.
+
+---
+
 ## What This System Does
 
 Closes the loop between estimates, actuals, and invoices. Every Closed Won job feeds back into pricing accuracy.
@@ -42,6 +59,10 @@ Closes the loop between estimates, actuals, and invoices. Every Closed Won job f
 │   ├── airtable-job-scheduled/ # Advances GHL opp to "Job Scheduled" stage
 │   ├── airtable-job-completed/ # Stage 8: Job Completed → Stripe invoice draft + Dane notification
 │   └── ghl-contact-sync/       # GHL Contacts → Airtable Clients (reverse)
+├── airtable-automations/       # Airtable Scripting automation scripts (deployed manually in Airtable UI)
+│   ├── create-line-items.js    # Fires on job creation → creates Invoice Line Item child records
+│   ├── update-line-items.js    # Fires on job LI field edits → upserts/soft-deletes child records
+│   └── SETUP_INSTRUCTIONS.md  # Manual setup guide for Airtable Automations UI
 ├── setup_airtable.js           # Admin script: initial Airtable schema setup
 ├── setup_airtable_v2.js        # Admin script: v2 schema setup
 ├── audit_schema.js             # Schema audit utility
@@ -70,7 +91,27 @@ Advances GHL opportunity to "Job Scheduled" stage. Triggered by Airtable webhook
 GHL Contacts → Airtable Clients (reverse direction). Triggered by GHL `contact_updated` webhook. Searches Airtable by GHL Contact ID first, then email. Creates or updates Airtable client record, writes back GHL Contact ID and Company ID.
 
 ### `airtable-job-completed`
-Stage 8: Job Completed → Stripe invoice draft + Dane notification. Triggered by Airtable Automation when Job Status = "Completed". Fetches job + client + line items from Airtable, resolves or creates Stripe customer, creates draft Stripe invoice (auto_advance: false), writes invoice ID + review URL back to Airtable, advances GHL opportunity to Stage 9 (Invoice Review), creates GHL task for Dane, sends Slack DM to Dane. Slack is non-fatal if token missing. Supabase project: eiqqqwajmcpcwhvxxnhx. Deployed 2026-05-07, version 2.
+Stage 8: Job Completed → Stripe invoice draft + Dane notification. Triggered by Airtable Automation when Job Status = "Completed". Fetches job + client + line items from Airtable, resolves or creates Stripe customer, creates draft Stripe invoice (auto_advance: false), writes invoice ID + review URL back to Airtable, advances GHL opportunity to Stage 9 (Invoice Review), creates GHL task for Dane, sends Slack DM to Dane. Slack is non-fatal if token missing. Supabase project: eiqqqwajmcpcwhvxxnhx. **Current deployed version: 10 (deployed 2026-05-08). Slack notification paused via `SLACK_NOTIFICATIONS_ENABLED = false` constant — set to `true` to re-enable.**
+
+**Line items approach (v7):** Fetches Invoice Line Items linked via `fldD6xumylrVQEVMo` on the Jobs table. Each named item appears at its actual amount (including $0 — name and description still render on the invoice). If the sum of line item amounts is less than Total Bid, a "Project Total" line is appended for the difference so the invoice always totals to the Total Bid field value. Fallback: if no line items linked, single "Demolition Services" line at Total Bid. If sum exceeds Total Bid, items are used as-is (warning logged).
+
+**Invoice Line Items are populated by two Airtable Scripting automations** (live in the base as of 2026-05-08):
+- "Create Invoice Line Items from Job" — fires on job creation, creates child records from flat LI fields
+- "Update Invoice Line Items on Job Edit" — fires on flat LI field edits, upserts/soft-deletes child records
+- Scripts: `airtable-automations/create-line-items.js` and `airtable-automations/update-line-items.js`
+- Setup instructions: `airtable-automations/SETUP_INSTRUCTIONS.md`
+
+**Stripe rendering (v6+):** For each line item, first `POST /products` with `name` and `description` to create a Stripe Product. Then `POST /invoiceitems` referencing `price_data[product]` (the product ID). This causes Stripe to render the product name in bold and description in regular text below it on the invoice PDF and hosted page.
+
+**LINE_ITEM_FIELDS constants:**
+- `name`: `fldva3wLkKqJD7t7r`
+- `description`: `fldWGM7wIVac7rxEy`
+- `amount`: `fldR0cBZlSC25CXhq`
+- `quantity`: `fldLP3TR2pveYKFOc`
+- `sortOrder`: `fld5kCTH3LByLIFT8`
+- `includeOnInvoice`: `fldBo2XaZZHFIzJT5`
+
+**IMPORTANT — do NOT use `price_data[product_data]` on `/invoiceitems`:** Stripe's invoiceitems endpoint does not support inline product creation via `product_data`. Always create the product first via `POST /products`, then pass the product ID via `price_data[product]`.
 
 ---
 
@@ -170,17 +211,20 @@ Stages 12 and 13 are distinct — financially different (declined vs. cancelled 
 
 ## Open Items (Blocking)
 
-1. ~~**Invoicing architecture**~~ — **RESOLVED 2026-05-07.** Direct Stripe integration chosen. `airtable-job-completed` (Stage 8) is live at version 2. `stripe-webhook` (Stages 9–11) is the next build.
-2. **Divvy Zapier API** — Can Divvy create job tags programmatically? Blocks Phase 4 (actuals integration).
-3. **Cancellation/deposit refund policy** — Deferred. Blocks Stage 5 deposit automation.
-4. **Deposit required policy** — Required for all Residential; optional for established contractors. Deferred.
+1. ~~**Invoicing architecture**~~ — **RESOLVED.** Direct Stripe integration. `airtable-job-completed` v7 live and verified end-to-end 2026-05-08. Dynamic line items + "Project Total" adjustment logic. Airtable automations live. `stripe-webhook` (Stages 9–11) is the next build.
+2. ~~**Fillout per-line-item dollar amount**~~ — **RESOLVED 2026-05-08.** Fillout form has Unit Price 1/2/3 fields that write to Airtable flat LI fields. Airtable automations pick these up and create Invoice Line Items with actual amounts. v7 edge function renders per-line prices when present; appends "Project Total" for any gap vs. Total Bid.
+3. **`stripe-webhook` function** — NOT YET BUILT. Handles Stages 9–11. Stripe sandbox webhook endpoint configured: listens for `invoice.sent` (Stage 9→10) and `invoice.paid` (Stage 10→11). STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in Supabase are now sandbox/test keys as of 2026-05-08.
+4. **Divvy Zapier API** — Can Divvy create job tags programmatically? Blocks Phase 4 (actuals integration).
+5. **Cancellation/deposit refund policy** — Deferred. Blocks Stage 5 deposit automation.
+6. **Deposit required policy** — Required for all Residential; optional for established contractors. Deferred.
+7. **Local `.env` stale** — `AIRTABLE_WEBHOOK_SECRET` in `.env` does not match the value in Supabase. Use Supabase secret as authoritative.
 
 ---
 
 ## Phase Roadmap
 
 1. Schema completion (in progress)
-2. Invoice automation (blocked — Open Item #1)
+2. Invoice automation — Stage 8 live at v7 (dynamic line items + Project Total); stripe-webhook (Stages 9–11) is next
 3. Scope Library auto-generation
 4. Actuals integration (Gusto + Divvy → Airtable)
 5. Fillout form rebuild

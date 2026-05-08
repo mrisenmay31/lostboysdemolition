@@ -11,6 +11,7 @@ const GHL_API_KEY          = Deno.env.get('GHL_API_KEY')!
 const GHL_LOCATION_ID      = Deno.env.get('GHL_LOCATION_ID')!
 const STRIPE_SECRET_KEY    = Deno.env.get('STRIPE_SECRET_KEY')!
 const SLACK_BOT_TOKEN      = Deno.env.get('SLACK_BOT_TOKEN') ?? ''
+const SLACK_NOTIFICATIONS_ENABLED = false  // set true to re-enable
 const SUPABASE_URL         = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const WEBHOOK_SECRET       = Deno.env.get('AIRTABLE_WEBHOOK_SECRET')!
@@ -53,7 +54,10 @@ const CLIENT_FIELDS = {
 
 const LINE_ITEM_FIELDS = {
   name:             'fldva3wLkKqJD7t7r',
+  description:      'fldWGM7wIVac7rxEy',
   amount:           'fldR0cBZlSC25CXhq',
+  quantity:         'fldLP3TR2pveYKFOc',
+  sortOrder:        'fld5kCTH3LByLIFT8',
   includeOnInvoice: 'fldBo2XaZZHFIzJT5',
 }
 
@@ -226,22 +230,27 @@ Deno.serve(async (req) => {
     if (!clientRecordId) throw new Error('No linked Client record on job')
 
     // Step 4 — Fetch Invoice Line Items (Include on Invoice = true only)
-    const lineItems: Array<{ name: string; amount: number }> = []
+    const lineItems: Array<{ name: string; description: string; amount: number; quantity: number; sortOrder: number }> = []
     for (const liId of lineItemIds) {
       try {
         const li = await fetchAirtableRecord(AIRTABLE_LINE_ITEMS_TABLE, liId)
         const lf = li?.fields ?? {}
-        const included = !!lf[LINE_ITEM_FIELDS.includeOnInvoice]
-        const name     = lf[LINE_ITEM_FIELDS.name]   ?? 'Line Item'
-        const amount   = parseFloat(lf[LINE_ITEM_FIELDS.amount]) || 0
-        console.log(`[step4] line item ${liId}: name="${name}" amount=${amount} includeOnInvoice=${included}`)
+        const included    = !!lf[LINE_ITEM_FIELDS.includeOnInvoice]
+        const name        = lf[LINE_ITEM_FIELDS.name]        ?? 'Line Item'
+        const description = lf[LINE_ITEM_FIELDS.description] ?? ''
+        const amount      = parseFloat(lf[LINE_ITEM_FIELDS.amount])   || 0
+        const quantity    = parseFloat(lf[LINE_ITEM_FIELDS.quantity])  || 1
+        const sortOrder   = typeof lf[LINE_ITEM_FIELDS.sortOrder] === 'number'
+                              ? lf[LINE_ITEM_FIELDS.sortOrder]
+                              : Number.MAX_SAFE_INTEGER
+        console.log(`[step4] line item ${liId}: name="${name}" amount=${amount} qty=${quantity} sort=${sortOrder} included=${included}`)
         if (!included) continue
-        if (amount > 0) lineItems.push({ name, amount })
-        else console.warn(`[step4] line item ${liId} included but amount=0 — skipping`)
+        lineItems.push({ name, description, amount, quantity, sortOrder })
       } catch (err: any) {
         console.warn(`[warn] Failed to fetch line item ${liId}:`, err.message)
       }
     }
+    lineItems.sort((a, b) => a.sortOrder - b.sortOrder)
     console.log(`[step4] lineItems passing filter (${lineItems.length}):`, JSON.stringify(lineItems))
 
     // Step 5 — Fetch Client Record
@@ -281,10 +290,24 @@ Deno.serve(async (req) => {
     const daysUntilDue = termDays[paymentTerms] ?? 0
 
     // Step 8 — Create Stripe Invoice (DRAFT)
-    // Add line items (fallback: single line item for total if no line items flagged)
-    const itemsToAdd = lineItems.length > 0
+    // Fallback: no Invoice Line Items linked → single total line
+    const baseItems = lineItems.length > 0
       ? lineItems
-      : [{ name: jobName || 'Demolition Services', amount: invoiceAmount }]
+      : [{ name: jobName || 'Demolition Services', description: '', amount: invoiceAmount, quantity: 1, sortOrder: 0 }]
+
+    // Each named item appears at its actual amount (including $0 — name/desc still visible on invoice).
+    // If the sum of line item amounts does not equal the Total Bid (invoiceAmount), append a
+    // "Project Total" line for the difference so the invoice always totals to the Total Bid.
+    const lineItemTotal = baseItems.reduce((sum, li) => sum + (li.amount * li.quantity), 0)
+    const gap = Math.round((invoiceAmount - lineItemTotal) * 100) / 100
+
+    const itemsToAdd = [...baseItems]
+    if (gap > 0) {
+      console.log(`[step8] lineItemTotal=${lineItemTotal} invoiceAmount=${invoiceAmount} gap=${gap} — appending "Project Total" line`)
+      itemsToAdd.push({ name: 'Project Total', description: '', amount: gap, quantity: 1, sortOrder: 9999 })
+    } else if (gap < 0) {
+      console.warn(`[step8] Line item sum (${lineItemTotal}) exceeds Total Bid (${invoiceAmount}) — using items as-is`)
+    }
 
     console.log(`[step8] invoiceAmount=${invoiceAmount} paymentTerms="${paymentTerms}" daysUntilDue=${daysUntilDue}`)
     console.log('[step8] itemsToAdd:', JSON.stringify(itemsToAdd))
@@ -306,15 +329,26 @@ Deno.serve(async (req) => {
     console.log('[stripe] Created invoice:', stripeInvoiceId)
 
     for (const li of itemsToAdd) {
-      const cents = Math.round(li.amount * 100)
-      console.log(`[step8] adding invoice item: "${li.name}" amount=${li.amount} cents=${cents}`)
-      await stripePost('/invoiceitems', {
-        customer:    stripeCustomerId,
-        invoice:     stripeInvoiceId!,
-        amount:      cents,
-        currency:    'usd',
-        description: li.name,
-      })
+      const qty = Math.max(1, Math.round(Number(li.quantity) || 1))
+      const unitAmountCents = Math.round((Number(li.amount) || 0) * 100)
+      console.log(`[step8] adding invoice item: "${li.name}" unit_amount=${li.amount} qty=${qty} cents=${unitAmountCents}`)
+
+      // Create a Stripe Product so the name renders bold and description renders below it
+      const productParams: Record<string, string | number | boolean> = { name: li.name }
+      if (li.description) productParams.description = li.description
+      const product = await stripePost('/products', productParams)
+
+      const invoiceItemParams: Record<string, string | number | boolean> = {
+        customer:                  stripeCustomerId,
+        invoice:                   stripeInvoiceId!,
+        quantity:                  qty,
+        'price_data[currency]':    'usd',
+        'price_data[unit_amount]': unitAmountCents,
+        'price_data[product]':     product.id,
+      }
+      if (li.description) invoiceItemParams.description = li.description
+
+      await stripePost('/invoiceitems', invoiceItemParams)
     }
 
     // Step 9 — Capture Invoice ID and Review URL
@@ -367,7 +401,7 @@ Deno.serve(async (req) => {
     }
 
     // Step 13 — Slack DM to Dane (non-fatal if token missing or call fails)
-    if (SLACK_BOT_TOKEN) {
+    if (SLACK_NOTIFICATIONS_ENABLED && SLACK_BOT_TOKEN) {
       try {
         const slackRes = await fetch('https://slack.com/api/chat.postMessage', {
           method: 'POST',
