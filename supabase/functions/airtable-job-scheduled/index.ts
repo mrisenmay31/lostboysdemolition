@@ -335,11 +335,12 @@ Deno.serve(async (req) => {
     ? (clientLinks[0]?.id ?? clientLinks[0])
     : null
 
-  let actionTaken:   string      = 'error'
-  let status:        string      = 'success'
-  let errorMessage:  string|null = null
-  let calendarStatus: string     = 'skipped'
-  let mainEventId:   string|null = null
+  let actionTaken:    string      = 'error'
+  let status:         string      = 'success'
+  let errorMessage:   string|null = null
+  let calendarStatus: string      = 'skipped'
+  let calendarError:  string|null = null
+  let mainEventId:    string|null = null
 
   try {
     if (!ghlOpportunityId) throw new Error('Job record has no GHL Opportunity ID — cannot move stage')
@@ -349,7 +350,7 @@ Deno.serve(async (req) => {
       [JOB_FIELDS.status]: 'Scheduled',
     })
 
-    actionTaken = 'stage_advanced'
+    actionTaken = 'updated'
 
     // ── Google Calendar (non-fatal) ────────────────────────────────────────
     if (!GOOGLE_SERVICE_ACCOUNT_KEY || !GOOGLE_CALENDAR_MAIN) {
@@ -464,12 +465,14 @@ Deno.serve(async (req) => {
           : (mainEventId ? 'partial' : 'failed')
 
         if (calendarErrors.length > 0) {
-          console.warn('[calendar] errors:', calendarErrors.join('; '))
+          calendarError = calendarErrors.join('; ')
+          console.warn('[calendar] errors:', calendarError)
         }
 
       } catch (err: any) {
         calendarStatus = 'failed'
-        console.error('[calendar] Non-fatal error:', err.message)
+        calendarError  = err.message ?? String(err)
+        console.error('[calendar] Non-fatal error:', calendarError)
       }
     }
 
@@ -509,7 +512,7 @@ Deno.serve(async (req) => {
       status,
       airtable_record_id: airtableRecordId,
       error_message:      status === 'success'
-                            ? `GHL opp ${ghlOpportunityId} → Job Scheduled | calendar: ${calendarStatus}${mainEventId ? ` (${mainEventId})` : ''}`
+                            ? `GHL opp ${ghlOpportunityId} → Job Scheduled | calendar: ${calendarStatus}${mainEventId ? ` (${mainEventId})` : ''}${calendarError ? ` | calErr: ${calendarError}` : ''}`
                             : errorMessage,
       payload_in:         payload,
     })
