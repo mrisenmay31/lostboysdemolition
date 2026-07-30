@@ -154,8 +154,9 @@ edge functions `receive-airtable-webhook` / `push-to-airtable`.
 
 ### Current (live until replaced)
 
-Airtable (9 tables), GHL, Supabase Edge Functions, Zapier, Fillout, Gusto, BILL/Divvy, Stripe,
-Slack, Google Calendar.
+Airtable (9 tables), GHL, Supabase Edge Functions, Fillout, Gusto, BILL/Divvy, Stripe, Slack,
+Google Calendar. **Zapier's actual role is unverified** — it is listed as retired below, but no
+one has confirmed what, if anything, it still runs. Confirm before assuming it carries traffic.
 
 ---
 
@@ -325,6 +326,10 @@ CREW4 Cade.
 
 ## Architecture Decisions
 
+- **Fillout → Airtable is a native Fillout integration, not Zapier.** Zapier is not involved in
+  the job-creation path. Confirmed by Matt 2026-05-22. Older docs and session prompts say
+  "Fillout → Zapier" — they are wrong, and designing around a Zapier step will produce incorrect
+  architecture decisions.
 - **Airtable field IDs are hardcoded** in each edge function for schema stability. Field *names*
   have drifted; IDs have not. Always address by ID, never by name.
 - **Webhook pattern:** validate `x-webhook-secret`, return structured JSON, 200 or 500.
