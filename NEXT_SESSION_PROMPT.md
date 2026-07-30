@@ -50,8 +50,10 @@ Standing rules that apply to you: (a) before writing code for any new build, pro
 a plan and wait for my explicit approval — small fixes are exempt; (b) anything
 deployed to Supabase must be committed to this repo in the same session, verified
 against the live function list, because repo/production drift is this project's
-core failure mode; (c) after any deploy, update the Pipeline Reference Base
-(appA7uj7FhnPp9Bvg) — Build Log, Field Registry, Secrets & Credentials, People & IDs.
+core failure mode; (c) at the end of every session, append an entry to BUILD_LOG.md
+in the repo — this now replaces the Airtable Build Log table. The Airtable Pipeline
+Reference base (appA7uj7FhnPp9Bvg) is still used for Field Registry, Secrets &
+Credentials, and People & IDs only.
 
 Start by telling me what you think the highest-value next move is, and why.
 ```

@@ -164,8 +164,10 @@ one has confirmed what, if anything, it still runs. Confirm before assuming it c
 
 ```
 /
-├── BUILD_PLAN.md                # APPROVED PLAN — read this
+├── BUILD_PLAN.md                # THE OFFICIAL PLAN — read this
 ├── SYSTEM_AUDIT_2026-07-30.md   # GROUND TRUTH — read this
+├── BUILD_LOG.md                 # Deploy + session history — append an entry every session
+├── NEXT_SESSION_PROMPT.md       # Ephemeral copy-paste handoff; regenerate each session
 ├── supabase/
 │   ├── functions/               # Deno/TypeScript edge functions (all 7, reconciled 2026-07-30)
 │   │   ├── airtable-client-sync/      # Airtable Clients → GHL Contacts  [LIVE, healthy]
@@ -436,24 +438,28 @@ them. No big-bang cutover.
 
 ---
 
-## Pipeline Reference Base — Standing Instructions
+## Build Log — Standing Instructions
 
-The Lost Boys Pipeline Reference base in Airtable is the system of record for all build
-metadata — field IDs, credentials, people IDs, and deployment status.
+### STANDING RULE — required at the end of every session
 
-**Base ID:** `appA7uj7FhnPp9Bvg`
-**Tables:** Field Registry · Secrets & Credentials · People & IDs · Build Log
+`BUILD_LOG.md` in this repo is the build log. Before closing any session that deployed a function,
+changed the system, or changed its documentation, you MUST add an entry at the top of its
+*Entries* section: what shipped, deploy version and URL if applicable, defects found but not
+fixed, decisions taken, and what the next session needs to know. Update the
+*Current status at a glance* table if a function's status changed.
 
-### STANDING RULE — required after every deploy
+Not optional, and not limited to deploys — a documentation-only session still changes what a
+future session needs to know. If a session ends without this, the log goes stale and the next
+session starts with an incomplete picture.
 
-At the end of every build session, before closing, you MUST:
+Keep it in the repo and commit it with the work it describes. That is the point: the log lives
+under version control alongside the code it documents, so the two cannot drift apart.
 
-1. **Build Log** — set Status for newly deployed functions, write the confirmed deploy URL, set
-   Session Date, add relevant notes.
-2. **Field Registry** — add any Airtable field IDs created or discovered, with field name, table
-   name, field ID, and purpose.
-3. **Secrets & Credentials** — add any new secrets added to Supabase, Status ✅ Live.
-4. **People & IDs** — add any new team member IDs discovered.
+### Pipeline Reference Base (Airtable) — partially retired
 
-This is not optional. If a session ends without this update, the reference base goes stale and
-future sessions start with incomplete information.
+**Base ID:** `appA7uj7FhnPp9Bvg` — still the system of record for **Field Registry**,
+**Secrets & Credentials**, and **People & IDs**. Update those tables when you create or discover
+Airtable field IDs, add Supabase secrets, or learn new team member IDs.
+
+Its **`Build Log` table (`tbl3pCxGn0xqC1Qvu`) is superseded** as of 2026-07-30. All 8 records were
+migrated into `BUILD_LOG.md`. Do not write to that table and do not read it as current.
