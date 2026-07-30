@@ -326,6 +326,12 @@ CREW4 Cade.
 - **Every function writes to `sync_log`** — success, error, and skipped.
 - Formula, rollup, lookup, linked-record and autonumber fields **cannot be created via the
   Airtable API** — always flag MANUAL SETUP REQUIRED.
+- **Calculation ownership is split, and the split is deliberate.** Fillout owns *estimate* math
+  and renders it as a live preview; Airtable stores the estimate outputs as **plain fields with
+  no formulas**. Airtable formula fields own *actuals* and variance only. So an estimate number
+  in Airtable is a value someone else computed — editing it recomputes nothing. This is why the
+  pricing engine can hold 296 Estimates and still never have computed anything (audit §2), and
+  it is the boundary Phase 2 moves into Postgres when Fillout is replaced.
 
 ---
 
