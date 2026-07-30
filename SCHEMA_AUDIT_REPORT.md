@@ -1,5 +1,17 @@
 # Schema Audit Report
 
+> **SUPERSEDED — see `SYSTEM_AUDIT_2026-07-30.md`.** This report is three months old and the
+> base has drifted substantially since (field renames toward Fillout naming, new fields, two
+> formulas now hard-broken). Its record counts are wrong: Estimates is 296 not 3, Clients is
+> 989, Jobs is 9.
+>
+> It also contains a specific error worth flagging. It says the duplicate `Clients.Jobs` link
+> should be deleted, guessing `Jobs` is the live one. **That is backwards** — `Jobs`
+> (`fldefnvFlGeJSUeFx`) points at `Jobs (old)`, while `Jobs 2` (`fldQvLnbflwL0cAgU`) points at
+> the live Jobs table. Following its guidance would destroy the legacy linkage.
+>
+> Retained for historical context only.
+
 **Audited:** 2026-04-29 (UTC) against live Airtable base `apptzp0IclCaAtOk2`
 **Method:** `node audit_schema.js` → `schema_audit.json` → analysis from Hyperagent thread
 
