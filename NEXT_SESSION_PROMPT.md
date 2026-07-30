@@ -1,7 +1,7 @@
 # Next Session Prompt
 
 **Ephemeral.** Regenerate at the end of each session; this file describes a moment, not the plan.
-The plan is `BUILD_PLAN.md`. Generated 2026-07-30, ending at commit `7ab339a`.
+The plan is `BUILD_PLAN.md`. Generated 2026-07-30, at the end of that session.
 
 ---
 
@@ -11,8 +11,8 @@ The plan is `BUILD_PLAN.md`. Generated 2026-07-30, ending at commit `7ab339a`.
 Lost Boys Demolition ops system. Read CLAUDE.md, then BUILD_PLAN.md (the official
 plan), then SYSTEM_AUDIT_2026-07-30.md (ground truth) before proposing anything.
 
-Where the last session left off (2026-07-30, ended at commit 7ab339a, pushed, tree
-clean): it was documentation and repo hygiene only. No edge function was deployed,
+Where the last session left off (2026-07-30, pushed, tree clean): it was
+documentation and repo hygiene only. No edge function was deployed,
 no Supabase change made, nothing live was touched. The repo had drifted badly from
 production — three deployed functions existed nowhere in git — and that is now
 reconciled. BUILD_PLAN.md was designated the official plan; OPS_ROADMAP.md
@@ -64,12 +64,23 @@ Start by telling me what you think the highest-value next move is, and why.
 
 ### State at close
 
-- `main` = `origin/main` = `7ab339a`. Working tree clean.
-- Six commits landed: `0dd5103` (v21 work) · `8634bf3` (merge) · `d5b0f39`
+- `main` = `origin/main`, working tree clean. Run `git log --oneline -8` for the exact head.
+- Eight commits landed: `0dd5103` (v21 work) · `8634bf3` (merge) · `d5b0f39`
   (`SETUP_INSTRUCTIONS.md` restored) · `0166d6a` (CLAUDE.md edits folded in) · `90e7fc3`
-  (calculation-ownership note) · `7ab339a` (BUILD_PLAN.md made official).
+  (calculation-ownership note) · `7ab339a` (BUILD_PLAN.md made official) · `6959b67`
+  (NEXT_SESSION_PROMPT.md + Zapier correction) · `721c5c4` (build log moved into the repo).
 - Untracked and intentionally left: `OPS_ROADMAP.md` (superseded, banner added), `prompt.md`
   (spent — the v21 brief), `supabase/.temp/` (Supabase CLI scratch; gitignore candidate).
+
+### Where things are written down
+
+- `BUILD_PLAN.md` — the official plan. Amend it; never start a rival plan doc.
+- `SYSTEM_AUDIT_2026-07-30.md` — ground truth on what is actually live.
+- `BUILD_LOG.md` — deploy and session history, migrated out of Airtable on 2026-07-30.
+  **Append an entry at the end of every session**, not just after deploys.
+- Airtable Pipeline Reference base (`appA7uj7FhnPp9Bvg`) — now only Field Registry,
+  Secrets & Credentials, People & IDs. Its Build Log table is superseded but carries no
+  deprecation notice in Airtable itself.
 
 ### Deferred cleanup
 

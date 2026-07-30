@@ -35,8 +35,8 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
-### 2026-07-30 — Repo/origin reconciliation; BUILD_PLAN.md made official
-**Status:** 🟢 Complete · **Deploys:** none · **Ends at commit:** `6959b67` on `main`, pushed
+### 2026-07-30 — Repo/origin reconciliation; BUILD_PLAN.md made official; build log moved in-repo
+**Status:** 🟢 Complete · **Deploys:** none · **Ends at:** `721c5c4` plus this closing docs commit, `main`, pushed
 
 No edge function was deployed, no Supabase change made, nothing live was touched.
 
@@ -64,6 +64,13 @@ whitespace only, and that side matches deployed source byte-for-byte.
 - **Closed a correction pending since 2026-05-22** (`6959b67`): Fillout → Airtable is a native
   Fillout integration, not Zapier. Zapier's real role is unverified and is now labeled as such.
 - **Added `NEXT_SESSION_PROMPT.md`** — ephemeral copy-paste handoff, regenerated each session.
+- **Moved the build log into the repo** (`721c5c4`). All 8 records from the Airtable Pipeline
+  Reference `Build Log` table were transferred verbatim into this file, which is now the build
+  log. The standing rule was retargeted: append here at the end of **every** session, not only
+  after deploys, and commit it with the work it describes. The Airtable table is superseded;
+  Field Registry, Secrets & Credentials, and People & IDs remain in Airtable. Note the Airtable
+  table itself carries no deprecation notice — someone opening the base directly will not see
+  that it is retired.
 - **Deleted after verification:** a nested `lostboysdemolition/` clone inside the repo (the remote
   session's working directory — clean tree, no stashes, no unpushed commits, nothing unique) and
   the local `../lb-local-backup`.
