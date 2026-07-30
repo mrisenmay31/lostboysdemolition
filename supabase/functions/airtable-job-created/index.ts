@@ -22,32 +22,63 @@ const GHL_AUTH = {
   Version: '2021-07-28',
 }
 
-// Set this to the Airtable field ID for "Schedule Job Link" once the formula field is live.
-// While empty, the value is skipped and a placeholder is logged instead.
-const FIELD_SCHEDULE_LINK = 'fldYAfiWiqMu8SP89'
+// ── Airtable field IDs — Jobs table ──────────────────────────────────────────
 
 const JOB_FIELDS = {
-  jobName:          'fldbKNw609rqD97Gi',
-  jobNumber:        'fld1ZeDoChO0h9QXO',
-  jobAddress:       'fldSmr1YCORDoagb6',
-  jobType:          'fldc1zsXLZTY9fBQm',
-  totalBid:         'fldazwdB2mw4Zh0n1',
-  estimator:        'fldyyF2DeUFX15sXx',
-  readyToSchedule:  'fldG5aRScQOqUXuVE',
-  clientLink:       'fldzu6hA8zr9Hjbfz',
-  ghlOpportunityId: 'fldc2Od8JX3Se1gJN',
-}
+  // Core
+  jobName:              'fldbKNw609rqD97Gi',
+  jobNumber:            'fld1ZeDoChO0h9QXO',  // autoNumber integer
+  airtableJobId:        'fldNrP1Z8Ngcsyarz',  // formula → "JOB-1042"
+  jobAddress:           'fldSmr1YCORDoagb6',
+  jobType:              'fldc1zsXLZTY9fBQm',
+  totalBid:             'fldazwdB2mw4Zh0n1',
+  estimator:            'fldyyF2DeUFX15sXx',
+  readyToSchedule:      'fldG5aRScQOqUXuVE',  // owned by airtable-job-scheduled
+  clientLink:           'fldzu6hA8zr9Hjbfz',
+  ghlOpportunityId:     'fldc2Od8JX3Se1gJN',
+  // Estimate
+  estimatedLaborHours:  'fld6Wxf2aFXLi8FEg',
+  estimatedLaborCost:   'fldduPjuhcSKbubdn',
+  estimatedDumpFees:    'fldkk0jYAocHCeWIX',
+  estimatedOverhead:    'flddTODdKQqqiKpMc',
+  estimatedProfit:      'fld8qD8jNqeUyA4PQ',
+  estimatedProfitMargin:'fldZQOEFLwSyAdHrK',  // formula → percent decimal
+  // Future fields — fill in Airtable field ID when the field is created in Airtable
+  engagementType:       '',  // TBD — singleSelect: Contractor Job, Homeowner Direct, Subcontract Work
+  estimatedMaterials:   '',  // TBD — currency
+  jobScope:             '',  // TBD — multiSelect (19 scope options)
+  scopeNotes:           '',  // TBD — multilineText
+} as const
+
+// ── GHL custom field IDs (from field_mapping.md) ─────────────────────────────
+
+const GHL_CUSTOM_FIELDS = {
+  airtableJobId:        'Gtl6ADpbBGOlYYFil4n6',
+  airtableRecordId:     'gAcQY14qFpZFPz4bDmii',
+  jobAddress:           '4pjFIkOmQFpqZ5bOBI9z',
+  jobType:              'Jfb2jEzxdtHY9vhC8Zhj',
+  estimator:            '8YGC8Oy2TlRDOSZpN3Mo',
+  estimatedLaborHours:  'sN6l01lwT6G8JUBPisDQ',
+  estimatedLaborCost:   'KVlUHcvcTtkO3IKlkaJS',
+  estimatedDumpFees:    'VgxdlrbEYNsIYCtuuZn3',
+  estimatedOverhead:    'be36GDi35Gk6Ji5hUN5Y',
+  estimatedProfit:      'zGtPySCTptCicEU51RSZ',
+  estimatedProfitMargin:'5u484IDWnOrMGkjC7eoe',
+  engagementType:       'MPaRtiCr5OYLmTYEraVz',
+  estimatedMaterials:   'XGz8SzkyU0jAx6blrT9t',
+  jobScope:             'lm91PNb2dNB2g0GPoUuU',
+  scopeNotes:           'PdNTCRzIpYi3IANr71eh',
+} as const
 
 const CLIENT_FIELDS = {
   ghlContactId: 'fldC4zAieX10BVacc',
 }
 
-// ── Cold-start: resolve pipeline and user IDs ─────────────────────────────
+// ── Cold-start: resolve pipeline and user IDs ─────────────────────────────────
 
 interface PipelineCache {
-  pipelineId:       string
-  quoteStageId:     string
-  scheduledStageId: string
+  pipelineId:                string
+  estimateInProgressStageId: string
 }
 
 interface UserCache {
@@ -72,22 +103,20 @@ try {
   const pipeline = list.find((p: any) => p.name === 'Job Pipeline')
 
   if (!pipeline) {
-    STARTUP_ERROR = `Pipeline "Job Pipeline" not found. Available pipelines: ${list.map((p: any) => p.name).join(', ') || 'none'}`
+    STARTUP_ERROR = `Pipeline "Job Pipeline" not found. Available: ${list.map((p: any) => p.name).join(', ') || 'none'}`
     console.error('[startup]', STARTUP_ERROR)
   } else {
-    const stages         = pipeline.stages ?? []
-    const quoteStage     = stages.find((s: any) => s.name === 'Quote Sent')
-    const scheduledStage = stages.find((s: any) => s.name === 'Job Scheduled')
+    const stages        = pipeline.stages ?? []
+    const estimateStage = stages.find((s: any) => s.name === 'Estimate in Progress')
     console.log('[startup] Job Pipeline stages:', JSON.stringify(stages.map((s: any) => ({ id: s.id, name: s.name }))))
 
-    if (!quoteStage || !scheduledStage) {
-      STARTUP_ERROR = `Missing stage(s). Found: ${stages.map((s: any) => s.name).join(', ')}. Need: "Quote Sent", "Job Scheduled"`
+    if (!estimateStage) {
+      STARTUP_ERROR = `Stage "Estimate in Progress" not found. Found: ${stages.map((s: any) => s.name).join(', ')}`
       console.error('[startup]', STARTUP_ERROR)
     } else {
       PIPELINE = {
-        pipelineId:       pipeline.id,
-        quoteStageId:     quoteStage.id,
-        scheduledStageId: scheduledStage.id,
+        pipelineId:                pipeline.id,
+        estimateInProgressStageId: estimateStage.id,
       }
       console.log('[startup] Resolved pipeline:', JSON.stringify(PIPELINE))
     }
@@ -116,10 +145,47 @@ try {
   console.error('[startup] User resolution failed:', err.message ?? String(err))
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function formatJobNumber(n: number | string): string {
-  return `JOB-${String(n).padStart(4, '0')}`
+function num(v: any): number | undefined {
+  if (v === null || v === undefined || v === '') return undefined
+  const n = parseFloat(String(v))
+  return isNaN(n) ? undefined : n
+}
+
+function buildCustomFields(f: Record<string, any>, airtableRecordId: string): Array<{ id: string; field_value: any }> {
+  const out: Array<{ id: string; field_value: any }> = []
+
+  function push(ghlId: string, value: any) {
+    if (value === undefined || value === null || value === '') return
+    if (Array.isArray(value) && value.length === 0) return
+    out.push({ id: ghlId, field_value: value })
+  }
+
+  // Integration
+  push(GHL_CUSTOM_FIELDS.airtableJobId,    f[JOB_FIELDS.airtableJobId])
+  push(GHL_CUSTOM_FIELDS.airtableRecordId, airtableRecordId)
+
+  // Job info
+  push(GHL_CUSTOM_FIELDS.jobAddress, f[JOB_FIELDS.jobAddress])
+  push(GHL_CUSTOM_FIELDS.jobType,    f[JOB_FIELDS.jobType])
+  push(GHL_CUSTOM_FIELDS.estimator,  f[JOB_FIELDS.estimator])
+
+  // Estimate
+  push(GHL_CUSTOM_FIELDS.estimatedLaborHours,   num(f[JOB_FIELDS.estimatedLaborHours]))
+  push(GHL_CUSTOM_FIELDS.estimatedLaborCost,    num(f[JOB_FIELDS.estimatedLaborCost]))
+  push(GHL_CUSTOM_FIELDS.estimatedDumpFees,     num(f[JOB_FIELDS.estimatedDumpFees]))
+  push(GHL_CUSTOM_FIELDS.estimatedOverhead,     num(f[JOB_FIELDS.estimatedOverhead]))
+  push(GHL_CUSTOM_FIELDS.estimatedProfit,       num(f[JOB_FIELDS.estimatedProfit]))
+  push(GHL_CUSTOM_FIELDS.estimatedProfitMargin, num(f[JOB_FIELDS.estimatedProfitMargin]))
+
+  // Future-slot fields — uncomment the JOB_FIELDS entry when the Airtable field is created
+  if (JOB_FIELDS.engagementType)     push(GHL_CUSTOM_FIELDS.engagementType,    f[JOB_FIELDS.engagementType])
+  if (JOB_FIELDS.estimatedMaterials) push(GHL_CUSTOM_FIELDS.estimatedMaterials, num(f[JOB_FIELDS.estimatedMaterials]))
+  if (JOB_FIELDS.jobScope)           push(GHL_CUSTOM_FIELDS.jobScope,          f[JOB_FIELDS.jobScope])
+  if (JOB_FIELDS.scopeNotes)         push(GHL_CUSTOM_FIELDS.scopeNotes,        f[JOB_FIELDS.scopeNotes])
+
+  return out
 }
 
 async function fetchAirtableJob(recordId: string) {
@@ -142,7 +208,7 @@ async function fetchAirtableClient(recordId: string) {
   return data
 }
 
-async function searchGhlOpportunity(contactId: string, jobNumber: string): Promise<any | null> {
+async function searchGhlOpportunity(contactId: string, airtableJobId: string): Promise<any | null> {
   const res  = await fetch(
     `${GHL_BASE}/opportunities/search?contact_id=${contactId}&location_id=${GHL_LOCATION_ID}`,
     { headers: GHL_AUTH }
@@ -150,9 +216,12 @@ async function searchGhlOpportunity(contactId: string, jobNumber: string): Promi
   const data = await res.json()
   const opps = data.opportunities ?? []
   return opps.find((o: any) =>
-    (o.customFields ?? o.custom_fields ?? []).some(
-      (f: any) => (f.key === 'job_id' || f.fieldKey === 'job_id') && f.field_value === jobNumber
-    )
+    (o.customFields ?? o.custom_fields ?? []).some((cf: any) => {
+      const matchValue = cf.field_value === airtableJobId
+      const matchId    = cf.id === GHL_CUSTOM_FIELDS.airtableJobId || cf.fieldId === GHL_CUSTOM_FIELDS.airtableJobId
+      const matchKey   = cf.key === 'job_id' || cf.fieldKey === 'job_id'
+      return matchValue && (matchId || matchKey)
+    })
   ) ?? null
 }
 
@@ -184,7 +253,7 @@ async function writeOpportunityIdToAirtable(recordId: string, oppId: string) {
   console.log('[airtable] write opportunity ID response:', JSON.stringify(data))
 }
 
-// ── Main handler ─────────────────────────────────────────────────────────────
+// ── Main handler ──────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -206,6 +275,14 @@ Deno.serve(async (req) => {
   if (!PIPELINE) {
     const msg = STARTUP_ERROR ?? 'Pipeline not resolved — check startup logs'
     console.error('[handler] Aborting: pipeline not ready.', msg)
+    try {
+      await supabase.from('job_events').insert({
+        job_id: airtableRecordId, stage_from: null, stage_to: 3,
+        function_name: 'airtable-job-created', trigger_source: 'airtable_automation',
+        action_summary: 'Aborted — pipeline not resolved at cold start',
+        status: 'error', error_message: msg, payload_in: payload,
+      })
+    } catch (e: any) { console.error('[job_events] insert failed:', e.message) }
     await supabase.from('sync_log').insert({
       direction: 'airtable_to_ghl', trigger_event: 'job_created',
       action_taken: 'error', status: 'error',
@@ -225,6 +302,14 @@ Deno.serve(async (req) => {
   } catch (err: any) {
     const msg = `Failed to fetch job record: ${err.message ?? String(err)}`
     console.error('[handler]', msg)
+    try {
+      await supabase.from('job_events').insert({
+        job_id: airtableRecordId, stage_from: null, stage_to: 3,
+        function_name: 'airtable-job-created', trigger_source: 'airtable_automation',
+        action_summary: 'Aborted — Airtable fetch failed',
+        status: 'error', error_message: msg, payload_in: payload,
+      })
+    } catch (e: any) { console.error('[job_events] insert failed:', e.message) }
     await supabase.from('sync_log').insert({
       direction: 'airtable_to_ghl', trigger_event: 'job_created',
       action_taken: 'error', status: 'error',
@@ -236,19 +321,14 @@ Deno.serve(async (req) => {
 
   const f = jobRecord.fields
 
-  const jobName         = f[JOB_FIELDS.jobName] ?? ''
-  const jobNumberRaw    = f[JOB_FIELDS.jobNumber]
-  const jobNumber       = jobNumberRaw != null ? formatJobNumber(jobNumberRaw) : null
-  const jobAddress      = f[JOB_FIELDS.jobAddress] ?? ''
-  const jobType         = f[JOB_FIELDS.jobType] ?? ''
-  const totalBid        = parseFloat(f[JOB_FIELDS.totalBid]) || 0
-  const estimator       = f[JOB_FIELDS.estimator] ?? ''
-  const readyToSchedule = f[JOB_FIELDS.readyToSchedule] ?? ''
-  const clientLinks     = f[JOB_FIELDS.clientLink] ?? []
-  const clientRecordId  = Array.isArray(clientLinks)
+  const jobName               = f[JOB_FIELDS.jobName] ?? ''
+  const jobId                 = f[JOB_FIELDS.airtableJobId] ?? null   // "JOB-1042" from formula
+  const totalBid              = parseFloat(f[JOB_FIELDS.totalBid]) || 0
+  const estimator             = f[JOB_FIELDS.estimator] ?? ''
+  const clientLinks           = f[JOB_FIELDS.clientLink] ?? []
+  const clientRecordId        = Array.isArray(clientLinks)
     ? (clientLinks[0]?.id ?? clientLinks[0])
     : null
-  const scheduleJobLink        = FIELD_SCHEDULE_LINK ? (f[FIELD_SCHEDULE_LINK] ?? '') : ''
   const existingGhlOpportunityId = f[JOB_FIELDS.ghlOpportunityId] ?? null
 
   let actionTaken:      string      = 'error'
@@ -264,6 +344,14 @@ Deno.serve(async (req) => {
 
     if (!ghlContactId) {
       console.warn(`[warn] Client ${clientRecordId} has no GHL Contact ID — skipping`)
+      try {
+        await supabase.from('job_events').insert({
+          job_id: airtableRecordId, job_number: jobId, stage_from: null, stage_to: 3,
+          function_name: 'airtable-job-created', trigger_source: 'airtable_automation',
+          action_summary: 'Skipped — client missing GHL Contact ID',
+          status: 'success', error_message: null, payload_in: payload,
+        })
+      } catch (e: any) { console.error('[job_events] insert failed:', e.message) }
       await supabase.from('sync_log').insert({
         direction: 'airtable_to_ghl', trigger_event: 'job_created',
         action_taken: 'skipped', status: 'success',
@@ -277,9 +365,8 @@ Deno.serve(async (req) => {
       )
     }
 
-    const stageId    = readyToSchedule === 'Yes' ? PIPELINE.scheduledStageId : PIPELINE.quoteStageId
-    const assignedTo = estimator === 'Matt' ? USERS.matt
-                     : estimator === 'Dane' ? USERS.dane
+    const assignedTo = estimator === 'Matt'    ? USERS.matt
+                     : estimator === 'Dane'    ? USERS.dane
                      : estimator === 'Jackson' ? USERS.jackson
                      : null
 
@@ -287,39 +374,30 @@ Deno.serve(async (req) => {
       name:            jobName,
       status:          'open',
       pipelineId:      PIPELINE.pipelineId,
-      pipelineStageId: stageId,
+      pipelineStageId: PIPELINE.estimateInProgressStageId,
       contactId:       ghlContactId,
       monetaryValue:   totalBid,
       locationId:      GHL_LOCATION_ID,
-      customFields: [
-        { key: 'job_id',      field_value: jobNumber   ?? '' },
-        { key: 'job_address', field_value: jobAddress },
-        { key: 'job_type',    field_value: jobType },
-      ],
-    }
-    if (FIELD_SCHEDULE_LINK && scheduleJobLink) {
-      oppBody.customFields.push({ key: 'schedule_job_link', field_value: scheduleJobLink })
-    } else if (!FIELD_SCHEDULE_LINK) {
-      console.log('SCHEDULE_LINK_PLACEHOLDER: field ID not yet configured')
+      customFields:    buildCustomFields(f, airtableRecordId),
     }
     if (assignedTo) oppBody.assignedTo = assignedTo
 
+    console.log('[info] GHL customFields being sent:', JSON.stringify(oppBody.customFields))
+
     if (existingGhlOpportunityId) {
-      // Opportunity ID already written back to Airtable — update directly, no search needed
       console.log(`[info] Existing GHL Opportunity ID found on Airtable record: ${existingGhlOpportunityId}`)
       const updated    = await updateGhlOpportunity(existingGhlOpportunityId, oppBody)
       ghlOpportunityId = updated.opportunity?.id ?? updated.id ?? existingGhlOpportunityId
       actionTaken      = 'opportunity_updated'
-      console.log(`[info] Updated GHL opportunity ${ghlOpportunityId} for ${jobNumber}`)
+      console.log(`[info] Updated GHL opportunity ${ghlOpportunityId} for ${jobId}`)
     } else {
-      // No Opportunity ID on record — search by contact + job_id custom field before creating
-      const existing = jobNumber ? await searchGhlOpportunity(ghlContactId, jobNumber) : null
+      const existing = jobId ? await searchGhlOpportunity(ghlContactId, jobId) : null
 
       if (existing) {
         const updated    = await updateGhlOpportunity(existing.id, oppBody)
         ghlOpportunityId = updated.opportunity?.id ?? updated.id ?? existing.id
         actionTaken      = 'opportunity_updated'
-        console.log(`[info] Found existing GHL opportunity via search: ${ghlOpportunityId} for ${jobNumber}`)
+        console.log(`[info] Found existing GHL opportunity via search: ${ghlOpportunityId} for ${jobId}`)
       } else {
         const created    = await createGhlOpportunity(oppBody)
         console.log('[info] GHL create response:', JSON.stringify(created))
@@ -328,7 +406,7 @@ Deno.serve(async (req) => {
           throw new Error(`GHL opportunity create returned no ID. Response: ${JSON.stringify(created)}`)
         }
         actionTaken = 'opportunity_created'
-        console.log(`[info] Created GHL opportunity ${ghlOpportunityId} for ${jobNumber}`)
+        console.log(`[info] Created GHL opportunity ${ghlOpportunityId} for ${jobId}`)
       }
     }
 
@@ -342,6 +420,24 @@ Deno.serve(async (req) => {
     errorMessage = err.message ?? String(err)
     console.error('[error] airtable-job-created:', errorMessage)
   }
+
+  try {
+    await supabase.from('job_events').insert({
+      job_id:             airtableRecordId,
+      job_number:         jobId,
+      stage_from:         null,
+      stage_to:           3,
+      function_name:      'airtable-job-created',
+      trigger_source:     'airtable_automation',
+      ghl_opportunity_id: ghlOpportunityId,
+      action_summary:     status === 'success'
+                            ? `GHL opportunity ${actionTaken} with estimate fields`
+                            : 'GHL opportunity create/update failed',
+      status,
+      error_message:      status === 'success' ? null : errorMessage,
+      payload_in:         payload,
+    })
+  } catch (e: any) { console.error('[job_events] insert failed:', e.message) }
 
   await supabase.from('sync_log').insert({
     direction:          'airtable_to_ghl',
