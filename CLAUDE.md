@@ -10,12 +10,20 @@
 | File | What it is |
 |---|---|
 | `SYSTEM_AUDIT_2026-07-30.md` | **Ground truth.** Live state of Airtable, Supabase, and this repo. Read before trusting any other doc. |
-| `BUILD_PLAN.md` | **The approved plan.** Greenfield Postgres rebuild, phased. Approved by Matt 2026-07-30. |
+| `BUILD_PLAN.md` | **THE OFFICIAL PLAN.** Greenfield Postgres rebuild, phased 0–9. Confirmed by Matt 2026-07-30. Where any other document disagrees, this one wins. Amend it rather than starting a new plan doc. |
 
 Several older docs in this repo describe a system that does not exist. `schema_overview.md`
 contains no Airtable schema despite being cited elsewhere as the schema reference. The
 15-function `stageN-*` build sequence is a superseded plan, not a backlog.
 `SCHEMA_AUDIT_REPORT.md` predates significant base drift and has errors.
+
+**`OPS_ROADMAP.md` (2026-07-15) is superseded** by `BUILD_PLAN.md` and its 0–10 phase numbering is
+retired. It is untracked and slated for deletion in a future planning session. Do not plan from
+it. It did lock several decisions this plan never covered — QuickBooks Online as the books via
+Synder, the GHL number port and A2P registration, client sign-off, callback tracking, and Stripe
+native invoice reminders — which are preserved verbatim in the "Carried over from OPS_ROADMAP.md"
+section of `BUILD_PLAN.md`, along with a ClockShark-vs-in-house-clock-in conflict that was never
+explicitly resolved.
 
 ---
 
@@ -401,8 +409,9 @@ reconciled.
 
 ## Phase Roadmap
 
-Per `BUILD_PLAN.md`. Phases 0–4 are the critical path — nothing produces a real profitability
-number until Phase 4, when labor actuals begin to exist.
+Per `BUILD_PLAN.md`, the official plan — this 0–9 numbering is canonical, and the retired
+`OPS_ROADMAP.md` 0–10 numbering must not be used. Phases 0–4 are the critical path; nothing
+produces a real profitability number until Phase 4, when labor actuals begin to exist.
 
 | Phase | Status |
 |---|---|

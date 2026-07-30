@@ -1,5 +1,10 @@
 # Lost Boys Demolition — Profitability System Build Plan
 
+> **This is the official plan.** Confirmed by Matt on 2026-07-30. Where any other document
+> disagrees — including `OPS_ROADMAP.md` (2026-07-15), which this supersedes — this file wins.
+> Phase numbering here (0–9) is the canonical numbering; the older 0–10 sequence is retired.
+> Amend this file rather than starting a new plan document.
+
 ## Context
 
 Lost Boys wants a closed loop: accurate estimate → tracked actuals → job-level profitability → calibrated back into pricing. Today none of that exists in software.
@@ -159,6 +164,41 @@ Each phase ends in something usable. Phases 1–4 are the critical path to a rea
 3. **Deposit policy** — percentage or fixed, and the threshold. (Deferred since May; blocks deposit automation.)
 4. **Scope calibration rules** — minimum sample size, median vs trimmed mean, Path B inclusion.
 5. **Gusto add-on** — drop the time-tracking/project add-on once Phase 4 ships? (Offsets build cost.)
+
+---
+
+## Carried over from OPS_ROADMAP.md — unreconciled
+
+`OPS_ROADMAP.md` (2026-07-15) is superseded by this plan, but it locked decisions that this plan
+never addressed. They are recorded here so that retiring that document does not discard them.
+None are yet reflected in the phases above.
+
+**Direct conflicts — this plan currently wins by default, but the call was never explicitly revisited:**
+
+| Topic | OPS_ROADMAP (2026-07-15) | This plan |
+|---|---|---|
+| Crew time tracking | ClockShark, ~$100–170/mo, budget approved | Build clock-in in-house (Phase 4), push timesheets to Gusto |
+| Source of truth | Airtable-centric | Supabase Postgres; Airtable retired |
+| Expenses | Weekly Divvy CSV import + BILL API spike | BILL Spend & Expense v3 webhooks (Phase 5) |
+
+Note the ClockShark conflict interacts with open decision 5 above — if ClockShark is reinstated,
+the Gusto add-on question changes shape.
+
+**Decisions with no counterpart anywhere in this plan.** These are unowned by any phase:
+
+- **QuickBooks Online is the books.** Invoices and payments must land in QBO, via Synder
+  (~$20–50/mo, Stripe→QBO). This plan's Phase 6 stops at Stripe and never reaches bookkeeping.
+- **Port the business number into GHL**, with A2P 10DLC registration. Front-of-funnel lead
+  capture — leads currently live in Dane and Jackson's phones and get lost, which the 2026-07-15
+  session identified as the single biggest pain. No phase here covers lead intake at all.
+- **Client sign-off at completion** — non-blocking, fires simultaneously with the invoice.
+- **Callback tracking** — a callbacks record, as one of the four quality signals (with
+  before/after photos, the foreman completion checklist gating Status=Completed, and sign-off).
+- **Invoice reminders** — use Stripe native auto-reminders; the `invoice_reminders` table stays
+  dormant. AR visibility and collections were a named pain; Phase 6 does not mention them.
+
+**Action:** fold each of these into a phase, or record an explicit decision to drop it. Until
+then this section is the only record that they were ever decided.
 
 ## Risks
 
