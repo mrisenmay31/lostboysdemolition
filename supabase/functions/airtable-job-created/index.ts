@@ -180,10 +180,10 @@ function buildCustomFields(f: Record<string, any>, airtableRecordId: string): Ar
   push(GHL_CUSTOM_FIELDS.estimatedProfitMargin, num(f[JOB_FIELDS.estimatedProfitMargin]))
 
   // Future-slot fields — uncomment the JOB_FIELDS entry when the Airtable field is created
-  if (JOB_FIELDS.engagementType)    push(GHL_CUSTOM_FIELDS.engagementType,    f[JOB_FIELDS.engagementType])
+  if (JOB_FIELDS.engagementType)     push(GHL_CUSTOM_FIELDS.engagementType,    f[JOB_FIELDS.engagementType])
   if (JOB_FIELDS.estimatedMaterials) push(GHL_CUSTOM_FIELDS.estimatedMaterials, num(f[JOB_FIELDS.estimatedMaterials]))
-  if (JOB_FIELDS.jobScope)          push(GHL_CUSTOM_FIELDS.jobScope,          f[JOB_FIELDS.jobScope])
-  if (JOB_FIELDS.scopeNotes)        push(GHL_CUSTOM_FIELDS.scopeNotes,        f[JOB_FIELDS.scopeNotes])
+  if (JOB_FIELDS.jobScope)           push(GHL_CUSTOM_FIELDS.jobScope,          f[JOB_FIELDS.jobScope])
+  if (JOB_FIELDS.scopeNotes)         push(GHL_CUSTOM_FIELDS.scopeNotes,        f[JOB_FIELDS.scopeNotes])
 
   return out
 }

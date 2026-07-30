@@ -1,7 +1,77 @@
 # Lost Boys Demolition — Ops System
 
-**Client:** Lost Boys Demolition and Junk Removal LLC (Wasatch Front, Utah)  
+**Client:** Lost Boys Demolition and Junk Removal LLC (Wasatch Front, Utah)
 **Managed by:** Matt Risenmay, contracted CFO at CTA Integrity
+
+---
+
+## START HERE — read these first
+
+| File | What it is |
+|---|---|
+| `SYSTEM_AUDIT_2026-07-30.md` | **Ground truth.** Live state of Airtable, Supabase, and this repo. Read before trusting any other doc. |
+| `BUILD_PLAN.md` | **The approved plan.** Greenfield Postgres rebuild, phased. Approved by Matt 2026-07-30. |
+
+Several older docs in this repo describe a system that does not exist. `schema_overview.md`
+contains no Airtable schema despite being cited elsewhere as the schema reference. The
+15-function `stageN-*` build sequence is a superseded plan, not a backlog.
+`SCHEMA_AUDIT_REPORT.md` predates significant base drift and has errors.
+
+---
+
+## Where the project actually stands (2026-07-30)
+
+**The system was never started, not broken.** Live: Estimates 296 records, Clients 989,
+Jobs **9** (5 named "Test Job"), zero actuals anywhere — Expenses 0, Change Orders 0,
+`time_entries` 0, `labor_actuals` 0, `expense_actuals` 0. Every variance field reads −100%.
+The pricing engine has never computed a number (see audit §2).
+
+**What runs daily:** Fillout (bid calculator + 3 foreman checklists), Google Calendar, Slack
+crew channels, GHL (estimates sometimes, payments), Stripe via GHL, Gusto for payroll. The
+Airtable Jobs pipeline and the Supabase stage functions are scaffolding.
+
+**The one thing that genuinely works:** bidirectional client sync (`airtable-client-sync` +
+`ghl-contact-sync`). 668 rows in `sync_log`, processing traffic daily, no errors since May 2.
+
+---
+
+## Direction — decisions Matt has made
+
+- **Supabase Postgres becomes the source of truth.** Dane and Jackson work in GHL, not Airtable.
+  All data they need should be reachable from a GHL opportunity or job record.
+- **Direct Stripe invoicing**, with the invoice link surfaced in GHL. (Today they invoice
+  through GHL's payment system, while the deployed `airtable-job-completed` creates invoices
+  directly in Stripe — those were two different flows.)
+- **Fillout may be replaced**, provided the replacement is mobile-friendly.
+- **GHL needs edit capability** for scope changes, change orders, and pricing.
+- **An internal estimate is always created**, even when no formal proposal is sent. This is
+  Path B, and it means every job has a variance baseline.
+- **Time tracking:** crews already clock in/out in the Gusto app daily. The friction is manual
+  project creation and selection, so it doesn't get done. Feeding Gusto for payroll is a
+  benefit, not a requirement — manual entry is acceptable.
+
+## Open decisions blocking work
+
+| # | Decision | Blocks |
+|---|---|---|
+| 1 | **Credit-card fee: cost line or pass-through?** Currently a 25% target reports as 27.25%. | Phase 2 — affects every margin number |
+| 2 | **Dump Fee Buffer: priced in or informational?** Computed, referenced by nothing. | Phase 2 |
+| 3 | Deposit policy — percentage or fixed, and threshold | Phase 3 |
+| 4 | Scope calibration rules — sample size, median vs trimmed mean, Path B inclusion | Phase 8 |
+| 5 | Drop the Gusto time-tracking add-on once crew clock-in ships? | Phase 4 (cost offset) |
+
+Also pending: whether to add the missing `x-webhook-secret` check to `receive-airtable-webhook`
+(live endpoint, currently unauthenticated).
+
+## Resolved blockers (stalled since May, closed 2026-07-30)
+
+- **Gusto has no public project-tracking read API.** Confirmed. It *does* publish
+  `POST /v1/companies/{company_uuid}/time_tracking/time_sheets` for pushing classified hours in
+  for payroll. → We own time capture and push to Gusto, rather than reading from it.
+- **BILL Spend & Expense v3 API is fully capable**: `POST /v3/spend/custom-fields` (selector
+  with `allowCustomValues: true`), `PUT /v3/spend/transactions/{id}/custom-fields`, and webhook
+  subscriptions. → Job codes can be created automatically at scheduling time, which removes the
+  manual-project friction on the expense side.
 
 ---
 
@@ -9,43 +79,55 @@
 
 ### Build Planning Rule
 
-Before writing any code for a **new build** (new edge function, new feature, significant refactor), you MUST:
+Before writing any code for a **new build** (new edge function, new feature, significant
+refactor), produce a plan covering step-by-step implementation, architecture decisions, risk
+flags, and open questions. Present it to Matt and **wait for explicit approval** before writing
+any code.
 
-1. Spawn a Plan subagent with `model: "opus"` to produce a plan covering:
-   - Step-by-step implementation plan
-   - Architecture decisions
-   - Risk flags
-   - Open questions that need answers before coding starts
-2. Present the plan to Matt and **wait for explicit approval** before writing any code.
+**Small changes** (targeted bug fixes, field ID swaps, minor edits to existing functions) do not
+require this. If unsure whether something qualifies as a build, ask before proceeding.
 
-**Small changes** (targeted bug fixes, field ID swaps, minor edits to existing functions) do not require a planning subagent. If unsure whether something qualifies as a build, ask before proceeding.
+### Repo/production parity
+
+The repo drifted badly from production between May and July — three deployed functions existed
+nowhere in git and a fourth was a generation stale, so redeploying from the repo would have
+regressed live behavior. **Any function deployed to Supabase must be committed here in the same
+session.** Verify with `mcp__Supabase__list_edge_functions` before assuming the repo is current.
 
 ---
 
 ## What This System Does
 
-Closes the loop between estimates, actuals, and invoices. Every Closed Won job feeds back into pricing accuracy.
+Closes the loop between estimates, actuals, and invoices. Every Closed Won job feeds back into
+pricing accuracy.
 
-**Two core loops:**
-- Loop 1 — Profitability Intelligence: Actuals → variance → Scope Library feedback → better estimates
-- Loop 2 — Revenue Cycle Automation: Lead → invoice → payment, automated with human checkpoints only
+- **Loop 1 — Profitability Intelligence:** Actuals → variance → Scope Library feedback → better estimates
+- **Loop 2 — Revenue Cycle Automation:** Lead → invoice → payment, automated with human checkpoints only
 
 ---
 
 ## Tech Stack
 
+### Target (per `BUILD_PLAN.md`)
+
 | System | Role |
 |---|---|
-| Airtable | Source of truth — 7 tables |
-| GHL (Go High Level) | CRM + pipeline, mirrors Airtable status |
-| Supabase Edge Functions | Sync layer between Airtable and GHL |
-| Zapier | Automation layer (Fillout triggers, etc.) |
-| Fillout | Estimate forms + foreman checklists |
-| Gusto | Labor hours actuals |
-| Divvy | Job expense actuals |
-| Stripe | Payments |
-| Slack | Alerts and notifications |
-| Google Calendar | Job scheduling |
+| Supabase Postgres | Source of truth |
+| Next.js on Vercel (PWA) | Estimate builder, crew clock-in, foreman checklists, dashboard |
+| GHL | Human surface for Dane/Jackson — headline numbers + links |
+| Stripe | Direct invoicing and payments |
+| Gusto | Payroll (we push timesheets in) |
+| BILL Spend & Expense | Job-coded expenses via webhook |
+| Google Calendar | Scheduling (retained) |
+| Slack | Crew notifications (retained) |
+
+**Being retired:** Airtable (post-migration), Fillout, Zapier, the 11 Airtable automations, and
+edge functions `receive-airtable-webhook` / `push-to-airtable`.
+
+### Current (live until replaced)
+
+Airtable (9 tables), GHL, Supabase Edge Functions, Zapier, Fillout, Gusto, BILL/Divvy, Stripe,
+Slack, Google Calendar.
 
 ---
 
@@ -53,105 +135,101 @@ Closes the loop between estimates, actuals, and invoices. Every Closed Won job f
 
 ```
 /
-├── supabase/functions/         # Deno/TypeScript edge functions
-│   ├── airtable-client-sync/   # Airtable Clients → GHL Contacts
-│   ├── airtable-job-created/   # Airtable Jobs → GHL Opportunities
-│   ├── airtable-job-scheduled/ # Advances GHL opp to "Job Scheduled" stage
-│   ├── airtable-job-completed/ # Stage 8: Job Completed → Stripe invoice draft + Dane notification
-│   └── ghl-contact-sync/       # GHL Contacts → Airtable Clients (reverse)
-├── airtable-automations/       # Airtable Scripting automation scripts (deployed manually in Airtable UI)
-│   ├── create-line-items.js    # Fires on job creation → creates Invoice Line Item child records
-│   ├── update-line-items.js    # Fires on job LI field edits → upserts/soft-deletes child records
-│   └── SETUP_INSTRUCTIONS.md  # Manual setup guide for Airtable Automations UI
-├── setup_airtable.js           # Admin script: initial Airtable schema setup
-├── setup_airtable_v2.js        # Admin script: v2 schema setup
-├── audit_schema.js             # Schema audit utility
-├── schema_overview.md          # Airtable schema field reference
-├── INTEGRATION_DESIGN.md       # Architecture and integration patterns
-├── LostBoys_PricingEngine_ProjectBrief.md  # Project requirements brief
-└── SCHEMA_AUDIT_REPORT.md      # Audit findings
+├── BUILD_PLAN.md                # APPROVED PLAN — read this
+├── SYSTEM_AUDIT_2026-07-30.md   # GROUND TRUTH — read this
+├── supabase/
+│   ├── functions/               # Deno/TypeScript edge functions (all 7, reconciled 2026-07-30)
+│   │   ├── airtable-client-sync/      # Airtable Clients → GHL Contacts  [LIVE, healthy]
+│   │   ├── ghl-contact-sync/          # GHL Contacts → Airtable Clients  [LIVE, healthy]
+│   │   ├── airtable-job-created/      # Airtable Jobs → GHL Opportunity (v21, Stage 3)
+│   │   ├── airtable-job-scheduled/    # Stage 6 + Google Calendar + job_events
+│   │   ├── airtable-job-completed/    # Stage 8 → Stripe draft invoice
+│   │   ├── receive-airtable-webhook/  # writes Supabase jobs mirror  [UNAUTHENTICATED]
+│   │   └── push-to-airtable/          # time_entries → Airtable actuals  [dormant, latent bug]
+│   └── migrations/              # RLS + view hardening (2026-07-30)
+├── airtable-automations/        # Airtable Scripting automations (live in base; edit in UI)
+├── schema_overview.md           # Supabase integration notes — NOT the Airtable schema
+├── INTEGRATION_DESIGN.md        # BILL/Gusto integration research + edge-case rules
+├── LostBoys_PricingEngine_ProjectBrief.md
+├── SCHEMA_AUDIT_REPORT.md       # April audit — superseded, has errors
+├── schema_audit.json            # April schema dump — STALE, base has drifted
+└── ghl_field_mapping.md         # 19 GHL opportunity custom field IDs
 ```
 
 ---
 
 ## Edge Functions
 
-All functions are self-contained Deno/TypeScript. No shared utility library — helpers are inline per function.
+All self-contained Deno/TypeScript. No shared utility library — helpers are inline per function.
+Supabase project: `eiqqqwajmcpcwhvxxnhx`.
 
-### `airtable-client-sync`
-Airtable Clients → GHL Contacts. Triggered by Airtable webhook on client create/update. Searches GHL by email or GHL ID, creates or updates contact, writes back GHL Contact ID to Airtable. Logs to `sync_log` and `client_sync_state`.
+| Function | Deploy ver | Purpose |
+|---|---|---|
+| `airtable-client-sync` | 19 | Airtable Clients → GHL Contacts. Handles GHL duplicate-blocked 400 via `meta.contactId`. |
+| `ghl-contact-sync` | 20 | GHL Contacts → Airtable Clients (reverse). |
+| `airtable-job-created` | 21 | Jobs → GHL Opportunity at **Stage 3 only**. 15 custom fields via `buildCustomFields()` using `id:` format. Logs `job_events`. |
+| `airtable-job-scheduled` | 16 | Advances to Stage 6, creates Google Calendar events (main + crew). Slack still a placeholder. |
+| `airtable-job-completed` | 14 | Stage 8 → Stripe **draft** invoice, GHL Stage 9, task for Dane. Slack paused via `SLACK_NOTIFICATIONS_ENABLED = false`. |
+| `receive-airtable-webhook` | 11 | Writes Supabase `jobs` mirror. **No auth.** Only handles `Scheduled`/`Invoiced` — never `Completed`, so the mirror is permanently stale. |
+| `push-to-airtable` | 11 | Aggregates `time_entries` → Airtable actuals. Never run. Latent bug: PATCHes a formula field. |
 
-### `airtable-job-created`
-Airtable Jobs → GHL Opportunities. Triggered by Airtable webhook on job creation. Resolves GHL pipeline/stage/user IDs at cold start. Creates or updates GHL opportunity, sets stage based on "Ready to Schedule" flag, assigns to estimator, writes back GHL Opp ID to Airtable.
+**Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
+sum is below Total Bid, a "Project Total" line is appended for the difference. Fallback with no
+line items: one "Demolition Services" line at Total Bid.
 
-### `airtable-job-scheduled`
-Advances GHL opportunity to "Job Scheduled" stage. Triggered by Airtable webhook when job is ready to schedule. Updates Airtable job status to "Scheduled". Placeholders in place for Google Calendar (pending service account) and Slack crew notifications (pending bot token).
+**Stripe rendering (critical):** For each line item, `POST /products` first, then
+`POST /invoiceitems` with `price_data[product]` = the product ID. **Never** use
+`price_data[product_data]` on `/invoiceitems` — Stripe rejects it.
 
-### `ghl-contact-sync`
-GHL Contacts → Airtable Clients (reverse direction). Triggered by GHL `contact_updated` webhook. Searches Airtable by GHL Contact ID first, then email. Creates or updates Airtable client record, writes back GHL Contact ID and Company ID.
-
-### `airtable-job-completed`
-Stage 8: Job Completed → Stripe invoice draft + Dane notification. Triggered by Airtable Automation when Job Status = "Completed". Fetches job + client + line items from Airtable, resolves or creates Stripe customer, creates draft Stripe invoice (auto_advance: false), writes invoice ID + review URL back to Airtable, advances GHL opportunity to Stage 9 (Invoice Review), creates GHL task for Dane, sends Slack DM to Dane. Slack is non-fatal if token missing. Supabase project: eiqqqwajmcpcwhvxxnhx. **Current deployed version: 10 (deployed 2026-05-08). Slack notification paused via `SLACK_NOTIFICATIONS_ENABLED = false` constant — set to `true` to re-enable.**
-
-**Line items approach (v7):** Fetches Invoice Line Items linked via `fldD6xumylrVQEVMo` on the Jobs table. Each named item appears at its actual amount (including $0 — name and description still render on the invoice). If the sum of line item amounts is less than Total Bid, a "Project Total" line is appended for the difference so the invoice always totals to the Total Bid field value. Fallback: if no line items linked, single "Demolition Services" line at Total Bid. If sum exceeds Total Bid, items are used as-is (warning logged).
-
-**Invoice Line Items are populated by two Airtable Scripting automations** (live in the base as of 2026-05-08):
-- "Create Invoice Line Items from Job" — fires on job creation, creates child records from flat LI fields
-- "Update Invoice Line Items on Job Edit" — fires on flat LI field edits, upserts/soft-deletes child records
-- Scripts: `airtable-automations/create-line-items.js` and `airtable-automations/update-line-items.js`
-- Setup instructions: `airtable-automations/SETUP_INSTRUCTIONS.md`
-
-**Stripe rendering (v6+):** For each line item, first `POST /products` with `name` and `description` to create a Stripe Product. Then `POST /invoiceitems` referencing `price_data[product]` (the product ID). This causes Stripe to render the product name in bold and description in regular text below it on the invoice PDF and hosted page.
-
-**LINE_ITEM_FIELDS constants:**
-- `name`: `fldva3wLkKqJD7t7r`
-- `description`: `fldWGM7wIVac7rxEy`
-- `amount`: `fldR0cBZlSC25CXhq`
-- `quantity`: `fldLP3TR2pveYKFOc`
-- `sortOrder`: `fld5kCTH3LByLIFT8`
-- `includeOnInvoice`: `fldBo2XaZZHFIzJT5`
-
-**IMPORTANT — do NOT use `price_data[product_data]` on `/invoiceitems`:** Stripe's invoiceitems endpoint does not support inline product creation via `product_data`. Always create the product first via `POST /products`, then pass the product ID via `price_data[product]`.
+**`stripe-webhook` (Stages 9–11) is NOT BUILT.** Sandbox endpoint is configured for
+`invoice.sent` and `invoice.paid`. `STRIPE_SECRET_KEY` is currently a **test** key — confirm the
+Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA Integrity's).
 
 ---
 
 ## Supabase Tables
 
-| Table | Purpose |
-|---|---|
-| `sync_log` | Full audit trail of all sync operations |
-| `client_sync_state` | Current state: email, Airtable record ID, GHL contact/company IDs, last sync direction/time |
+| Table | Rows | Purpose |
+|---|---|---|
+| `sync_log` | 668 | Audit trail of all sync operations. Every function writes here — no exceptions. |
+| `client_sync_state` | 280 | Current client sync state |
+| `job_events` | 8 | Stage-transition audit log |
+| `jobs` | 7 | Stale mirror of Airtable Jobs — exists only so `time_entries` has an FK target |
+| `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
+| `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding |
+
+RLS is enabled on all of the above with **no policies by design** — `service_role` has
+`rolbypassrls = true`, so edge functions are unaffected and anon is denied. The views
+`recent_sync_activity` and `sync_errors` are `security_invoker = on` for the same reason.
 
 ---
 
 ## Environment Variables
 
 ```
-AIRTABLE_API_KEY
-AIRTABLE_BASE_ID
-GHL_API_KEY
-GHL_LOCATION_ID
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-AIRTABLE_WEBHOOK_SECRET
-GHL_WEBHOOK_SECRET
-STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET
-SLACK_BOT_TOKEN
+AIRTABLE_API_KEY              GHL_API_KEY              STRIPE_SECRET_KEY
+AIRTABLE_BASE_ID              GHL_LOCATION_ID          STRIPE_WEBHOOK_SECRET
+AIRTABLE_WEBHOOK_SECRET       GHL_WEBHOOK_SECRET       SLACK_BOT_TOKEN
+SUPABASE_URL                  SUPABASE_SERVICE_ROLE_KEY
+GOOGLE_SERVICE_ACCOUNT_KEY    GOOGLE_CALENDAR_MAIN     GOOGLE_CALENDAR_CREW1..4
 ```
 
-See `.env.example` for template.
+`.env` is stale — `AIRTABLE_WEBHOOK_SECRET` does not match Supabase. **Use the Supabase secret
+as authoritative.**
 
 ---
 
 ## Architecture Decisions
 
-- **Fillout owns estimate calculations** (live preview). Airtable stores estimate outputs as plain fields — no formulas. Airtable formula fields own actuals and variance calculations.
-- **Airtable is source of truth.** GHL mirrors status only.
-- **Airtable field IDs are hardcoded** in each edge function for schema stability. If fields change, update the constant at the top of the relevant function.
-- **No GHL record created at Stages 1–2.** Airtable record does not exist until Stage 3 (Estimate in Progress).
-- **Webhook pattern:** All functions validate `x-webhook-secret` header, return structured JSON with 200 (success) or 500 (error).
-- **Cold-start ID resolution:** GHL pipeline, stage, and user IDs are resolved once at function initialization, not per-request.
+- **Airtable field IDs are hardcoded** in each edge function for schema stability. Field *names*
+  have drifted; IDs have not. Always address by ID, never by name.
+- **Webhook pattern:** validate `x-webhook-secret`, return structured JSON, 200 or 500.
+- **Cold-start ID resolution:** GHL pipeline, stage, and user IDs resolve once at init, not
+  per-request.
+- **One function per trigger.** No shared routing logic.
+- **Every function writes to `sync_log`** — success, error, and skipped.
+- Formula, rollup, lookup, linked-record and autonumber fields **cannot be created via the
+  Airtable API** — always flag MANUAL SETUP REQUIRED.
 
 ---
 
@@ -173,27 +251,35 @@ See `.env.example` for template.
 | 12 | Closed Lost / Declined | Dane |
 | 13 | Closed Lost / Cancelled | Dane |
 
-Stages 12 and 13 are distinct — financially different (declined vs. cancelled after acceptance). Rescheduled jobs return to Stage 5, not a separate hold stage.
+Stages 12 and 13 are distinct — financially different (declined vs. cancelled after acceptance).
+Rescheduled jobs return to Stage 5, not a separate hold stage.
 
 ---
 
 ## Key Rules
 
-- **No "10 and 10" markup logic**
+- **No "10 and 10" markup logic** — pricing is margin-divisor: `Base / (1 − margin)`
 - **Field crew leaders = foremen** (not "crew leaders")
-- **Dump-related costs = "Dump Fee"** (not "Disposal Charge")
-- **Path A** = estimate-first workflow; **Path B** = trusted contractor, invoice at completion
-- **Job ID format:** `JOB-XXXX` — universal key across all systems
+- **Dump-related costs = "Dump Fee"** (not "Disposal Charge") — note the live base still uses
+  "Disposal" in five field names
+- **Path A** = estimate-first; **Path B** = trusted contractor, invoice at completion. Both
+  always produce an internal estimate.
+- **Job ID format:** `JOB-XXXX` — universal key across all systems. Use one key format
+  everywhere; today Postgres stores three different things in `job_id` columns.
 
 ---
 
 ## Pricing Benchmarks
 
-- Labor rate: $26/hr
-- Overhead: $23/hr
-- Target margin: 25% floor
-- CC fee: 3%
-- Default dump fee: $300/load
+Labor rate $26/hr · Overhead $23/hr · Target margin 25% floor · CC fee 3% · Dump fee $300/load
+
+True all-in labor cost is $27–29/hr — $26 is conservative, so actual profit is structurally
+overstated by $1–3 per labor hour wherever standard costing is used. The rebuild uses **real
+per-employee pay rates** for actuals, keeping standard rates for estimating only.
+
+Company benchmarks (Project Brief): labor ~63% of revenue, gross margin 40–60%, net 8–15%. Note
+the 40–60% benchmark and the 25% engine target use different denominators and have never been
+reconciled.
 
 ---
 
@@ -206,70 +292,52 @@ Stages 12 and 13 are distinct — financially different (declined vs. cancelled 
 | Jackson | Estimator |
 | Nick | Foreman, Crew 1 |
 | Alex | Foreman, Crew 2 |
-
----
-
-## Open Items (Blocking)
-
-1. ~~**Invoicing architecture**~~ — **RESOLVED.** Direct Stripe integration. `airtable-job-completed` v7 live and verified end-to-end 2026-05-08. Dynamic line items + "Project Total" adjustment logic. Airtable automations live. `stripe-webhook` (Stages 9–11) is the next build.
-2. ~~**Fillout per-line-item dollar amount**~~ — **RESOLVED 2026-05-08.** Fillout form has Unit Price 1/2/3 fields that write to Airtable flat LI fields. Airtable automations pick these up and create Invoice Line Items with actual amounts. v7 edge function renders per-line prices when present; appends "Project Total" for any gap vs. Total Bid.
-3. **`stripe-webhook` function** — NOT YET BUILT. Handles Stages 9–11. Stripe sandbox webhook endpoint configured: listens for `invoice.sent` (Stage 9→10) and `invoice.paid` (Stage 10→11). STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET in Supabase are now sandbox/test keys as of 2026-05-08.
-4. **Divvy Zapier API** — Can Divvy create job tags programmatically? Blocks Phase 4 (actuals integration).
-5. **Cancellation/deposit refund policy** — Deferred. Blocks Stage 5 deposit automation.
-6. **Deposit required policy** — Required for all Residential; optional for established contractors. Deferred.
-7. **Local `.env` stale** — `AIRTABLE_WEBHOOK_SECRET` in `.env` does not match the value in Supabase. Use Supabase secret as authoritative.
+| Brady | Foreman, Crew 3 |
+| Cade | Foreman, Crew 4 |
 
 ---
 
 ## Phase Roadmap
 
-1. Schema completion (in progress)
-2. Invoice automation — Stage 8 live at v7 (dynamic line items + Project Total); stripe-webhook (Stages 9–11) is next
-3. Scope Library auto-generation
-4. Actuals integration (Gusto + Divvy → Airtable)
-5. Fillout form rebuild
-6. Reporting and dashboards
-7. Enhancements
+Per `BUILD_PLAN.md`. Phases 0–4 are the critical path — nothing produces a real profitability
+number until Phase 4, when labor actuals begin to exist.
+
+| Phase | Status |
+|---|---|
+| 0 — Foundation & safety | **Repo reconciliation and RLS hardening DONE 2026-07-30.** Next.js/Vercel skeleton not started. |
+| 1 — Core schema + data migration | Not started. Does not depend on the open decisions — safe to begin. |
+| 2 — Estimating (replaces Fillout calculator) | **Blocked** on decisions 1 and 2 |
+| 3 — Scheduling (Calendar, Slack, BILL job codes) | Not started |
+| 4 — Field capture (crew clock-in, checklists, Gusto push) | Not started |
+| 5 — Expenses (BILL webhooks) | Not started |
+| 6 — Invoicing (direct Stripe, `stripe-webhook`) | Not started |
+| 7 — Profitability (variance engine, job report page) | Not started |
+| 8 — Feedback loop (scope calibration) | Not started |
+| 9 — Reporting dashboard | Not started |
+
+**Parallel running throughout.** Airtable and Fillout keep working until each phase replaces
+them. No big-bang cutover.
 
 ---
 
 ## Pipeline Reference Base — Standing Instructions
 
-The Lost Boys Pipeline Reference base in Airtable is the system of
-record for all build metadata — field IDs, credentials, people IDs,
-and deployment status.
+The Lost Boys Pipeline Reference base in Airtable is the system of record for all build
+metadata — field IDs, credentials, people IDs, and deployment status.
 
-Base ID: appA7uj7FhnPp9Bvg
+**Base ID:** `appA7uj7FhnPp9Bvg`
+**Tables:** Field Registry · Secrets & Credentials · People & IDs · Build Log
 
-Tables:
-- Field Registry — all Airtable field IDs and table IDs
-- Secrets & Credentials — all Supabase secrets and external tokens
-- People & IDs — Slack, GHL, and system IDs for team members
-- Build Log — deployment status and URLs for all edge functions
-
-### STANDING RULE — Required After Every Deploy
+### STANDING RULE — required after every deploy
 
 At the end of every build session, before closing, you MUST:
 
-1. Update the Build Log table:
-   - Set Status to 🟢 Live for any newly deployed functions
-   - Write the confirmed deploy URL to the Deploy URL field
-   - Set Session Date to today's date
-   - Add any relevant notes to the Notes field
+1. **Build Log** — set Status for newly deployed functions, write the confirmed deploy URL, set
+   Session Date, add relevant notes.
+2. **Field Registry** — add any Airtable field IDs created or discovered, with field name, table
+   name, field ID, and purpose.
+3. **Secrets & Credentials** — add any new secrets added to Supabase, Status ✅ Live.
+4. **People & IDs** — add any new team member IDs discovered.
 
-2. Update the Field Registry table:
-   - Add any new Airtable field IDs that were created or discovered
-     during the session
-   - Include the field name, table name, field ID, and purpose
-
-3. Update the Secrets & Credentials table:
-   - Add any new secrets added to Supabase during the session
-   - Set Status to ✅ Live
-
-4. Update the People & IDs table:
-   - Add any new team member IDs discovered during the session
-
-This is not optional. If the session ends without this update, the
-reference base will be stale and future sessions will have incomplete
-information. Always complete the reference base update as the final
-step of every build session, after deployment is confirmed.
+This is not optional. If a session ends without this update, the reference base goes stale and
+future sessions start with incomplete information.
