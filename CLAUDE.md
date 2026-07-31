@@ -456,6 +456,7 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **F — Profitability** | Not started. Variance, job report on the GHL opportunity, change orders, callbacks. |
 | **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
+| **Backlog (BL-1/2/3)** | ⚪ Captured 2026-07-31, **not scheduled.** Equipment maintenance, tool inventory, crew-level P&L + foreman incentive comp. See `BUILD_PLAN.md` → "Backlog — captured, not scheduled". |
 
 Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening. The
 Next.js/Vercel skeleton is **not** started — `package.json` declares only `dotenv`.
