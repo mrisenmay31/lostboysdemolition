@@ -35,6 +35,80 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-07-31 — Business discovery + financial analysis; BUILD_PLAN amended to A–G; four pads found
+**Status:** 🟢 Complete · **Deploys:** none · **Nothing live was touched**
+
+Discovery session, no code. Matt supplied a workflow overview, answered 45 discovery questions in a
+Google Doc, and exported four datasets: Stripe payments, BILL card transactions, Gusto payroll, and
+the GHL invoice list. All analysis is read-only and reproducible from those files.
+
+**New file `DISCOVERY_2026-07-31.md` is now the business ground truth.** It supersedes
+`SYSTEM_AUDIT_2026-07-30.md` wherever they conflict.
+
+#### The finding that matters most
+A deliberate dump-fee pad (**+$221k/yr**) has been almost exactly financing a labor estimating
+shortfall (**−$246k/yr**). Every individual number in the pricing engine is wrong; they cancel to
+roughly +$31k. **This is why nobody ever noticed any of them**, and it is why no pricing input may
+be corrected in isolation — fixing the dump rate alone would strip the buffer covering a
+quarter-million-dollar annual gap.
+
+Measured scale (annualized): ~$1,315k invoiced / ~$1,169k paid · field payroll ~$619k · BILL card
+spend ~$572k · ~712 dump loads at a **$65 median cost** against a ~$388 effective charge.
+
+#### Repo documentation was wrong in five places — all corrected
+- **`CLAUDE.md`'s labor benchmark was backwards.** It claimed true all-in labor is $27–29/hr and
+  that profit is "structurally overstated." Real payroll says **$23.13/hr** — the $26 standard is
+  $2.87 *above* cost and profit is *understated*. (Caveat: excludes workers' comp; ~$25.30 with it.)
+- **`CLAUDE.md`'s margin-divisor rule was never implemented.** The live calculator is cost-plus
+  markup, so an entered 25% realises 19.3% and the "15% floor" is really 12.6%. Cost-plus is
+  *intentional* — a labeling problem, not a pricing bug.
+- **`SYSTEM_AUDIT` §2 describes `Jobs (old)`, not the live base.** The five pricing defaults *are*
+  set; `Price Before Fees` doesn't exist; estimate fields are plain currency; and **there is no
+  `Dump Fee Buffer` field anywhere.** Phase 2's two blocking decisions were framed around fields
+  that don't exist. A correction banner was added to §2.
+- **Roles were wrong.** Dane is owner/founder/president; Jackson is sales/estimator.
+- **Zapier's role is now confirmed** — it runs **website lead form → Slack**. A live dependency; do
+  not retire Zapier blindly. It previously sent the night-before crew message, abandoned as
+  unreliable.
+
+#### BUILD_PLAN.md amended — 0–9 retired, replaced by A–G + Track B
+Defects found in the old numbering: Phase 1's `default_materials_cost` seeding **is not doable**
+(no reference list exists; it's a feedback-loop output); Phase 4's clock-in PWA was premised on
+crews not clocking in, but **they do, reliably**; and the "GHL opportunity = the screen Dane and
+Jackson use" premise is **false today** — GHL isn't used for pipeline tracking at all.
+
+Decisions **resolved**: CC fee (3.5%, cost line, prices held), Dump Fee Buffer ($300 is a *pricing
+rate*, not a cost), `receive-airtable-webhook` (**retire, don't secure** — its only two callers are
+Airtable automations `wflYoupCQ00h2BrVa` and `wfldrRGvkSgRsE3ok`, neither of which sends the
+header). Lead intake, which no phase owned, is now **Track B**.
+
+#### New blocking decision — Phase D
+**Gusto has no project-creation API**; `time_tracking/time_sheets` requires a pre-existing
+`job_uuid`. This reverses an earlier recommendation to skip ClockShark, which assumed clock-in
+could be cheaply rebuilt. Crews already clock in reliably — the *project* is what's missing. Four
+options are in `BUILD_PLAN.md`; nothing in Phase D can be designed until Matt chooses.
+
+#### Defects found, not fixed
+- **BILL:** Job Name populated on only **35.5%** of transactions; 14% of spend uncategorised;
+  ~$6,944 of dump spend mis-tagged (Local Dumpster $5,273 blank, Pay Fulltilt Dump under
+  *Donations*, Round Up Transfer under *Gas*); Little Caesars $4.33 tagged as a dump fee.
+- **GHL:** **$61,150 overdue** across 18 invoices; **46 invoices (17%) carry blank status and $0**;
+  line-item names are uncontrolled free text ("Interior Demolition" 114 vs. "Interior Demo" 30;
+  "Commerical Demo" typo) — **this is why scope-mix data doesn't exist.**
+- **83% of invoices have exactly one line item**, so scope detail lives in prose. Per-scope
+  attribution must come from the estimate side, not the invoice side.
+
+#### Next session needs to know
+- **Phase D is the only blocker.** Everything else is decided.
+- Outstanding asks: example GHL estimates + their matching invoices; Fillout calculator export;
+  what Blue Collar Haulers and Chew It Up Enterprises actually do (Dane) — $19,664 across 7
+  transactions currently distorting per-load dump cost; clarification on client sign-off.
+- **The v21 GHL UI verification dropped in priority** — it was justified by the "GHL is the human
+  surface" premise, which turns out not to hold today.
+- Working plan file (outside the repo): `~/.claude/plans/reactive-knitting-sphinx.md`.
+
+---
+
 ### 2026-07-30 — Repo/origin reconciliation; BUILD_PLAN.md made official; build log moved in-repo
 **Status:** 🟢 Complete · **Deploys:** none · **Ends at:** `721c5c4` plus this closing docs commit, `main`, pushed
 

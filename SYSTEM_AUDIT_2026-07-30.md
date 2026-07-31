@@ -37,6 +37,27 @@ Airtable and the Supabase stage pipeline are scaffolding.
 
 ## 2. The pricing engine has never computed a number
 
+> ## ⚠️ THIS SECTION IS MATERIALLY WRONG — corrected 2026-07-31
+>
+> Verified against the live base, §2 describes **`Jobs (old)`** (`tblUXBjLXbvP8FqYS`), **not** the
+> live `Jobs` table (`tbl6WcLuLL0uUcpI1`). Specifically:
+>
+> - **"Five pricing defaults were never set" — false.** All five rows exist in `Pricing Variables`
+>   (`tblvWpyPs5vrssG9A`), populated and Active since 2026-04-29: Labor $26, Overhead $23, Dump Fee
+>   $300, CC Fee 3%, Target Margin 25%.
+> - **There is no `Price Before Fees` field** on live `Jobs`, and no per-record rate fields. Those
+>   live on `Jobs (old)`.
+> - **Estimate fields on live `Jobs` are plain `currency`, not formulas** — matching the documented
+>   "Fillout owns the math" architecture. Only two derived formulas remain.
+> - **No `Dump Fee Buffer` field exists anywhere in the base.**
+> - The real calculator is a **cost-plus markup**, not the margin-divisor chain described below, and
+>   it uses **3.5%** for the CC fee, not 3%.
+>
+> **Still true:** the two hard-broken variance formulas (`fld5pKKhsSHP5eQVT`, `fld5FnWhKc2yF2JWg`)
+> do exist on live `Jobs`, and the formatting defects below are unverified but plausible.
+>
+> The real pricing engine, and the financial consequences of it, are in `DISCOVERY_2026-07-31.md`.
+
 Three compounding causes:
 
 1. **Estimate fields are Airtable formulas, but the architecture says Fillout owns the math.**

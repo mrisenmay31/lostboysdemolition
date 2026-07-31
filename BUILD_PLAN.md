@@ -2,8 +2,20 @@
 
 > **This is the official plan.** Confirmed by Matt on 2026-07-30. Where any other document
 > disagrees — including `OPS_ROADMAP.md` (2026-07-15), which this supersedes — this file wins.
-> Phase numbering here (0–9) is the canonical numbering; the older 0–10 sequence is retired.
 > Amend this file rather than starting a new plan document.
+>
+> ## ⚠️ AMENDED 2026-07-31 — read `DISCOVERY_2026-07-31.md` first
+>
+> A full discovery pass against the *business* (Matt's workflow overview, 45 answered questions,
+> and four exported datasets — Stripe, BILL, Gusto payroll, GHL invoices) invalidated several
+> assumptions below. **The 0–9 phase numbering is retired and replaced by the A–G + Track B
+> structure in "Revised phases (2026-07-31)".** Sections below that predate the amendment are kept
+> for provenance and are marked where superseded.
+>
+> **The single most important finding:** a deliberate dump-fee pad (~$221k/yr) has been almost
+> exactly financing a labor estimating shortfall (~$246k/yr). Every number in the pricing engine is
+> wrong; they cancel. **No pricing input may be corrected in isolation, and no quoted price may
+> move.** See `DISCOVERY_2026-07-31.md` §7.
 
 ## Context
 
@@ -71,7 +83,19 @@ Key points:
 
 ---
 
-## Phases
+## Phases 0–9 — ⚠️ SUPERSEDED 2026-07-31
+
+> **Retired by "Revised phases (2026-07-31)" above.** Kept for provenance. Do not plan from this
+> numbering. Known defects found during discovery:
+> - Phase 1's "seed `scope_library.default_materials_cost`" **is not doable** — no reference list
+>   exists, materials are estimated from experience, and the field is empty on all 19 scopes. It is
+>   a Phase G *output*, not a migration input.
+> - Phase 2's two blocking decisions were framed around a `Dump Fee Buffer` field and a broken
+>   formula chain that **do not exist in the live base** (both belong to `Jobs (old)`).
+> - Phase 4's crew clock-in PWA was premised on crews not clocking in. **They do, reliably** — the
+>   failure is Gusto project creation, which has no API.
+> - The "GHL opportunity = headline numbers + links" premise is **false today**; GHL is not used for
+>   pipeline tracking at all.
 
 Each phase ends in something usable. Phases 1–4 are the critical path to a real profitability number.
 
@@ -157,13 +181,121 @@ Each phase ends in something usable. Phases 1–4 are the critical path to a rea
 
 ---
 
-## Open decisions needed from Matt
+## Revised phases (2026-07-31) — CANONICAL
 
-1. **Credit card fee** — cost line or pass-through? (Affects every reported margin.)
-2. **Dump Fee Buffer** — priced in, or informational? (Currently computed and used nowhere.)
-3. **Deposit policy** — percentage or fixed, and the threshold. (Deferred since May; blocks deposit automation.)
-4. **Scope calibration rules** — minimum sample size, median vs trimmed mean, Path B inclusion.
-5. **Gusto add-on** — drop the time-tracking/project add-on once Phase 4 ships? (Offsets build cost.)
+Two tracks. **Track B is configuration only and runs in parallel** — it does not compete for build
+capacity. Rationale and evidence for every item: `DISCOVERY_2026-07-31.md`.
+
+### Phase A — The job record (the keystone) ⭐ START HERE
+Nothing downstream works without it, and it makes automation **already built and paid for** finally
+fire. The recurring theme of discovery: working automation exists (Calendar creation, Stripe invoice
+rendering, client sync) but receives no traffic because no job record exists early enough to
+trigger it.
+- Postgres `jobs` with `JOB-XXXX` and a **standardised job name format**. Matt: standardising the
+  job name "would be very important" — crews currently cannot tell which job is theirs, which is a
+  direct cause of missing time attribution.
+- Created at estimate acceptance / scheduling; propagates one key to Google Calendar, Slack, BILL,
+  Gusto, Stripe, GHL. Today `job_events.job_id` holds record IDs while `jobs.airtable_job_id` holds
+  `JOB-1005` — nothing joins.
+- Reuse `airtable-job-scheduled/index.ts:164` (`getGoogleAccessToken`) — proven and verified.
+- Finish the Slack crew notification (`SLACK_PLACEHOLDER`; secrets already provisioned). Today the
+  night-before message is typed by hand.
+
+### Phase B — Estimate builder (kill the rekeying)
+- Reproduce today's math **exactly**: markup (not margin divisor), CC fee **3.5%**, dump **$300/load
+  as a pricing rate**, labor `$26 × hrs` or `$26 × emp × 8 × days`, overhead `$23 ×` same basis.
+- Per-job markup override, default 25%, floor 15%.
+- **Push the estimate into GHL with line items** — removes the rekeying Dane independently named as
+  a huge friction point on 2026-07-31. Nearly everything is retyped today, daily.
+- **Source line-item names from `Scope Library`.** Free-text names are why scope-mix data does not
+  exist ("Interior Demolition" 114 vs. "Interior Demo" 30; "Commerical Demo" typo).
+- Report *true margin* alongside the markup. Capture guideline price vs. quoted price — the discount
+  by estimator and client type is data that does not exist today.
+
+### Phase C — Expenses + dump counts (BILL)
+- BILL `Lost Boys Job ID` custom field (`CUSTOM_SELECTOR`, `allowCustomValues: true`); codes created
+  in Phase A. Webhook → `expenses`. Filter `transactionType = CLEAR` only, skip split parents,
+  refunds negative, untagged → review queue (rules in `INTEGRATION_DESIGN.md`).
+- **One transaction = one dump load (confirmed)** — this single integration delivers dump *cost* and
+  dump *count* together. No foreman form change needed.
+- **Make Job Name required** on job-cost budgets. Currently 35.5% fill; Matt confirms coding gets
+  skipped even when a code exists, so availability alone will not fix it.
+- Split hauling services (Blue Collar, Chew It Up, Local Dumpster, Intermountain Dumpsters) out of
+  `Dump Fees` — *pending Dane's confirmation of what those vendors do.*
+
+### Phase D — Time tracking ⚠️ BLOCKED ON DECISION
+**Gusto has no project-creation API** — `POST /time_tracking/time_sheets` requires a pre-existing
+`job_uuid`. Crews already clock in reliably; the failure is that the project must exist and cannot
+be created programmatically. Options in "The one open decision" below.
+
+### Phase E — Invoicing
+- Direct Stripe draft on completion; port the proven two-step rendering from
+  `airtable-job-completed/index.ts:337` — `POST /products` then `POST /invoiceitems` with
+  `price_data[product]`. **Never** `price_data[product_data]`.
+- Build `stripe-webhook` (never built): `invoice.sent` → Sent, `invoice.paid` → Paid.
+- Stripe native auto-reminders (config) + weekly Slack AR digest. **$61,150 currently sits overdue
+  across 18 invoices**; Matt personally chases AR; contractors run net 30, large commercial net 60.
+- **Synder → QBO.** Priority raised: invoice-level detail never reaches QuickBooks today, so books
+  are reconciled from bank activity and there is no job- or client-level revenue in the ledger.
+- **Go-live gate:** `STRIPE_SECRET_KEY` is a *test* key. Confirm the Lost Boys live account.
+
+### Phase F — Profitability
+- Variance vs. the accepted estimate: labor (efficiency + rate, using real `users.hourly_rate`),
+  dump loads, materials, revenue, profit.
+- **Job report page surfaced on the GHL opportunity.**
+- Change-order capture — ~35% of jobs, typically thousands of dollars. Leakage is low (<10%), so
+  this is *attribution*, not revenue recovery: an untracked $3k change order makes estimate-vs-actual
+  meaningless on that job.
+- Callbacks table — rework hours hit job profitability.
+
+### Phase G — Feedback loop & reporting
+- Per-scope calibration from `measured` actuals; human review queue; versioned `scope_library`.
+- **`default_materials_cost` is seeded here, from actuals** — not during migration (see below).
+- **Dump variance must be two separate numbers:** load-count variance (feeds calibration, never
+  touches price) and dump-cost variance (feeds margin reporting). Because the pad absorbs load-count
+  error, nobody ever *feels* a bad estimate — so the signal must be measured deliberately.
+
+### Track B — Lead intake (config only, parallel, start now)
+Confirmed the biggest business pain. No system tracks leads — "it's all done by memory" — and no
+record exists until an estimate does, which is also why there is no win-rate or turnaround data.
+- **Grasshopper already handles voice *and* SMS**, is the publicly listed number, and routes to
+  Jackson's phone (~6 months). **A port may be unnecessary** — decide: route Grasshopper into GHL,
+  or port it.
+- Inbound contact → auto-create opportunity at Stage 1. Stale-lead alarm at 24h.
+- Website form currently → Slack via **Zapier**. **Live dependency — do not retire Zapier blindly.**
+- **Denial reason and scope mix** are the only two metrics Matt named as decision-changing.
+  **One tap, or it will not happen.**
+
+---
+
+## The one open decision — Phase D
+
+Everything else is decided. Time tracking cannot be designed around until Matt chooses.
+
+1. **Foreman confirms crew + hours on the existing Job Completed form.** Near-zero build, no new
+   app, no subscription, no habit change. Job-level hours × real pay rates, cross-checked against
+   Gusto's clocked payroll totals — automating the manual reconciliation that "was extremely
+   valuable" before the VA left. *Buys most of the value; real data can later prove whether the rest
+   is worth paying for.*
+2. **ClockShark** — API auto-creates jobs at scheduling and syncs to Gusto for payroll.
+   Budget approved, but realistically $180–250/mo at ~20–22 seats. Risks a clock-in habit that
+   currently works.
+3. **Build our own clock-in PWA** — largest build; payroll path unresolved because the Gusto
+   timesheet endpoint also requires a pre-existing `job_uuid`.
+4. **Standardise Gusto project names + assign an owner** — zero build, but re-creates exactly the
+   human dependency that already failed once.
+
+## Open decisions — status as of 2026-07-31
+
+| # | Decision | Status |
+|---|---|---|
+| 1 | Credit card fee | ✅ **Resolved** — 3.5%, booked as a cost line. Hold prices constant. The Airtable `Pricing Variables` row at 3% is stale and read by nothing. |
+| 2 | Dump Fee Buffer | ✅ **Resolved** — $300/load is a **pricing rate**, not a cost. Priced in as-is; real per-load cost tracked separately from BILL. The field never existed in the base. |
+| 3 | Deposit policy | ⚪ Open, now decidable — 39 jobs over $5,000 = **21% of jobs but 57% of revenue.** A $5k threshold would be well-targeted. |
+| 4 | Scope calibration rules | ⚪ Open — proposed defaults: min 5 `measured` jobs; median until n≥8 then trimmed mean; exclude Path B initially. Phase G. |
+| 5 | Gusto add-on | ⚪ Verify, don't decide — the add-on may be required to *accept* timesheet pushes. Confirm before cancelling. |
+| 6 | **Phase D — time tracking** | 🔴 **BLOCKING** (above) |
+| 7 | Lead intake — Grasshopper vs. port into GHL | ⚪ Open (Track B) |
 
 ---
 
@@ -199,6 +331,22 @@ the Gusto add-on question changes shape.
 
 **Action:** fold each of these into a phase, or record an explicit decision to drop it. Until
 then this section is the only record that they were ever decided.
+
+### Status after discovery, 2026-07-31
+
+| Item | Resolution |
+|---|---|
+| **QuickBooks Online via Synder** | ✅ **Keep — priority raised.** QBO exists but invoice-level detail never reaches it; books are reconciled from bank activity. Folded into **Phase E**. |
+| **Port the number into GHL / A2P** | ⚪ **Reshaped.** A **Grasshopper** number already exists (~6 months, publicly listed, voice *and* SMS, routes to Jackson). A port may be unnecessary. Now owned by **Track B**. |
+| **Client sign-off at completion** | ⚪ Still wanted (Matt). A client-approval checkbox already exists on the Job Completed form. Answer was ambiguous — **needs clarification.** Folded into Phase A/E. |
+| **Callback tracking** | ✅ **Keep.** Not tracked today; happens often enough to matter to job profitability. Folded into **Phase F**, and a `callbacks` table must be in the initial schema — cheap now, expensive to retrofit. |
+| **Stripe native invoice reminders** | ✅ **Keep, plus AR digest.** $61,150 currently overdue across 18 invoices. Folded into **Phase E**. |
+| **ClockShark vs. in-house clock-in** | 🔴 **Reopened and now blocking** — see "The one open decision". An earlier recommendation to skip ClockShark assumed clock-in could be cheaply rebuilt; the Gusto project-API constraint kills that assumption. |
+| **Airtable-centric source of truth** | ✅ Superseded — Postgres, unchanged. |
+| **Weekly Divvy CSV import** | ✅ Superseded — BILL v3 webhooks (Phase C), unchanged. |
+
+**Lead intake, which no phase covered, is now Track B.** Confirmed as the biggest business pain:
+no system tracks leads, and no record exists until an estimate does.
 
 ## Risks
 

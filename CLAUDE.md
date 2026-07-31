@@ -9,8 +9,9 @@
 
 | File | What it is |
 |---|---|
-| `SYSTEM_AUDIT_2026-07-30.md` | **Ground truth.** Live state of Airtable, Supabase, and this repo. Read before trusting any other doc. |
-| `BUILD_PLAN.md` | **THE OFFICIAL PLAN.** Greenfield Postgres rebuild, phased 0–9. Confirmed by Matt 2026-07-30. Where any other document disagrees, this one wins. Amend it rather than starting a new plan doc. |
+| `DISCOVERY_2026-07-31.md` | **READ FIRST. Business ground truth.** Real pricing formulas, and the financial analysis of Stripe, BILL, Gusto payroll, and GHL invoices. Supersedes the audit wherever they conflict. |
+| `SYSTEM_AUDIT_2026-07-30.md` | **Systems ground truth.** Live state of Airtable, Supabase, and this repo. **§2 is materially wrong** — it describes `Jobs (old)`, not the live base. See discovery §8. |
+| `BUILD_PLAN.md` | **THE OFFICIAL PLAN**, amended 2026-07-31. Phase numbering is now **A–G + Track B**; the 0–9 sequence is retired. Amend it rather than starting a new plan doc. |
 
 Several older docs in this repo describe a system that does not exist. `schema_overview.md`
 contains no Airtable schema despite being cited elsewhere as the schema reference. The
@@ -60,13 +61,17 @@ Airtable Jobs pipeline and the Supabase stage functions are scaffolding.
 
 ## Open decisions blocking work
 
-| # | Decision | Blocks |
+Updated 2026-07-31. Decisions 1 and 2 are **resolved**; a new blocker replaced them.
+
+| # | Decision | Status |
 |---|---|---|
-| 1 | **Credit-card fee: cost line or pass-through?** Currently a 25% target reports as 27.25%. | Phase 2 — affects every margin number |
-| 2 | **Dump Fee Buffer: priced in or informational?** Computed, referenced by nothing. | Phase 2 |
-| 3 | Deposit policy — percentage or fixed, and threshold | Phase 3 |
-| 4 | Scope calibration rules — sample size, median vs trimmed mean, Path B inclusion | Phase 8 |
-| 5 | Drop the Gusto time-tracking add-on once crew clock-in ships? | Phase 4 (cost offset) |
+| 1 | Credit-card fee | ✅ **Resolved** — 3.5%, booked as a cost line, prices held constant. The Airtable `Pricing Variables` row at 3% is stale and read by nothing. |
+| 2 | Dump Fee Buffer | ✅ **Resolved** — $300/load is a **pricing rate**, not a cost; priced in as-is, real per-load cost tracked separately from BILL. The field never existed in the live base. |
+| 3 | **Phase D — time tracking** | 🔴 **BLOCKING.** Gusto has **no project-creation API** (`time_tracking/time_sheets` requires a pre-existing `job_uuid`). Crews already clock in reliably; the project is what's missing. Four options in `BUILD_PLAN.md`. |
+| 4 | Deposit policy | ⚪ Open, now decidable — 39 jobs over $5,000 = **21% of jobs, 57% of revenue.** |
+| 5 | Scope calibration rules | ⚪ Open — Phase G. Proposed: min 5 `measured`; median until n≥8 then trimmed mean. |
+| 6 | Gusto add-on | ⚪ Verify, don't decide — may be required to *accept* timesheet pushes. |
+| 7 | Lead intake — route Grasshopper into GHL, or port it | ⚪ Open (Track B) |
 
 Also pending: whether to add the missing `x-webhook-secret` check to `receive-airtable-webhook`
 (live endpoint, currently unauthenticated).
@@ -155,8 +160,12 @@ edge functions `receive-airtable-webhook` / `push-to-airtable`.
 ### Current (live until replaced)
 
 Airtable (9 tables), GHL, Supabase Edge Functions, Fillout, Gusto, BILL/Divvy, Stripe, Slack,
-Google Calendar. **Zapier's actual role is unverified** — it is listed as retired below, but no
-one has confirmed what, if anything, it still runs. Confirm before assuming it carries traffic.
+Google Calendar, **Grasshopper** (public business number, voice + SMS, ~6 months, routes to
+Jackson's phone).
+
+**Zapier's role is now confirmed (2026-07-31): it runs the website lead form → Slack.** That is a
+**live dependency — do not retire Zapier blindly.** It previously also sent the night-before crew
+Slack message; that was abandoned as unreliable and is typed by hand today.
 
 ---
 
@@ -164,8 +173,9 @@ one has confirmed what, if anything, it still runs. Confirm before assuming it c
 
 ```
 /
-├── BUILD_PLAN.md                # THE OFFICIAL PLAN — read this
-├── SYSTEM_AUDIT_2026-07-30.md   # GROUND TRUTH — read this
+├── DISCOVERY_2026-07-31.md      # BUSINESS GROUND TRUTH — read this FIRST
+├── BUILD_PLAN.md                # THE OFFICIAL PLAN (amended 2026-07-31) — read this
+├── SYSTEM_AUDIT_2026-07-30.md   # SYSTEMS ground truth — §2 is wrong, see discovery §8
 ├── BUILD_LOG.md                 # Deploy + session history — append an entry every session
 ├── NEXT_SESSION_PROMPT.md       # Ephemeral copy-paste handoff; regenerate each session
 ├── supabase/
@@ -375,7 +385,12 @@ Rescheduled jobs return to Stage 5, not a separate hold stage.
 
 ## Key Rules
 
-- **No "10 and 10" markup logic** — pricing is margin-divisor: `Base / (1 − margin)`
+- **Pricing is cost-plus MARKUP, not a margin divisor.** ⚠️ Corrected 2026-07-31. The rule here used
+  to say margin-divisor `Base / (1 − margin)`; that chain was specified and **never implemented**.
+  The live Fillout calculator computes `(Total Direct + Overhead) × (Profit % / 100)` and adds it —
+  so an entered 25% realises **19.3%** of revenue and the "15% floor" is really 12.6%. **Dane and
+  Jackson intend cost-plus**, so this is a labeling problem: rename the field, report true margin
+  alongside, change no prices.
 - **Field crew leaders = foremen** (not "crew leaders")
 - **Dump-related costs = "Dump Fee"** (not "Disposal Charge") — note the live base still uses
   "Disposal" in five field names
@@ -388,15 +403,27 @@ Rescheduled jobs return to Stage 5, not a separate hold stage.
 
 ## Pricing Benchmarks
 
-Labor rate $26/hr · Overhead $23/hr · Target margin 25% floor · CC fee 3% · Dump fee $300/load
+Labor rate $26/hr · Overhead $23/hr · **Markup** 25% (per-job, floor 15%) · CC fee **3.5%** ·
+Dump **$300/load charged**
 
-True all-in labor cost is $27–29/hr — $26 is conservative, so actual profit is structurally
-overstated by $1–3 per labor hour wherever standard costing is used. The rebuild uses **real
-per-employee pay rates** for actuals, keeping standard rates for estimating only.
+**Corrected 2026-07-31 from real payroll — the previous entry here was backwards.** True all-in
+field labor is **$23.13/hr** (25 crew, 15,613 productive hours, $361,188 employer cost, Jan–Jul
+2026). The $26 standard sits **$2.87/hr *above* cost**, so profit is *understated*, not overstated.
+*Caveat: Gusto's employer cost excludes workers' comp; at ~10% of payroll true cost is nearer
+$25.30 — confirm from the policy before treating the gap as real.* The rebuild still uses **real
+per-employee pay rates** for actuals.
 
-Company benchmarks (Project Brief): labor ~63% of revenue, gross margin 40–60%, net 8–15%. Note
-the 40–60% benchmark and the 25% engine target use different denominators and have never been
-reconciled.
+**The 25% vs. 40–60% margin conflict is now reconciled** — it was four pads running in opposite
+directions: dump (+$221k/yr), CC fee (+$15k), labor rate (+$41k), against a labor-hours shortfall
+(−$246k/yr). **The dump pad has been financing the labor shortfall.** Net ≈ +$31k. Full derivation
+in `DISCOVERY_2026-07-31.md` §7.
+
+⚠️ **No pricing input may be corrected in isolation, and no quoted price may move.** Correcting the
+dump rate alone would strip out the buffer covering a ~$246k annual gap. Every fix is a *reporting*
+change; repricing is Dane's separate decision, made once, on real data.
+
+Measured scale (annualized): **~$1,315k invoiced / ~$1,169k paid**; field payroll ~$619k; BILL card
+spend ~$572k; ~712 dump loads at a **$65 median actual cost** against a ~$388 effective charge.
 
 ---
 
@@ -404,9 +431,9 @@ reconciled.
 
 | Person | Role |
 |---|---|
-| Matt Risenmay | CFO (CTA Integrity) — architecture + financial oversight |
-| Dane | Estimator/Office — owns GHL, invoice review, scheduling |
-| Jackson | Estimator |
+| Matt Risenmay | CFO (CTA Integrity) — architecture + financial oversight; chases AR |
+| Dane | **Owner, founder, president** — estimates, invoice review/send, scheduling, on-site QA |
+| Jackson | **Sales / estimator** — estimates, sells, picks up website leads, review requests |
 | Nick | Foreman, Crew 1 |
 | Alex | Foreman, Crew 2 |
 | Brady | Foreman, Crew 3 |
@@ -416,9 +443,26 @@ reconciled.
 
 ## Phase Roadmap
 
-Per `BUILD_PLAN.md`, the official plan — this 0–9 numbering is canonical, and the retired
-`OPS_ROADMAP.md` 0–10 numbering must not be used. Phases 0–4 are the critical path; nothing
-produces a real profitability number until Phase 4, when labor actuals begin to exist.
+⚠️ **The 0–9 numbering below is RETIRED as of 2026-07-31**, along with `OPS_ROADMAP.md`'s 0–10.
+The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revised phases (2026-07-31)".
+
+| Phase | Status |
+|---|---|
+| **A — The job record (keystone)** | ⭐ **START HERE.** Not started. Standardised `JOB-XXXX` propagated to Calendar, Slack, BILL, Gusto, Stripe, GHL. Makes already-built automation finally fire. |
+| **B — Estimate builder** | Not started. Kills the Fillout→GHL rekeying Dane named as a huge friction point. Must reproduce today's prices to the cent. |
+| **C — Expenses + dump counts (BILL)** | Not started. One transaction = one dump load, so this delivers cost *and* count. |
+| **D — Time tracking** | 🔴 **Blocked** on the open decision. |
+| **E — Invoicing** | Not started. Direct Stripe, `stripe-webhook`, AR digest, Synder→QBO. |
+| **F — Profitability** | Not started. Variance, job report on the GHL opportunity, change orders, callbacks. |
+| **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
+| **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
+
+Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening. The
+Next.js/Vercel skeleton is **not** started — `package.json` declares only `dotenv`.
+
+### Superseded 0–9 numbering (provenance only)
+
+Phases 0–4 were the critical path; nothing produced a real profitability number until Phase 4.
 
 | Phase | Status |
 |---|---|
