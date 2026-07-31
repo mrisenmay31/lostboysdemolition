@@ -268,6 +268,80 @@ record exists until an estimate does, which is also why there is no win-rate or 
 
 ---
 
+## Backlog — captured, not scheduled
+
+Raised by Dane on 2026-07-31. **None of these are in the A–G critical path and none should be
+started now.** They are recorded here so the schema decisions they depend on get made early —
+each one is cheap to accommodate in the initial Postgres design and expensive to retrofit, in the
+same way `callbacks` was.
+
+### BL-1 — Equipment maintenance tracking
+Track service and repair against each piece of equipment (trucks, trailers, skid steers, small
+machines) rather than letting it disappear into card spend.
+
+- **Why it's backlogged, not dropped:** equipment repair already flows through BILL card spend
+  (~$572k/yr total) with no equipment dimension, so nobody can see cost-per-machine, spot a unit
+  that is failing, or plan replacement. It is a reporting gap, not an operational failure.
+- **Schema hook to reserve now:** an `equipment` table (unit, class, acquisition date/cost,
+  assigned crew) and an optional `expenses.equipment_id`. Adding the column later means recoding
+  historical transactions by hand.
+- **Capture surface:** the foreman completion checklist rebuilt in Phase A/D is the only field
+  form with a reliable habit behind it. Hour meters, damage reports, and "this unit needs service"
+  belong there — one tap — not in a separate app.
+- **Depends on:** Phase C (BILL expense ingestion) for the cost side.
+- **Open questions:** is there an existing equipment list anywhere, and who owns the maintenance
+  schedule today? Assume neither exists until confirmed.
+
+### BL-2 — Tool inventory
+Know what tools exist, which crew has them, and what is being lost or replaced.
+
+- **Why it's backlogged:** tool attrition is a real recurring cost buried in card spend, and it is
+  also a crew-accountability signal — which makes it a natural input to BL-3.
+- **Schema hook to reserve now:** `tools` (or a `class = 'tool'` partition of `equipment`) plus a
+  `tool_assignments` ledger keyed to `crew_id`. Assignment is per-crew, not per-employee — crews
+  are the unit that already exists everywhere else in this system.
+- **Capture surface:** same as BL-1 — the foreman checklists, at job start and job completion.
+  A separate check-in/check-out app will not get used; the checklists already do.
+- **Design constraint:** anything requiring a foreman to enumerate a full tool list per job will
+  fail. Scope this to exceptions only — what left, what came back short, what broke.
+- **Depends on:** nothing hard. Could be built any time after Phase A, at low cost.
+
+### BL-3 — Crew-level P&L and foreman incentive comp
+Run each crew as a business unit: allocate the foreman's cost to their crew, produce a per-crew
+P&L visible in near-real-time, and bonus foremen on their crew's financial performance.
+
+- **Why Dane wants it:** it converts profitability from a back-office number into something the
+  four foremen (Nick, Alex, Brady, Cade) can see and act on daily.
+- **This is mostly free once Phase F lands.** Crew is already a first-class dimension throughout
+  the system — `crews`, per-crew Google Calendars, per-crew Slack channels, `Crew 1–4` on the job
+  record. Phase F computes job-level revenue, labor, dump, and materials variance; a per-crew P&L
+  is that same data grouped by `jobs.crew_id`. The *reporting* is a small increment.
+- **What is genuinely new work:** allocating costs that are not job-level — foreman salary,
+  truck/equipment cost (BL-1), tool replacement (BL-2), and an overhead share. The allocation
+  basis has to be decided deliberately (per productive hour, per job, per revenue dollar) because
+  it determines who looks profitable.
+- **Depends on:** Phase D (time tracking — without per-crew hours there is no labor actual, and
+  therefore no crew P&L) and Phase F (variance engine). **Phase D is currently blocking**, so
+  BL-3 cannot start regardless of priority.
+
+> ⚠️ **Do not bonus on absolute crew margin.** The discovery finding in
+> `DISCOVERY_2026-07-31.md` §7 makes this a live hazard: a dump-fee pad (~+$221k/yr) is financing
+> a labor estimating shortfall (~−$246k/yr). Crew margin therefore moves with **how a job was
+> priced** — dump-heavy jobs carry the pad, labor-heavy jobs carry the shortfall — far more than
+> with how well the crew ran it. Bonusing on absolute margin would pay foremen for the estimator's
+> mix, and would give them an incentive to prefer dump-heavy work.
+>
+> The defensible basis is **variance against the accepted estimate** — hours vs. estimated hours,
+> loads vs. estimated loads — which is what the crew actually controls, plus a quality gate
+> (callbacks, rework hours). Confirm the pricing distortion is corrected or explicitly neutralised
+> in the allocation before any dollar is attached to these numbers.
+
+**Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
+Phase A. BL-3 should not be attempted before Phase F, and paying against it should not happen
+until Phase G has enough `measured` history to make the variance numbers trustworthy.
+
+---
+
 ## The one open decision — Phase D
 
 Everything else is decided. Time tracking cannot be designed around until Matt chooses.
