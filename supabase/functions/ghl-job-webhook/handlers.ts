@@ -6,6 +6,7 @@
 // ============================================================
 
 import { buildJobName, clientLabel, parseCity } from "../_shared/job.ts";
+import { addOneDay, formatCurrency } from "../_shared/google.ts";
 import { writeJobEvent, writeSyncLog } from "../_shared/log.ts";
 
 // ── GHL custom field IDs — sourced from field_mapping.md (repo root) ─────────
@@ -161,11 +162,18 @@ async function respondSkipped(
 ): Promise<HandlerResult> {
   const retry = await retryGhlWriteBack(deps, opportunityId, job);
 
+  // Cleanup (controller ruling, fix round 2, I8b): sync_log used to hardcode
+  // action_taken:'skipped'/status:'success' regardless of retry outcome, while
+  // job_events correctly recorded 'error' on a failed retry — the two writes
+  // disagreed about whether anything went wrong. sync_log now reflects the
+  // same degraded outcome: action_taken:'updated' (a GHL write-back was
+  // attempted) with status/error_message aligned to the retry result.
   await writeSyncLog(supabase, {
     direction: "ghl_to_supabase",
     trigger_event: "quote_accepted",
-    action_taken: "skipped",
-    status: "success",
+    action_taken: "updated",
+    status: retry.status === "success" ? "success" : "error",
+    error_message: retry.status === "failed" ? `GHL PUT retry failed (non-fatal): ${retry.error}` : null,
     payload_in: deps.payloadIn,
   });
   await writeJobEvent(supabase, {
@@ -484,6 +492,540 @@ export async function handleQuoteAccepted(
       job_number: null,
       stage_from: null,
       stage_to: 5,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary: "Aborted — unexpected error",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    return { status: 500, body: { success: false, error: msg } };
+  }
+}
+
+// ============================================================
+// ── handleJobScheduled — deps-injected orchestration (Task 4) ──────────────
+// ============================================================
+
+// ── GHL custom field IDs — sourced from ghl_field_mapping.md / field_mapping.md
+// (repo root), Group 3 — Scheduling ───────────────────────────────────────
+export const CREW_FIELD_ID = "fZ0oA8LnX0mK1k2or4Yi";
+export const START_DATE_FIELD_ID = "j62a5w1P2v0YvgZ3dI6z";
+export const END_DATE_FIELD_ID = "5SplCgVz5cocqIX21RQs";
+
+// ── Pure extraction / validation helpers ────────────────────────────────────
+
+export function normalizeCrew(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+const SCHEDULE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** GHL date custom fields may arrive as bare YYYY-MM-DD or an ISO timestamp;
+ *  take the date portion and validate it's a real calendar date. Anything
+ *  else (unparseable, non-string, Feb 30) becomes null rather than throwing
+ *  — the schedule guard treats a null start date as "not set". Per the
+ *  brief: if the live GHL format differs from YYYY-MM-DD, that surfaces at
+ *  live-verification, not here. */
+export function normalizeScheduleDate(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const datePart = trimmed.slice(0, 10);
+  if (!SCHEDULE_DATE_RE.test(datePart)) return null;
+  const [y, m, d] = datePart.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return datePart;
+}
+
+export interface ScheduleFields {
+  crew: string | null;
+  startDate: string | null;
+  endDate: string | null;
+}
+
+export function extractScheduleFields(opp: any): ScheduleFields {
+  const customFields = opp?.customFields ?? opp?.custom_fields;
+  return {
+    crew: normalizeCrew(getCustomFieldValue(customFields, CREW_FIELD_ID)),
+    startDate: normalizeScheduleDate(getCustomFieldValue(customFields, START_DATE_FIELD_ID)),
+    endDate: normalizeScheduleDate(getCustomFieldValue(customFields, END_DATE_FIELD_ID)),
+  };
+}
+
+export interface ScheduleGuardResult {
+  skip: boolean;
+  reason?: string;
+}
+
+/** Schedule-path guard (controller ruling): a job row must already exist for
+ *  this opportunity (created by quote_accepted) before anything else runs,
+ *  and Crew + Start Date must both be populated on the opportunity. Both
+ *  failure modes are explicit 200 skips, not errors — a job not yet existing
+ *  or not yet fully assigned is expected, ordinary state. */
+export function shouldSkipSchedule(
+  job: { id: string } | null,
+  fields: ScheduleFields,
+): ScheduleGuardResult {
+  if (!job) {
+    return { skip: true, reason: "no job record — was Quote Accepted skipped?" };
+  }
+  if (!fields.crew || !fields.startDate) {
+    return { skip: true, reason: "crew or start date not set" };
+  }
+  return { skip: false };
+}
+
+// ── Crew → env-key resolution (shared shape for calendar + Slack maps) ──────
+
+export type CrewEnvKey = "crew1" | "crew2" | "crew3" | "crew4";
+
+const CREW_ENV_KEY_MAP: Record<string, CrewEnvKey> = {
+  "crew 1": "crew1",
+  "crew 2": "crew2",
+  "crew 3": "crew3",
+  "crew 4": "crew4",
+};
+
+/** Case-insensitive/trimmed match — pattern airtable-job-scheduled/index.ts:64. */
+export function resolveCrewEnvKey(crew: string | null): CrewEnvKey | null {
+  if (!crew) return null;
+  return CREW_ENV_KEY_MAP[crew.trim().toLowerCase()] ?? null;
+}
+
+// ── Calendar event body ──────────────────────────────────────────────────────
+
+export interface ScheduleJobInput {
+  job_name: string;
+  client_name: string | null;
+  job_address: string | null;
+  estimate_value: number | null;
+  crew: string | null;
+  start_date: string;
+  end_date: string | null;
+}
+
+/** Client, estimate value, crew, address — omit any line whose value is
+ *  null/empty. No scope/line-items section (that arrives in Phase B). */
+export function buildCalendarDescription(job: ScheduleJobInput): string {
+  const lines: string[] = [];
+  if (job.client_name) lines.push(`Client: ${job.client_name}`);
+  if (job.estimate_value != null) lines.push(`Estimate: ${formatCurrency(job.estimate_value)}`);
+  if (job.crew) lines.push(`Crew: ${job.crew}`);
+  if (job.job_address) lines.push(`Address: ${job.job_address}`);
+  return lines.join("\n");
+}
+
+export function buildCalendarEventBody(job: ScheduleJobInput): {
+  summary: string;
+  description: string;
+  start: { date: string };
+  end: { date: string };
+} {
+  const effectiveEnd = job.end_date || job.start_date;
+  return {
+    summary: job.job_name,
+    description: buildCalendarDescription(job),
+    start: { date: job.start_date },
+    end: { date: addOneDay(effectiveEnd) },
+  };
+}
+
+// ── Slack message ────────────────────────────────────────────────────────────
+
+function formatScheduleDate(yyyyMmDd: string): string {
+  const [y, m, d] = yyyyMmDd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  const weekday = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
+  const month = dt.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
+  return `${weekday} ${month} ${d}`;
+}
+
+/** Exact template per controller ruling — omit 📍/👤 lines when null; no
+ *  🕗/📞 (those fields don't exist on the jobs row). */
+export function buildSlackScheduleMessage(job: {
+  job_name: string;
+  start_date: string;
+  job_address: string | null;
+  client_name: string | null;
+}): string {
+  const lines = [
+    `🏗️ New job scheduled: ${job.job_name}`,
+    `📅 ${formatScheduleDate(job.start_date)}`,
+  ];
+  if (job.job_address) lines.push(`📍 ${job.job_address}`);
+  if (job.client_name) lines.push(`👤 ${job.client_name}`);
+  return lines.join("\n");
+}
+
+// ── handleJobScheduled — deps-injected orchestration ─────────────────────────
+
+export type LegStatus = "success" | "partial" | "skipped" | "error";
+
+export interface JobScheduledDeps {
+  supabase: any;
+  fetchOpportunity: (id: string) => Promise<any>;
+  getAccessToken: () => Promise<string>;
+  createCalendarEvent: (calendarId: string, accessToken: string, eventBody: any) => Promise<{ id: string }>;
+  calendarIds: Record<"main" | CrewEnvKey, string>;
+  postSlackMessage: (channel: string, text: string) => Promise<{ ok: boolean; error?: string }>;
+  slackChannels: Record<CrewEnvKey, string>;
+  billApiToken: string | null;
+  ensureBillJobCode: (jobName: string) => Promise<{ status: "success" | "error"; error?: string }>;
+  payloadIn?: unknown;
+}
+
+interface ScheduleJobRow {
+  id: string;
+  job_number: string;
+  job_name: string;
+  client_name: string | null;
+  job_address: string | null;
+  estimate_value: number | null;
+  crew: string | null;
+  start_date: string | null;
+  end_date: string | null;
+  gcal_main_event_id: string | null;
+  gcal_crew_event_id: string | null;
+  slack_notified_at: string | null;
+  bill_job_code: string | null;
+}
+
+export async function handleJobScheduled(
+  deps: JobScheduledDeps,
+  opportunityId: string,
+): Promise<HandlerResult> {
+  const { supabase } = deps;
+
+  try {
+    // ── Guard 1: job row must already exist (created by quote_accepted) ──────
+    const { data: job, error: jobLookupError } = await supabase
+      .from("jobs")
+      .select(
+        "id, job_number, job_name, client_name, job_address, estimate_value, crew, " +
+          "start_date, end_date, gcal_main_event_id, gcal_crew_event_id, slack_notified_at, bill_job_code",
+      )
+      .eq("ghl_opportunity_id", opportunityId)
+      .maybeSingle();
+
+    if (jobLookupError) {
+      const msg = `Job lookup failed: ${jobLookupError.message ?? String(jobLookupError)}`;
+      console.error("[handleJobScheduled]", msg);
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "job_scheduled",
+        action_taken: "error",
+        status: "error",
+        error_message: msg,
+        payload_in: deps.payloadIn,
+      });
+      return { status: 500, body: { success: false, error: msg } };
+    }
+
+    if (!job) {
+      const guard = shouldSkipSchedule(null, { crew: null, startDate: null, endDate: null });
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "job_scheduled",
+        action_taken: "skipped",
+        status: "success",
+        payload_in: deps.payloadIn,
+      });
+      await writeJobEvent(supabase, {
+        job_number: null,
+        stage_from: null,
+        stage_to: 6,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: `Skipped — ${guard.reason}`,
+        status: "skipped",
+        payload_in: deps.payloadIn,
+      });
+      return { status: 200, body: { action: "skipped", reason: guard.reason } };
+    }
+
+    const jobRow = job as ScheduleJobRow;
+
+    // ── Fetch opportunity, extract Crew + Start/End Date ──────────────────────
+    let opp: any;
+    try {
+      const opportunity = await deps.fetchOpportunity(opportunityId);
+      opp = opportunity?.opportunity ?? opportunity;
+    } catch (err: any) {
+      const msg = `Failed to fetch opportunity: ${err.message ?? String(err)}`;
+      console.error("[handleJobScheduled]", msg);
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "job_scheduled",
+        action_taken: "error",
+        status: "error",
+        error_message: msg,
+        payload_in: deps.payloadIn,
+      });
+      await writeJobEvent(supabase, {
+        job_number: jobRow.job_number,
+        stage_from: 5,
+        stage_to: 6,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: "Aborted — GHL opportunity fetch failed",
+        status: "error",
+        error_message: msg,
+        payload_in: deps.payloadIn,
+      });
+      return { status: 500, body: { success: false, error: msg } };
+    }
+
+    const fields = extractScheduleFields(opp);
+
+    // ── Guard 2: Crew + Start Date must both be set ───────────────────────────
+    const guard = shouldSkipSchedule(jobRow, fields);
+    if (guard.skip) {
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "job_scheduled",
+        action_taken: "skipped",
+        status: "success",
+        payload_in: deps.payloadIn,
+      });
+      await writeJobEvent(supabase, {
+        job_number: jobRow.job_number,
+        stage_from: 5,
+        stage_to: 6,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: `Skipped — ${guard.reason}`,
+        status: "skipped",
+        payload_in: deps.payloadIn,
+      });
+      return { status: 200, body: { action: "skipped", reason: guard.reason } };
+    }
+
+    const startDate = fields.startDate!;
+    const crewEnvKey = resolveCrewEnvKey(fields.crew);
+
+    // ── Leg 1: Calendar (idempotent on gcal_main_event_id) ────────────────────
+    let calendarStatus: LegStatus;
+    let mainEventId: string | null = null;
+    let crewEventId: string | null = null;
+    let calendarError: string | null = null;
+
+    if (jobRow.gcal_main_event_id) {
+      calendarStatus = "skipped";
+    } else {
+      const eventBody = buildCalendarEventBody({
+        job_name: jobRow.job_name,
+        client_name: jobRow.client_name,
+        job_address: jobRow.job_address,
+        estimate_value: jobRow.estimate_value,
+        crew: fields.crew,
+        start_date: startDate,
+        end_date: fields.endDate,
+      });
+
+      const targets: Array<{ label: "main" | "crew"; calendarId: string }> = [];
+      if (deps.calendarIds.main) targets.push({ label: "main", calendarId: deps.calendarIds.main });
+      if (crewEnvKey && deps.calendarIds[crewEnvKey]) {
+        targets.push({ label: "crew", calendarId: deps.calendarIds[crewEnvKey] });
+      }
+
+      if (targets.length === 0) {
+        calendarStatus = "skipped";
+        calendarError = "no calendar IDs configured";
+      } else {
+        try {
+          const accessToken = await deps.getAccessToken();
+          const results = await Promise.allSettled(
+            targets.map((t) => deps.createCalendarEvent(t.calendarId, accessToken, eventBody)),
+          );
+          const errors: string[] = [];
+          results.forEach((r, i) => {
+            const t = targets[i];
+            if (r.status === "fulfilled") {
+              if (t.label === "main") mainEventId = r.value.id;
+              else crewEventId = r.value.id;
+            } else {
+              errors.push(`${t.label}: ${r.reason?.message ?? String(r.reason)}`);
+            }
+          });
+          if (errors.length === 0) calendarStatus = "success";
+          else if (mainEventId || crewEventId) calendarStatus = "partial";
+          else calendarStatus = "error";
+          if (errors.length > 0) calendarError = errors.join("; ");
+        } catch (err: any) {
+          calendarStatus = "error";
+          calendarError = err.message ?? String(err);
+        }
+      }
+    }
+
+    // ── Leg 2: Slack (idempotent on slack_notified_at) ────────────────────────
+    let slackStatus: LegStatus;
+    let slackNotified = false;
+    let slackError: string | null = null;
+
+    if (jobRow.slack_notified_at) {
+      slackStatus = "skipped";
+    } else {
+      const channel = crewEnvKey ? deps.slackChannels[crewEnvKey] : "";
+      if (!crewEnvKey || !channel) {
+        slackStatus = "skipped";
+        slackError = crewEnvKey
+          ? "no Slack channel configured for crew"
+          : "crew not mapped to a known crew Slack channel";
+      } else {
+        try {
+          const message = buildSlackScheduleMessage({
+            job_name: jobRow.job_name,
+            start_date: startDate,
+            job_address: jobRow.job_address,
+            client_name: jobRow.client_name,
+          });
+          const result = await deps.postSlackMessage(channel, message);
+          if (result.ok) {
+            slackStatus = "success";
+            slackNotified = true;
+          } else {
+            slackStatus = "error";
+            slackError = result.error ?? "Slack API returned ok:false";
+          }
+        } catch (err: any) {
+          slackStatus = "error";
+          slackError = err.message ?? String(err);
+        }
+      }
+    }
+
+    // ── Leg 3: BILL job code (gated on BILL_API_TOKEN; idempotent on bill_job_code) ──
+    let billStatus: LegStatus;
+    let billJobCode: string | null = null;
+    let billError: string | null = null;
+
+    if (jobRow.bill_job_code) {
+      billStatus = "skipped";
+    } else if (!deps.billApiToken) {
+      billStatus = "skipped";
+    } else {
+      try {
+        const result = await deps.ensureBillJobCode(jobRow.job_name);
+        if (result.status === "success") {
+          billStatus = "success";
+          billJobCode = jobRow.job_name;
+        } else {
+          billStatus = "error";
+          billError = result.error ?? "BILL job code creation failed";
+        }
+      } catch (err: any) {
+        billStatus = "error";
+        billError = err.message ?? String(err);
+      }
+    }
+
+    // ── Persist ────────────────────────────────────────────────────────────────
+    const nowIso = new Date().toISOString();
+    const updatePayload: Record<string, unknown> = {
+      crew: fields.crew,
+      start_date: fields.startDate,
+      end_date: fields.endDate,
+      status_v2: "scheduled",
+      updated_at: nowIso,
+    };
+    if (mainEventId) updatePayload.gcal_main_event_id = mainEventId;
+    if (crewEventId) updatePayload.gcal_crew_event_id = crewEventId;
+    if (slackNotified) updatePayload.slack_notified_at = nowIso;
+    if (billJobCode) updatePayload.bill_job_code = billJobCode;
+
+    const { error: updateError } = await supabase.from("jobs").update(updatePayload).eq("id", jobRow.id);
+
+    if (updateError) {
+      const msg = `Job row update failed: ${updateError.message ?? String(updateError)}`;
+      console.error("[handleJobScheduled]", msg);
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "job_scheduled",
+        action_taken: "error",
+        status: "error",
+        error_message: msg,
+        payload_in: deps.payloadIn,
+      });
+      await writeJobEvent(supabase, {
+        job_number: jobRow.job_number,
+        stage_from: 5,
+        stage_to: 6,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: `Aborted — job row update failed | calendar: ${calendarStatus}, slack: ${slackStatus}, bill: ${billStatus}`,
+        status: "error",
+        error_message: msg,
+        payload_in: deps.payloadIn,
+      });
+      return { status: 500, body: { success: false, error: msg } };
+    }
+
+    const legErrors = [
+      calendarError ? `calendar: ${calendarError}` : null,
+      slackError ? `slack: ${slackError}` : null,
+      billError ? `bill: ${billError}` : null,
+    ].filter((x): x is string => x !== null);
+    const anyLegError = calendarStatus === "error" || slackStatus === "error" || billStatus === "error";
+    const overallErrorMsg = legErrors.length > 0 ? legErrors.join(" | ") : null;
+
+    await writeJobEvent(supabase, {
+      job_number: jobRow.job_number,
+      stage_from: 5,
+      stage_to: 6,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary: `Job scheduled | calendar: ${calendarStatus}, slack: ${slackStatus}, bill: ${billStatus}`,
+      status: anyLegError ? "error" : "success",
+      error_message: overallErrorMsg,
+      payload_in: deps.payloadIn,
+    });
+
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "job_scheduled",
+      action_taken: "updated",
+      status: anyLegError ? "error" : "success",
+      error_message: overallErrorMsg,
+      payload_in: deps.payloadIn,
+    });
+
+    return {
+      status: 200,
+      body: {
+        success: true,
+        action: "scheduled",
+        job_number: jobRow.job_number,
+        calendar: calendarStatus,
+        slack: slackStatus,
+        bill: billStatus,
+      },
+    };
+  } catch (err: any) {
+    const msg = `Unexpected error in handleJobScheduled: ${err.message ?? String(err)}`;
+    console.error("[handleJobScheduled]", msg);
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "job_scheduled",
+      action_taken: "error",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    await writeJobEvent(supabase, {
+      job_number: null,
+      stage_from: 5,
+      stage_to: 6,
       function_name: "ghl-job-webhook",
       trigger_source: "ghl_workflow",
       ghl_opportunity_id: opportunityId,
