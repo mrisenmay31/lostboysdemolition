@@ -40,7 +40,9 @@ crew channels, GHL (estimates sometimes, payments), Stripe via GHL, Gusto for pa
 Airtable Jobs pipeline and the Supabase stage functions are scaffolding.
 
 **The one thing that genuinely works:** bidirectional client sync (`airtable-client-sync` +
-`ghl-contact-sync`). 668 rows in `sync_log`, processing traffic daily, no errors since May 2.
+`ghl-contact-sync`). 918 rows in `sync_log`, processing traffic daily. One transient error burst
+2026-08-11 (14 Airtable-create failures under bulk load, all self-healed within 5 minutes, no data
+loss); no retry/backoff exists, so treat bulk imports with care.
 
 ---
 

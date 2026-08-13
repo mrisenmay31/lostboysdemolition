@@ -35,6 +35,28 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-13 — Status review; Aug-11 sync error burst analyzed; Phase A decisions taken
+**Status:** 🟢 Complete · **Deploys:** none (review + planning only)
+
+Live verification 13 days after the discovery session: repo clean and synced, function versions
+unchanged (19/20/21/16/14/11/11). `sync_log` 668 → **918** rows, daily traffic. Estimates
+296 → **321** (~2/business day). Jobs still **9** — zero job records created in ~12 weeks. All
+actuals tables still 0 rows. The 321-estimates-to-9-jobs gap is the Phase A problem, measured.
+
+**New defect, self-healed — CLAUDE.md's "no errors since May 2" is stale.** 14 sync errors on
+2026-08-11 18:29:36 ("Airtable create returned no record ID") during a 156-record burst day
+(~8/day is normal). All 14 contacts recovered within 5 minutes and have both Airtable and GHL IDs —
+no data loss. Likely Airtable rate-limiting under bulk load, rescued by GHL webhook redelivery.
+`airtable-client-sync` has no explicit retry/backoff; a larger bulk import could drop records less
+gracefully. CLAUDE.md line corrected this session.
+
+**Phase A decisions (Matt, 2026-08-13):**
+- **Trigger = GHL stage move.** Opportunity → "Quote Accepted" mints the job record. Path B jobs
+  must also get an opportunity staged in GHL — behavioral, restate to Dane.
+- **Job name = `JOB-XXXX – Client – City`** (company name for businesses, else last name).
+
+Phase A implementation plan written and approved; build follows in next entry.
+
 ### 2026-07-31 — Business discovery + financial analysis; BUILD_PLAN amended to A–G; four pads found
 **Status:** 🟢 Complete · **Deploys:** none · **Nothing live was touched**
 
