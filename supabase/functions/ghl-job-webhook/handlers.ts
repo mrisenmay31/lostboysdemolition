@@ -162,16 +162,18 @@ async function respondSkipped(
 ): Promise<HandlerResult> {
   const retry = await retryGhlWriteBack(deps, opportunityId, job);
 
-  // Cleanup (controller ruling, fix round 2, I8b): sync_log used to hardcode
-  // action_taken:'skipped'/status:'success' regardless of retry outcome, while
-  // job_events correctly recorded 'error' on a failed retry — the two writes
-  // disagreed about whether anything went wrong. sync_log now reflects the
-  // same degraded outcome: action_taken:'updated' (a GHL write-back was
-  // attempted) with status/error_message aligned to the retry result.
+  // Cleanup (controller ruling, fix round 2, I8b; corrected fix round 1, I4):
+  // sync_log used to hardcode action_taken:'skipped'/status:'success'
+  // regardless of retry outcome, while job_events correctly recorded 'error'
+  // on a failed retry. The alignment only applies to the degraded case — a
+  // normal no-op skip (retry succeeded, nothing actually changed) must stay
+  // countable as action_taken:'skipped'/status:'success'. Only a FAILED GHL
+  // retry gets action_taken:'updated' (a write was attempted) with
+  // status:'error' and an error_message explaining what failed.
   await writeSyncLog(supabase, {
     direction: "ghl_to_supabase",
     trigger_event: "quote_accepted",
-    action_taken: "updated",
+    action_taken: retry.status === "success" ? "skipped" : "updated",
     status: retry.status === "success" ? "success" : "error",
     error_message: retry.status === "failed" ? `GHL PUT retry failed (non-fatal): ${retry.error}` : null,
     payload_in: deps.payloadIn,
@@ -664,7 +666,11 @@ export function buildSlackScheduleMessage(job: {
 
 // ── handleJobScheduled — deps-injected orchestration ─────────────────────────
 
-export type LegStatus = "success" | "partial" | "skipped" | "error";
+// 'stale' (fix round 1, I3) — a reschedule was detected (crew/dates changed
+// after the calendar leg's IDs were already stamped) and the calendar leg
+// was a no-op this fire; distinct from 'skipped' so the response is honest
+// that the existing calendar events no longer reflect the new crew/dates.
+export type LegStatus = "success" | "partial" | "skipped" | "error" | "stale";
 
 export interface JobScheduledDeps {
   supabase: any;
@@ -811,13 +817,60 @@ export async function handleJobScheduled(
     const startDate = fields.startDate!;
     const crewEnvKey = resolveCrewEnvKey(fields.crew);
 
-    // ── Leg 1: Calendar (idempotent on gcal_main_event_id) ────────────────────
+    // ── Fix round 1, I3: reschedule visibility ────────────────────────────────
+    // A "reschedule" is crew/start/end changing on an opportunity whose
+    // calendar or Slack leg was already stamped from a prior fire. We do NOT
+    // patch/delete/re-create calendar events and do NOT re-send Slack here —
+    // that's a deferred backlog item — but we DO still persist the new
+    // crew/dates below, and we make the drift loud: a job_events row, a
+    // console.error, and (when the calendar leg is a no-op this fire because
+    // its IDs are already stamped) a 'stale' calendar status in the response
+    // instead of a misleadingly clean 'skipped'.
+    const legsStamped = Boolean(jobRow.gcal_main_event_id) || Boolean(jobRow.slack_notified_at);
+    const rescheduleDetected =
+      legsStamped &&
+      (jobRow.crew !== fields.crew ||
+        jobRow.start_date !== fields.startDate ||
+        jobRow.end_date !== fields.endDate);
+
+    if (rescheduleDetected) {
+      const rescheduleMsg =
+        `Reschedule detected for ${jobRow.job_number} — crew/dates changed after the calendar/Slack ` +
+        `legs were already stamped. NOT auto-patching calendar events or re-sending Slack (deferred ` +
+        `backlog item). old: crew=${jobRow.crew ?? "—"} start=${jobRow.start_date ?? "—"} end=${jobRow.end_date ?? "—"} ` +
+        `| new: crew=${fields.crew ?? "—"} start=${fields.startDate ?? "—"} end=${fields.endDate ?? "—"}`;
+      console.error("[handleJobScheduled]", rescheduleMsg);
+      await writeJobEvent(supabase, {
+        job_number: jobRow.job_number,
+        stage_from: 6,
+        stage_to: 6,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: "reschedule_detected",
+        status: "success",
+        payload_in: {
+          old: { crew: jobRow.crew, start_date: jobRow.start_date, end_date: jobRow.end_date },
+          new: { crew: fields.crew, start_date: fields.startDate, end_date: fields.endDate },
+        },
+      });
+    }
+
+    // ── Leg 1: Calendar — per-EVENT-ID idempotency (fix round 1, C1+C2) ────────
+    // C1+C2 shared root cause: the old gate checked ONLY gcal_main_event_id
+    // for the whole leg, so (C1) a re-fire that only ever got the main event
+    // created never went back for a still-missing crew event, and (C2) if
+    // main failed but crew succeeded, a re-fire would try to recreate BOTH,
+    // duplicating the crew event. Each target is now gated on its own column.
     let calendarStatus: LegStatus;
     let mainEventId: string | null = null;
     let crewEventId: string | null = null;
     let calendarError: string | null = null;
 
-    if (jobRow.gcal_main_event_id) {
+    const needsMain = !jobRow.gcal_main_event_id;
+    const needsCrew = !jobRow.gcal_crew_event_id;
+
+    if (!needsMain && !needsCrew) {
       calendarStatus = "skipped";
     } else {
       const eventBody = buildCalendarEventBody({
@@ -831,39 +884,108 @@ export async function handleJobScheduled(
       });
 
       const targets: Array<{ label: "main" | "crew"; calendarId: string }> = [];
-      if (deps.calendarIds.main) targets.push({ label: "main", calendarId: deps.calendarIds.main });
-      if (crewEnvKey && deps.calendarIds[crewEnvKey]) {
-        targets.push({ label: "crew", calendarId: deps.calendarIds[crewEnvKey] });
+      const mainConfigMissing = needsMain && !deps.calendarIds.main;
+      if (needsMain && deps.calendarIds.main) {
+        targets.push({ label: "main", calendarId: deps.calendarIds.main });
       }
 
-      if (targets.length === 0) {
-        calendarStatus = "skipped";
-        calendarError = "no calendar IDs configured";
-      } else {
+      // I1: a crew value that maps to a known crew (Crew 1-4) but whose
+      // calendar env var isn't configured is a misconfiguration, not the
+      // ordinary "this job's crew has no crew calendar" case — warn
+      // (precedent: airtable-job-scheduled/index.ts:426-428) and make sure
+      // the response never claims a bare 'success' while silently never
+      // creating that crew event.
+      let crewMisconfigured = false;
+      if (needsCrew) {
+        if (crewEnvKey) {
+          const crewCalId = deps.calendarIds[crewEnvKey];
+          if (crewCalId) {
+            targets.push({ label: "crew", calendarId: crewCalId });
+          } else {
+            crewMisconfigured = true;
+            console.warn(
+              `[calendar] No crew calendar mapped for crew value: "${fields.crew}" — posting to main only`,
+            );
+          }
+        }
+        // else: crew value isn't one of the 4 known crews (e.g. "Jackson"/
+        // "Other") — no crew calendar is expected, that's ordinary, not a
+        // misconfiguration.
+      }
+
+      const errors: string[] = [];
+      if (targets.length > 0) {
         try {
           const accessToken = await deps.getAccessToken();
           const results = await Promise.allSettled(
             targets.map((t) => deps.createCalendarEvent(t.calendarId, accessToken, eventBody)),
           );
-          const errors: string[] = [];
           results.forEach((r, i) => {
             const t = targets[i];
             if (r.status === "fulfilled") {
-              if (t.label === "main") mainEventId = r.value.id;
-              else crewEventId = r.value.id;
+              if (t.label === "main") {
+                mainEventId = r.value.id;
+                console.log(`[calendar] main event created: ${mainEventId}`);
+              } else {
+                crewEventId = r.value.id;
+                console.log(`[calendar] crew event created: ${crewEventId}`);
+              }
             } else {
               errors.push(`${t.label}: ${r.reason?.message ?? String(r.reason)}`);
             }
           });
-          if (errors.length === 0) calendarStatus = "success";
-          else if (mainEventId || crewEventId) calendarStatus = "partial";
-          else calendarStatus = "error";
-          if (errors.length > 0) calendarError = errors.join("; ");
         } catch (err: any) {
-          calendarStatus = "error";
-          calendarError = err.message ?? String(err);
+          errors.push(`access-token: ${err.message ?? String(err)}`);
         }
       }
+
+      const anyCreated = mainEventId !== null || crewEventId !== null;
+      const errParts = [...errors];
+      if (crewMisconfigured) {
+        errParts.push(`no crew calendar configured for ${fields.crew}`);
+      } else if (mainConfigMissing && targets.length === 0) {
+        errParts.push("no calendar IDs configured for the needed leg(s)");
+      }
+
+      if (targets.length === 0) {
+        calendarStatus = crewMisconfigured ? "partial" : "skipped";
+      } else if (errors.length === 0 && !crewMisconfigured) {
+        calendarStatus = "success";
+      } else if (anyCreated || crewMisconfigured) {
+        calendarStatus = "partial";
+      } else {
+        calendarStatus = "error";
+      }
+
+      calendarError = errParts.length > 0 ? errParts.join("; ") : null;
+    }
+
+    // I2: persist any newly-created event IDs IMMEDIATELY — a small, dedicated
+    // update touching only the gcal columns — before Slack/BILL run and before
+    // the terminal update below. A later terminal-update failure (unrelated
+    // columns) must not orphan calendar events that were actually created.
+    if (mainEventId || crewEventId) {
+      const gcalUpdatePayload: Record<string, unknown> = {};
+      if (mainEventId) gcalUpdatePayload.gcal_main_event_id = mainEventId;
+      if (crewEventId) gcalUpdatePayload.gcal_crew_event_id = crewEventId;
+      const { error: gcalPersistError } = await supabase
+        .from("jobs")
+        .update(gcalUpdatePayload)
+        .eq("id", jobRow.id);
+      if (gcalPersistError) {
+        const persistMsg =
+          `Failed to persist calendar event ID(s) immediately: ${gcalPersistError.message ?? String(gcalPersistError)}`;
+        console.error("[handleJobScheduled]", persistMsg);
+        calendarError = calendarError ? `${calendarError}; ${persistMsg}` : persistMsg;
+        if (calendarStatus === "success") calendarStatus = "partial";
+      }
+    }
+
+    // I3: the calendar leg being a clean no-op ('skipped', both IDs already
+    // stamped) is only honestly 'skipped' if nothing changed since — a
+    // reschedule makes the still-existing events stale, not current.
+    if (rescheduleDetected && calendarStatus === "skipped") {
+      calendarStatus = "stale";
     }
 
     // ── Leg 2: Slack (idempotent on slack_notified_at) ────────────────────────
@@ -929,6 +1051,9 @@ export async function handleJobScheduled(
     }
 
     // ── Persist ────────────────────────────────────────────────────────────────
+    // I2: gcal_main_event_id / gcal_crew_event_id are deliberately NOT set here
+    // — they were already committed immediately after the calendar leg, above,
+    // specifically so a failure in THIS update can't orphan them.
     const nowIso = new Date().toISOString();
     const updatePayload: Record<string, unknown> = {
       crew: fields.crew,
@@ -937,8 +1062,6 @@ export async function handleJobScheduled(
       status_v2: "scheduled",
       updated_at: nowIso,
     };
-    if (mainEventId) updatePayload.gcal_main_event_id = mainEventId;
-    if (crewEventId) updatePayload.gcal_crew_event_id = crewEventId;
     if (slackNotified) updatePayload.slack_notified_at = nowIso;
     if (billJobCode) updatePayload.bill_job_code = billJobCode;
 

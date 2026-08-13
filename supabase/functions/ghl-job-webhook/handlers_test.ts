@@ -562,10 +562,11 @@ Deno.test("handleQuoteAccepted: outer catch converts an unexpected synchronous t
   assertEquals(logCalls.some((c) => c.table === "sync_log" && c.row.status === "error"), true);
 });
 
-// ── Cleanup fix (I8b): skip-path sync_log now aligns with job_events on a
-// failed GHL write-back retry, instead of always claiming status:'success'. ──
+// ── Cleanup fix (I8b, corrected fix round 1 I4): skip-path sync_log aligns
+// with job_events ONLY on a failed GHL write-back retry — a normal no-op
+// skip must stay countable as action_taken:'skipped'. ──
 
-Deno.test("handleQuoteAccepted: skip-path sync_log reflects a SUCCESSFUL retry as action_taken:'updated', status:'success' (I8b)", async () => {
+Deno.test("handleQuoteAccepted: skip-path sync_log — SUCCESSFUL retry stays action_taken:'skipped', status:'success' (I4)", async () => {
   const existingJob = { id: "uuid-9", job_number: "JOB-1050", job_name: "JOB-1050 – Smith" };
   const supabase = fakeSupabase({ selectResults: [existingJob] });
   const deps = {
@@ -577,7 +578,7 @@ Deno.test("handleQuoteAccepted: skip-path sync_log reflects a SUCCESSFUL retry a
   };
   await handleQuoteAccepted(deps as any, "opp-1");
   const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
-  assertEquals(syncLogWrites[0].row.action_taken, "updated");
+  assertEquals(syncLogWrites[0].row.action_taken, "skipped");
   assertEquals(syncLogWrites[0].row.status, "success");
   assertEquals(syncLogWrites[0].row.error_message, null);
 });
@@ -973,19 +974,31 @@ Deno.test("handleJobScheduled: full success path — calendar (both IDs), Slack,
     bill: "success",
   });
 
+  // I2: two separate `jobs` updates — an immediate one carrying ONLY the gcal
+  // columns (fired right after the calendar leg), then the terminal update
+  // with everything else. Neither carries the other's columns.
   const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
-  assertEquals(jobsUpdates.length, 1);
-  const payload = jobsUpdates[0].payload;
+  assertEquals(jobsUpdates.length, 2);
+
+  const gcalUpdate = jobsUpdates[0];
+  assertEquals(gcalUpdate.payload, {
+    gcal_main_event_id: "gcal-evt-main-cal",
+    gcal_crew_event_id: "gcal-evt-crew1-cal",
+  });
+  assertEquals(gcalUpdate.eqVal, "job-uuid-1");
+
+  const terminalUpdate = jobsUpdates[1];
+  const payload = terminalUpdate.payload;
   assertEquals(payload.crew, "Crew 1");
   assertEquals(payload.start_date, "2026-08-20");
   assertEquals(payload.end_date, "2026-08-21");
   assertEquals(payload.status_v2, "scheduled");
-  assertEquals(payload.gcal_main_event_id, "gcal-evt-main-cal");
-  assertEquals(payload.gcal_crew_event_id, "gcal-evt-crew1-cal");
+  assertEquals(payload.gcal_main_event_id, undefined);
+  assertEquals(payload.gcal_crew_event_id, undefined);
   assertEquals(payload.bill_job_code, "JOB-1100 – Morrison – Holladay");
   assertEquals(typeof payload.slack_notified_at, "string");
   assertEquals(typeof payload.updated_at, "string");
-  assertEquals(jobsUpdates[0].eqVal, "job-uuid-1");
+  assertEquals(terminalUpdate.eqVal, "job-uuid-1");
 
   const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
   assertEquals(syncLogWrites[0].row.action_taken, "updated");
@@ -1010,12 +1023,18 @@ Deno.test("handleJobScheduled: BILL_API_TOKEN absent -> bill leg 'skipped', ensu
   const result = await handleJobScheduled(deps as any, "opp-sched-1");
   assertEquals(result.body.bill, "skipped");
   assertEquals(billCalled, false);
+  // Terminal update (index 1 — index 0 is the immediate gcal-only update).
   const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
-  assertEquals(jobsUpdates[0].payload.bill_job_code, undefined);
+  assertEquals(jobsUpdates[1].payload.bill_job_code, undefined);
 });
 
 Deno.test("handleJobScheduled: all three legs already done (idempotent) -> all skip, no external calls, still 'scheduled'", async () => {
   const job = freshJobRow({
+    // crew/dates match HAPPY_OPP exactly — a genuine idempotent re-fire, not
+    // a reschedule (I3 fires on stamped legs + a crew/date MISMATCH).
+    crew: "Crew 1",
+    start_date: "2026-08-20",
+    end_date: "2026-08-21",
     gcal_main_event_id: "existing-main-evt",
     gcal_crew_event_id: "existing-crew-evt",
     slack_notified_at: "2026-08-15T00:00:00.000Z",
@@ -1046,8 +1065,10 @@ Deno.test("handleJobScheduled: all three legs already done (idempotent) -> all s
   assertEquals(calendarCalled, false);
   assertEquals(slackCalled, false);
   assertEquals(billCalled, false);
-  // Re-fire still refreshes crew/dates and status_v2, but must not clobber the already-set leg columns.
+  // No calendar/Slack/BILL work happened -> exactly ONE `jobs` update (the
+  // terminal one; no immediate gcal update fires since nothing was created).
   const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
+  assertEquals(jobsUpdates.length, 1);
   assertEquals(jobsUpdates[0].payload.gcal_main_event_id, undefined);
   assertEquals(jobsUpdates[0].payload.slack_notified_at, undefined);
   assertEquals(jobsUpdates[0].payload.bill_job_code, undefined);
@@ -1068,8 +1089,186 @@ Deno.test("handleJobScheduled: partial calendar failure — main succeeds, crew 
   const result = await handleJobScheduled(deps as any, "opp-sched-1");
   assertEquals(result.body.calendar, "partial");
   const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
-  assertEquals(jobsUpdates[0].payload.gcal_main_event_id, "gcal-evt-main");
-  assertEquals(jobsUpdates[0].payload.gcal_crew_event_id, undefined);
+  // Immediate gcal-only update (index 0) carries just the main ID that
+  // actually got created; the terminal update (index 1) carries neither.
+  assertEquals(jobsUpdates[0].payload, { gcal_main_event_id: "gcal-evt-main" });
+  assertEquals(jobsUpdates[1].payload.gcal_main_event_id, undefined);
+  assertEquals(jobsUpdates[1].payload.gcal_crew_event_id, undefined);
+});
+
+// ── Fix round 1: C1+C2 — per-EVENT-ID calendar resumability ────────────────────
+
+Deno.test("handleJobScheduled: C1 — main ID already set, crew ID null -> re-fire creates ONLY the crew event", async () => {
+  const job = freshJobRow({
+    // Matches HAPPY_OPP's crew/dates exactly so this isn't also read as a
+    // reschedule (I3) — purely exercising the per-ID calendar resumability.
+    crew: "Crew 1",
+    start_date: "2026-08-20",
+    end_date: "2026-08-21",
+    gcal_main_event_id: "existing-main-evt",
+    gcal_crew_event_id: null,
+  });
+  const supabase = fakeScheduleSupabase({ job });
+  const createdCalendarIds: string[] = [];
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      createCalendarEvent: (calendarId: string) => {
+        createdCalendarIds.push(calendarId);
+        return Promise.resolve({ id: `gcal-evt-${calendarId}` });
+      },
+    }),
+  };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(createdCalendarIds, ["crew1-cal"]); // main NOT re-created
+  assertEquals(result.body.calendar, "success");
+  const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
+  assertEquals(jobsUpdates[0].payload, { gcal_crew_event_id: "gcal-evt-crew1-cal" });
+});
+
+Deno.test("handleJobScheduled: C2 — crew ID already set, main ID null -> re-fire creates ONLY the main event, no duplicate crew event", async () => {
+  const job = freshJobRow({
+    crew: "Crew 1",
+    start_date: "2026-08-20",
+    end_date: "2026-08-21",
+    gcal_main_event_id: null,
+    gcal_crew_event_id: "existing-crew-evt",
+  });
+  const supabase = fakeScheduleSupabase({ job });
+  const createdCalendarIds: string[] = [];
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      createCalendarEvent: (calendarId: string) => {
+        createdCalendarIds.push(calendarId);
+        return Promise.resolve({ id: `gcal-evt-${calendarId}` });
+      },
+    }),
+  };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(createdCalendarIds, ["main-cal"]); // crew NOT re-created (no duplicate)
+  assertEquals(result.body.calendar, "success");
+  const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
+  assertEquals(jobsUpdates[0].payload, { gcal_main_event_id: "gcal-evt-main-cal" });
+});
+
+// ── Fix round 1: I1 — mapped crew, unset calendar env ──────────────────────────
+
+Deno.test("handleJobScheduled: I1 — mapped crew with unset calendar env -> warns, reports 'partial', never bare 'success'", async () => {
+  const job = freshJobRow();
+  const supabase = fakeScheduleSupabase({ job });
+  const deps = { supabase, ...happyScheduleDeps() };
+  // Crew 1 IS mapped (CREW_ENV_KEY_MAP has "crew 1") but its calendar env is unset.
+  (deps as any).calendarIds = { main: "main-cal", crew1: "", crew2: "crew2-cal", crew3: "crew3-cal", crew4: "crew4-cal" };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(result.body.calendar, "partial");
+  const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+  const terminalEvent = jobEventWrites.find((e: any) => String(e.row.action_summary).includes("Job scheduled"));
+  assertEquals(terminalEvent !== undefined, true);
+  assertEquals(String(terminalEvent!.row.error_message).includes("no crew calendar configured for Crew 1"), true);
+});
+
+// ── Fix round 1: I2 — immediate persistence of calendar event IDs ──────────────
+
+Deno.test("handleJobScheduled: I2 — terminal update failure does not orphan already-persisted calendar event IDs", async () => {
+  const job = freshJobRow();
+  const inserted: Array<{ table: string; row: Record<string, unknown> }> = [];
+  const updates: Array<{ table: string; payload: Record<string, unknown> }> = [];
+  let updateCallCount = 0;
+  const supabase = {
+    _inserted: inserted,
+    _updates: updates,
+    from(table: string) {
+      return {
+        select(_cols: string) {
+          return { eq(_c: string, _v: string) { return { maybeSingle: () => Promise.resolve({ data: job, error: null }) }; } };
+        },
+        insert(row: Record<string, unknown>) {
+          inserted.push({ table, row });
+          return Promise.resolve({ data: null, error: null });
+        },
+        update(payload: Record<string, unknown>) {
+          return {
+            eq(_c: string, _v: string) {
+              updateCallCount++;
+              updates.push({ table, payload });
+              const isTerminalUpdate = table === "jobs" && updateCallCount === 2;
+              return Promise.resolve({
+                error: isTerminalUpdate ? { message: "terminal write failed" } : null,
+              });
+            },
+          };
+        },
+      };
+    },
+  };
+  const deps = { supabase, ...happyScheduleDeps() };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+
+  assertEquals(result.status, 500); // terminal update failure still surfaces as a 500
+  const jobsUpdates = updates.filter((u) => u.table === "jobs");
+  assertEquals(jobsUpdates.length, 2);
+  // The FIRST (immediate, calendar-only) update already succeeded and carries
+  // both event IDs — that write is not undone by the later terminal failure.
+  assertEquals(jobsUpdates[0].payload, {
+    gcal_main_event_id: "gcal-evt-main-cal",
+    gcal_crew_event_id: "gcal-evt-crew1-cal",
+  });
+});
+
+// ── Fix round 1: I3 — reschedule visibility ─────────────────────────────────────
+
+Deno.test("handleJobScheduled: I3 — reschedule detected (stamped legs + changed start_date) -> DB updated, reschedule_detected event written, calendar 'stale'", async () => {
+  const job = freshJobRow({
+    crew: "Crew 1",
+    start_date: "2026-08-10", // stale — differs from HAPPY_OPP's 2026-08-20
+    end_date: "2026-08-11",
+    gcal_main_event_id: "existing-main-evt",
+    gcal_crew_event_id: "existing-crew-evt",
+    slack_notified_at: "2026-08-05T00:00:00.000Z",
+  });
+  const supabase = fakeScheduleSupabase({ job });
+  let calendarCalled = false;
+  let slackCalled = false;
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      createCalendarEvent: () => { calendarCalled = true; return Promise.resolve({ id: "should-not-happen" }); },
+      postSlackMessage: () => { slackCalled = true; return Promise.resolve({ ok: true }); },
+    }),
+  };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+
+  assertEquals(result.body.calendar, "stale");
+  assertEquals(calendarCalled, false); // no patch/delete/re-create
+  assertEquals(slackCalled, false); // no re-send (slack_notified_at already set -> ordinary skip)
+
+  const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+  const rescheduleEvent = jobEventWrites.find((e: any) => e.row.action_summary === "reschedule_detected");
+  assertEquals(rescheduleEvent !== undefined, true);
+  assertEquals(rescheduleEvent!.row.status, "success");
+  assertEquals(rescheduleEvent!.row.payload_in, {
+    old: { crew: "Crew 1", start_date: "2026-08-10", end_date: "2026-08-11" },
+    new: { crew: "Crew 1", start_date: "2026-08-20", end_date: "2026-08-21" },
+  });
+
+  // DB fields still get updated to the new incoming values (only the calendar
+  // events themselves are left alone).
+  const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
+  const terminalUpdate = jobsUpdates[jobsUpdates.length - 1];
+  assertEquals(terminalUpdate.payload.start_date, "2026-08-20");
+  assertEquals(terminalUpdate.payload.end_date, "2026-08-21");
+});
+
+Deno.test("handleJobScheduled: I3 — no reschedule when legs unstamped, even if crew/dates differ from stored (first fire)", async () => {
+  // freshJobRow() defaults crew/start_date/end_date to null, no legs stamped
+  // — this must NOT be misread as a reschedule (legsStamped gate matters).
+  const job = freshJobRow();
+  const supabase = fakeScheduleSupabase({ job });
+  const result = await handleJobScheduled({ supabase, ...happyScheduleDeps() } as any, "opp-sched-1");
+  assertEquals(result.body.calendar, "success");
+  const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+  assertEquals(jobEventWrites.some((e: any) => e.row.action_summary === "reschedule_detected"), false);
 });
 
 Deno.test("handleJobScheduled: Slack — unmapped crew value -> 'skipped', not 'error'", async () => {
