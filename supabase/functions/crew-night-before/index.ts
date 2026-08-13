@@ -48,7 +48,9 @@ async function fetchScheduledJobs(tomorrow: string): Promise<JobRow[]> {
     .select("id, job_number, job_name, job_address, client_name, start_date, crew")
     .eq("status_v2", "scheduled")
     .eq("start_date", tomorrow)
-    .or(`night_before_sent_on.is.null,night_before_sent_on.neq.${tomorrow}`);
+    .or(`night_before_sent_on.is.null,night_before_sent_on.neq.${tomorrow}`)
+    // Accepted minor (a), fix round 1: deterministic digest order.
+    .order("job_number", { ascending: true });
 
   if (error) throw new Error(`fetchScheduledJobs failed: ${error.message ?? String(error)}`);
   return (data ?? []) as JobRow[];

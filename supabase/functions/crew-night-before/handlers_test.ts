@@ -47,6 +47,19 @@ Deno.test("getTomorrowDenverDateString: month rollover", () => {
   assertEquals(getTomorrowDenverDateString(new Date("2026-08-31T22:00:00Z")), "2026-09-01");
 });
 
+// Fix round 1, minor (c): 2026 DST transition days — confirms the calendar-date
+// (not clock-time) arithmetic in getDenverDateParts/getTomorrowDenverDateString
+// holds across both changeovers.
+Deno.test("getTomorrowDenverDateString: 2026 spring-forward day (Mar 8, MST->MDT)", () => {
+  // 2026-03-08T22:30:00Z = 16:30 MDT on Mar 8 (the send-window instant, post-transition)
+  assertEquals(getTomorrowDenverDateString(new Date("2026-03-08T22:30:00Z")), "2026-03-09");
+});
+
+Deno.test("getTomorrowDenverDateString: 2026 fall-back day (Nov 1, MDT->MST)", () => {
+  // 2026-11-01T23:30:00Z = 16:30 MST on Nov 1 (the send-window instant, post-transition)
+  assertEquals(getTomorrowDenverDateString(new Date("2026-11-01T23:30:00Z")), "2026-11-02");
+});
+
 // ── getDenverLocalHour / isInSendWindow ────────────────────────────────────────
 
 Deno.test("getDenverLocalHour: MDT (summer, UTC-6) — 22:00Z is 16:00 local", () => {
@@ -164,8 +177,8 @@ Deno.test("groupJobsByCrew: groups by trimmed crew value", () => {
   const jobB = { ...fullJob, id: "b", crew: " Crew 1 " };
   const jobC = { ...fullJob, id: "c", crew: "Crew 2" };
   const groups = groupJobsByCrew([jobA, jobB, jobC]);
-  assertEquals(groups.get("Crew 1")?.length, 2);
-  assertEquals(groups.get("Crew 2")?.length, 1);
+  assertEquals(groups.get("crew 1")?.jobs.length, 2);
+  assertEquals(groups.get("crew 2")?.jobs.length, 1);
   assertEquals(groups.size, 2);
 });
 
@@ -173,7 +186,22 @@ Deno.test("groupJobsByCrew: null/empty crew groups under empty-string key", () =
   const jobA = { ...fullJob, id: "a", crew: null };
   const jobB = { ...fullJob, id: "b", crew: "" };
   const groups = groupJobsByCrew([jobA, jobB]);
-  assertEquals(groups.get("")?.length, 2);
+  assertEquals(groups.get("")?.jobs.length, 2);
+});
+
+// Fix round 1, F2: case-insensitive grouping — "Crew 1" and "crew 1" (and any
+// other-cased variant) must merge into ONE group, so exactly one Slack
+// message goes to the shared channel instead of two.
+Deno.test("groupJobsByCrew: mixed-case same-crew rows merge into one group", () => {
+  const jobA = { ...fullJob, id: "a", crew: "Crew 1" };
+  const jobB = { ...fullJob, id: "b", crew: "crew 1" };
+  const jobC = { ...fullJob, id: "c", crew: "CREW 1" };
+  const jobD = { ...fullJob, id: "d", crew: " Crew 1 " };
+  const groups = groupJobsByCrew([jobA, jobB, jobC, jobD]);
+  assertEquals(groups.size, 1);
+  const group = groups.get("crew 1");
+  assertEquals(group?.jobs.length, 4);
+  assertEquals(group?.raw, "Crew 1"); // first raw value seen, preserved for display
 });
 
 // ── resolveCrewChannelEnvVar ─────────────────────────────────────────────────
@@ -308,7 +336,11 @@ Deno.test("runNightBeforeDigest: unmapped crew is skipped, never throws, other g
   assertEquals(logs.some((l) => l.action_taken === "created"), true);
 });
 
-Deno.test("runNightBeforeDigest: missing env var (mapped crew, unset secret) is skipped, never throws", async () => {
+// Fix round 1, F1: a MAPPED crew (resolves to an env var name) whose
+// SLACK_CREWn_CHANNEL is unset is a misconfiguration, not a benign skip —
+// it must surface as action_taken:'error' with the missing env var named in
+// error_message, since (per controller ruling) this design never retries.
+Deno.test("runNightBeforeDigest: missing env var on a MAPPED crew logs error naming the env var, never throws", async () => {
   const logs: any[] = [];
   const jobs: JobRow[] = [{ ...fullJob, id: "a", crew: "Crew 3" }];
   const deps = makeDeps({
@@ -319,7 +351,52 @@ Deno.test("runNightBeforeDigest: missing env var (mapped crew, unset secret) is 
   const result = await runNightBeforeDigest(deps);
   assertEquals(result.status, 200);
   assertEquals(logs.length, 1);
+  assertEquals(logs[0].action_taken, "error");
+  assertEquals(logs[0].status, "error");
+  assertEquals(typeof logs[0].error_message, "string");
+  assertEquals(logs[0].error_message.includes("SLACK_CREW3_CHANNEL"), true);
+});
+
+// Fix round 1, F1 contrast: an UNMAPPED crew (no env var name at all) stays
+// the benign, permanent, expected skip — distinct from the mapped-but-unset
+// case above.
+Deno.test("runNightBeforeDigest: unmapped crew stays skipped/success (not error)", async () => {
+  const logs: any[] = [];
+  const jobs: JobRow[] = [{ ...fullJob, id: "a", crew: "Jackson" }];
+  const deps = makeDeps({
+    fetchScheduledJobs: async () => jobs,
+    writeLog: async (entry) => { logs.push(entry); },
+  });
+  const result = await runNightBeforeDigest(deps);
+  assertEquals(result.status, 200);
+  assertEquals(logs.length, 1);
   assertEquals(logs[0].action_taken, "skipped");
+  assertEquals(logs[0].status, "success");
+});
+
+// Fix round 1, F2 (orchestration level): mixed-case crew values for the same
+// crew must produce exactly ONE Slack post, not two, to the shared channel.
+Deno.test("runNightBeforeDigest: mixed-case same-crew rows produce exactly one Slack message", async () => {
+  const posted: Array<{ channel: string; text: string }> = [];
+  const jobs: JobRow[] = [
+    { ...fullJob, id: "a", crew: "Crew 1" },
+    { ...fullJob, id: "b", crew: "crew 1", job_number: "JOB-1101", job_name: "JOB-1101 – Other Client" },
+  ];
+  const deps = makeDeps({
+    fetchScheduledJobs: async () => jobs,
+    getChannelEnv: (name: string) => (name === "SLACK_CREW1_CHANNEL" ? "#crew1" : undefined),
+    postSlackMessage: async (channel: string, text: string) => {
+      posted.push({ channel, text });
+      return { ok: true };
+    },
+  });
+  const result = await runNightBeforeDigest(deps);
+  assertEquals(result.status, 200);
+  assertEquals(posted.length, 1);
+  assertEquals(posted[0].channel, "#crew1");
+  // Both jobs' blocks present in the single combined message.
+  assertEquals(posted[0].text.includes("JOB-1100"), true);
+  assertEquals(posted[0].text.includes("JOB-1101"), true);
 });
 
 Deno.test("runNightBeforeDigest: Slack post failure logs error, does not stamp night_before_sent_on, does not throw", async () => {
@@ -338,6 +415,30 @@ Deno.test("runNightBeforeDigest: Slack post failure logs error, does not stamp n
   assertEquals(updated.length, 0);
   assertEquals(logs[0].action_taken, "error");
   assertEquals(logs[0].status, "error");
+});
+
+// Fix round 1, minor (b): a non-Slack throw inside one crew group's
+// processing (e.g. formatDateLabel blowing up on a malformed start_date)
+// must not abort the remaining groups.
+Deno.test("runNightBeforeDigest: a throw building one crew's digest is isolated — other crews still send", async () => {
+  const posted: string[] = [];
+  const logs: any[] = [];
+  const jobs: JobRow[] = [
+    { ...fullJob, id: "a", crew: "Crew 1", start_date: "not-a-date" }, // will throw in formatDateLabel
+    { ...fullJob, id: "b", crew: "Crew 2" },
+  ];
+  const deps = makeDeps({
+    fetchScheduledJobs: async () => jobs,
+    getChannelEnv: (name: string) =>
+      name === "SLACK_CREW1_CHANNEL" ? "#crew1" : name === "SLACK_CREW2_CHANNEL" ? "#crew2" : undefined,
+    postSlackMessage: async (channel: string) => { posted.push(channel); return { ok: true }; },
+    writeLog: async (entry) => { logs.push(entry); },
+  });
+  const result = await runNightBeforeDigest(deps);
+  assertEquals(result.status, 200);
+  assertEquals(posted, ["#crew2"]);
+  assertEquals(logs.some((l) => l.action_taken === "error"), true);
+  assertEquals(logs.some((l) => l.action_taken === "created"), true);
 });
 
 Deno.test("runNightBeforeDigest: Slack post throws is caught, logged as error, does not throw", async () => {

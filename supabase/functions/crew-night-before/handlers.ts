@@ -109,14 +109,24 @@ export function buildCrewDigest(jobs: JobRow[]): string {
   return jobs.map(formatJobLine).join("\n\n");
 }
 
-/** Groups jobs by their trimmed crew value (raw, case preserved — case-folding
- *  happens only at channel-resolution time). Null/blank crew groups under "". */
-export function groupJobsByCrew(jobs: JobRow[]): Map<string, JobRow[]> {
-  const map = new Map<string, JobRow[]>();
+export interface CrewGroup {
+  /** First raw crew value seen for this normalized key — for display/logging only. */
+  raw: string;
+  jobs: JobRow[];
+}
+
+/** Groups jobs by NORMALIZED crew value (trim + lowercase) so "Crew 1" and
+ *  "crew 1" merge into one group / one Slack message, never two posts to the
+ *  same channel (fix round 1, F2). The raw (case-preserved) value of the
+ *  first job seen is kept per group for display/logging. Null/blank crew
+ *  groups under the "" key. */
+export function groupJobsByCrew(jobs: JobRow[]): Map<string, CrewGroup> {
+  const map = new Map<string, CrewGroup>();
   for (const job of jobs) {
-    const key = (job.crew ?? "").trim();
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(job);
+    const raw = (job.crew ?? "").trim();
+    const key = raw.toLowerCase();
+    if (!map.has(key)) map.set(key, { raw, jobs: [] });
+    map.get(key)!.jobs.push(job);
   }
   return map;
 }
@@ -199,34 +209,103 @@ export async function runNightBeforeDigest(deps: NightBeforeDeps): Promise<Handl
   const groups = groupJobsByCrew(jobs);
   const results: Array<Record<string, unknown>> = [];
 
-  for (const [crew, crewJobs] of groups) {
-    const envVarName = resolveCrewChannelEnvVar(crew);
-    const channel = envVarName ? deps.getChannelEnv(envVarName) : undefined;
+  for (const [, { raw: crew, jobs: crewJobs }] of groups) {
+    // Fix round 1, minor (b): isolate each crew group so a non-Slack throw
+    // (e.g. a bad date string blowing up formatDateLabel inside buildCrewDigest)
+    // can't abort the remaining groups — log it as this group's error and move on.
+    try {
+      const envVarName = resolveCrewChannelEnvVar(crew);
 
-    if (!envVarName || !channel) {
-      const reason = !envVarName ? `unmapped crew "${crew}"` : `${envVarName} not set`;
-      console.error(`[crew-night-before] Skipping crew "${crew}" (${crewJobs.length} job(s)): ${reason}`);
+      // Unmapped crew (Jackson/Other/null/unknown) — permanent, expected,
+      // never retried. Benign skip.
+      if (!envVarName) {
+        const reason = `unmapped crew "${crew}"`;
+        console.error(`[crew-night-before] Skipping crew "${crew}" (${crewJobs.length} job(s)): ${reason}`);
+        await deps.writeLog({
+          direction: DIRECTION,
+          trigger_event: TRIGGER_EVENT,
+          action_taken: "skipped",
+          status: "success",
+          payload_in: { crew, job_count: crewJobs.length, reason },
+        });
+        results.push({ crew, action: "skipped", reason });
+        continue;
+      }
+
+      const channel = deps.getChannelEnv(envVarName);
+
+      // Fix round 1, F1: a MAPPED crew whose channel secret is unset is a
+      // misconfiguration, not an expected/permanent skip — and per controller
+      // ruling, this design sends at most once (the hour gate kills the
+      // second cron fire same day; next day the date window has moved on),
+      // so there is no retry to fall back on. Must be visible as an error.
+      if (!channel) {
+        const msg = `${envVarName} is not set — cannot send digest for crew "${crew}" (${crewJobs.length} job(s))`;
+        console.error(`[crew-night-before] ${msg}`);
+        await deps.writeLog({
+          direction: DIRECTION,
+          trigger_event: TRIGGER_EVENT,
+          action_taken: "error",
+          status: "error",
+          error_message: msg,
+          payload_in: { crew, job_count: crewJobs.length, missing_env_var: envVarName },
+        });
+        results.push({ crew, action: "error", error: msg });
+        continue;
+      }
+
+      const text = buildCrewDigest(crewJobs);
+      let slackResult: { ok: boolean; error?: string };
+      try {
+        slackResult = await deps.postSlackMessage(channel, text);
+      } catch (err) {
+        slackResult = { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+
+      if (!slackResult.ok) {
+        const msg = `Slack post failed for crew "${crew}": ${slackResult.error ?? "unknown error"}`;
+        console.error(`[crew-night-before] ${msg}`);
+        await deps.writeLog({
+          direction: DIRECTION,
+          trigger_event: TRIGGER_EVENT,
+          action_taken: "error",
+          status: "error",
+          error_message: msg,
+          payload_in: { crew, job_count: crewJobs.length },
+        });
+        results.push({ crew, action: "error", error: msg });
+        continue;
+      }
+
+      const jobIds = crewJobs.map((j) => j.id);
+      const { error: updateError } = await deps.updateSentOn(jobIds, tomorrow);
+      if (updateError) {
+        const msg = `Slack sent but night_before_sent_on stamp failed for crew "${crew}": ${
+          updateError instanceof Error ? updateError.message : String(updateError)
+        }`;
+        console.error(`[crew-night-before] ${msg}`);
+        await deps.writeLog({
+          direction: DIRECTION,
+          trigger_event: TRIGGER_EVENT,
+          action_taken: "error",
+          status: "error",
+          error_message: msg,
+          payload_in: { crew, job_count: crewJobs.length },
+        });
+        results.push({ crew, action: "sent_unstamped", error: msg });
+        continue;
+      }
+
       await deps.writeLog({
         direction: DIRECTION,
         trigger_event: TRIGGER_EVENT,
-        action_taken: "skipped",
+        action_taken: "created",
         status: "success",
-        payload_in: { crew, job_count: crewJobs.length, reason },
+        payload_in: { crew, job_count: crewJobs.length },
       });
-      results.push({ crew, action: "skipped", reason });
-      continue;
-    }
-
-    const text = buildCrewDigest(crewJobs);
-    let slackResult: { ok: boolean; error?: string };
-    try {
-      slackResult = await deps.postSlackMessage(channel, text);
+      results.push({ crew, action: "created", job_count: crewJobs.length });
     } catch (err) {
-      slackResult = { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-
-    if (!slackResult.ok) {
-      const msg = `Slack post failed for crew "${crew}": ${slackResult.error ?? "unknown error"}`;
+      const msg = `Unexpected error processing crew "${crew}": ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[crew-night-before] ${msg}`);
       await deps.writeLog({
         direction: DIRECTION,
@@ -237,36 +316,7 @@ export async function runNightBeforeDigest(deps: NightBeforeDeps): Promise<Handl
         payload_in: { crew, job_count: crewJobs.length },
       });
       results.push({ crew, action: "error", error: msg });
-      continue;
     }
-
-    const jobIds = crewJobs.map((j) => j.id);
-    const { error: updateError } = await deps.updateSentOn(jobIds, tomorrow);
-    if (updateError) {
-      const msg = `Slack sent but night_before_sent_on stamp failed for crew "${crew}": ${
-        updateError instanceof Error ? updateError.message : String(updateError)
-      }`;
-      console.error(`[crew-night-before] ${msg}`);
-      await deps.writeLog({
-        direction: DIRECTION,
-        trigger_event: TRIGGER_EVENT,
-        action_taken: "error",
-        status: "error",
-        error_message: msg,
-        payload_in: { crew, job_count: crewJobs.length },
-      });
-      results.push({ crew, action: "sent_unstamped", error: msg });
-      continue;
-    }
-
-    await deps.writeLog({
-      direction: DIRECTION,
-      trigger_event: TRIGGER_EVENT,
-      action_taken: "created",
-      status: "success",
-      payload_in: { crew, job_count: crewJobs.length },
-    });
-    results.push({ crew, action: "created", job_count: crewJobs.length });
   }
 
   return { status: 200, body: { action: "completed", tomorrow, groups: results } };

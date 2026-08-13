@@ -26,6 +26,10 @@
 -- cron.schedule() with an existing job name REPLACES that job's definition
 -- (no separate unschedule-then-schedule dance needed); the two jobs use
 -- distinct names so each call is independently idempotent on re-apply.
+--
+-- DEPLOY RULING (fix round 1, F4): deploy crew-night-before with
+-- --no-verify-jwt. The cron POST below carries only x-webhook-secret, no
+-- Authorization header — gateway JWT verification would reject every fire.
 
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
@@ -40,7 +44,8 @@ select cron.schedule(
       'Content-Type', 'application/json',
       'x-webhook-secret', '__WEBHOOK_SECRET__'
     ),
-    body := '{}'::jsonb
+    body := '{}'::jsonb,
+    timeout_milliseconds := 30000
   );
   $$
 );
@@ -55,7 +60,8 @@ select cron.schedule(
       'Content-Type', 'application/json',
       'x-webhook-secret', '__WEBHOOK_SECRET__'
     ),
-    body := '{}'::jsonb
+    body := '{}'::jsonb,
+    timeout_milliseconds := 30000
   );
   $$
 );
