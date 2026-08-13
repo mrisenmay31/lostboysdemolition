@@ -24,17 +24,52 @@ export type ParsedWebhookBody =
   | { event: WebhookEvent; opportunityId: string }
   | { error: string };
 
+/** Live-verification fix: GHL's "Webhook" workflow action fired and
+ *  authenticated but 400'd — it nests the configured custom data under a
+ *  `customData` key rather than sending it at the top level. Logged
+ *  diagnostics deliberately omit the body itself (GHL's standard payload
+ *  carries contact PII) — top-level key names plus the shape of `customData`
+ *  are enough to tell curl/"Custom Webhook" top-level bodies apart from a
+ *  "Webhook" action's nested one, or spot an unexpected third shape. */
+function logParseRejection(body: Record<string, unknown>): void {
+  console.error(
+    "[parseWebhookBody] Rejected — top-level keys:",
+    Object.keys(body),
+    "| typeof customData:",
+    typeof body.customData,
+  );
+}
+
 export function parseWebhookBody(json: unknown): ParsedWebhookBody {
   if (typeof json !== "object" || json === null) {
     return { error: "Request body must be a JSON object" };
   }
   const body = json as Record<string, unknown>;
-  const { event, opportunityId } = body;
+
+  // Try the top-level shape first (current contract — curl tests and
+  // possibly the newer "Custom Webhook" action use it; keep it working
+  // unchanged). Only when BOTH top-level keys are absent do we fall back to
+  // GHL's "Webhook" action envelope, `body.customData.{event,opportunityId}`.
+  let event: unknown = body.event;
+  let opportunityId: unknown = body.opportunityId;
+
+  if (
+    event === undefined &&
+    opportunityId === undefined &&
+    typeof body.customData === "object" &&
+    body.customData !== null
+  ) {
+    const customData = body.customData as Record<string, unknown>;
+    event = customData.event;
+    opportunityId = customData.opportunityId;
+  }
 
   if (event !== "quote_accepted" && event !== "job_scheduled") {
+    logParseRejection(body);
     return { error: `Unknown or missing event: ${JSON.stringify(event)}` };
   }
   if (typeof opportunityId !== "string" || opportunityId.trim() === "") {
+    logParseRejection(body);
     return { error: "Missing or invalid opportunityId — must be a non-empty string" };
   }
   return { event, opportunityId };

@@ -76,6 +76,43 @@ Deno.test("parseWebhookBody: non-object body", () => {
   assertEquals(typeof result.error, "string");
 });
 
+// ── parseWebhookBody: GHL "Webhook" action customData envelope (live-verify fix) ──
+
+Deno.test("parseWebhookBody: customData-nested valid body parses", () => {
+  assertEquals(
+    parseWebhookBody({
+      contact_id: "c1",
+      customData: { event: "job_scheduled", opportunityId: "opp-nested-1" },
+    }),
+    { event: "job_scheduled", opportunityId: "opp-nested-1" },
+  );
+});
+
+Deno.test("parseWebhookBody: customData-nested body with missing opportunityId rejects", () => {
+  const result = parseWebhookBody({
+    customData: { event: "quote_accepted" },
+  }) as { error: string };
+  assertEquals(typeof result.error, "string");
+});
+
+Deno.test("parseWebhookBody: top-level shape still parses (regression — curl / Custom Webhook action)", () => {
+  assertEquals(
+    parseWebhookBody({ event: "quote_accepted", opportunityId: "opp-top-level" }),
+    { event: "quote_accepted", opportunityId: "opp-top-level" },
+  );
+});
+
+Deno.test("parseWebhookBody: non-object customData is ignored cleanly, not thrown", () => {
+  const asString = parseWebhookBody({ customData: "not an object" }) as { error: string };
+  assertEquals(typeof asString.error, "string");
+
+  const asNull = parseWebhookBody({ customData: null }) as { error: string };
+  assertEquals(typeof asNull.error, "string");
+
+  const asNumber = parseWebhookBody({ customData: 42 }) as { error: string };
+  assertEquals(typeof asNumber.error, "string");
+});
+
 // ── mapContactToLabelInput ────────────────────────────────────────────────────
 
 Deno.test("mapContactToLabelInput: full contact", () => {
