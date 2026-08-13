@@ -1,0 +1,369 @@
+// ============================================================
+// Lost Boys Demolition — ghl-job-webhook pure logic + deps-injected handlers
+// Kept separate from index.ts (which owns Deno.serve + cold-start network
+// calls) so this module has zero top-level side effects and can be unit
+// tested without hitting the network.
+// ============================================================
+
+import { buildJobName, clientLabel, parseCity } from "../_shared/job.ts";
+import { writeJobEvent, writeSyncLog } from "../_shared/log.ts";
+
+// ── GHL custom field IDs — sourced from field_mapping.md (repo root) ─────────
+// field_mapping.md, Group 1 — Job Info, "Job Address"
+export const JOB_ADDRESS_FIELD_ID = "4pjFIkOmQFpqZ5bOBI9z";
+// field_mapping.md, Group 4 — Integration, "Job ID (human-readable)" —
+// existing "Airtable Job ID" GHL field, reused per brief as the job-number field.
+export const JOB_NUMBER_FIELD_ID = "Gtl6ADpbBGOlYYFil4n6";
+
+// ── Request body contract ─────────────────────────────────────────────────────
+
+export type WebhookEvent = "quote_accepted" | "job_scheduled";
+
+export type ParsedWebhookBody =
+  | { event: WebhookEvent; opportunityId: string }
+  | { error: string };
+
+export function parseWebhookBody(json: unknown): ParsedWebhookBody {
+  if (typeof json !== "object" || json === null) {
+    return { error: "Request body must be a JSON object" };
+  }
+  const body = json as Record<string, unknown>;
+  const { event, opportunityId } = body;
+
+  if (event !== "quote_accepted" && event !== "job_scheduled") {
+    return { error: `Unknown or missing event: ${JSON.stringify(event)}` };
+  }
+  if (typeof opportunityId !== "string" || opportunityId.trim() === "") {
+    return { error: "Missing or invalid opportunityId — must be a non-empty string" };
+  }
+  return { event, opportunityId };
+}
+
+// ── Pure extraction helpers ───────────────────────────────────────────────────
+
+export function mapContactToLabelInput(contact: any): {
+  companyName: string | null;
+  firstName: string | null;
+  lastName: string | null;
+} {
+  return {
+    companyName: contact?.companyName ?? null,
+    firstName: contact?.firstName ?? null,
+    lastName: contact?.lastName ?? null,
+  };
+}
+
+/** Looks up a GHL custom field value by field ID, tolerant of the several
+ *  shapes GHL's API uses for custom fields across read/write payloads. */
+export function getCustomFieldValue(
+  customFields: any[] | null | undefined,
+  fieldId: string,
+): any {
+  if (!Array.isArray(customFields)) return undefined;
+  const match = customFields.find((cf) => cf?.id === fieldId || cf?.fieldId === fieldId);
+  if (!match) return undefined;
+  return match.field_value ?? match.fieldValue ?? match.value ?? undefined;
+}
+
+/** Mirrors ghl-contact-sync/index.ts's resolveClientType — same tag
+ *  vocabulary (Contractor / Homeowner), same case-insensitive matching. */
+export function resolveClientType(tags: unknown): string | null {
+  if (!Array.isArray(tags) || tags.length === 0) return null;
+  const lower = tags.map((t) => String(t).toLowerCase());
+  if (lower.includes("contractor")) return "Contractor";
+  if (lower.includes("homeowner")) return "Homeowner";
+  return null;
+}
+
+/** Fallback address built from a GHL contact record when the opportunity's
+ *  Job Address custom field is empty. */
+export function buildContactAddress(contact: any): string | null {
+  if (!contact) return null;
+  const parts = [contact.address1, contact.city, contact.state, contact.postalCode]
+    .map((p) => (p ? String(p).trim() : ""))
+    .filter(Boolean);
+  return parts.length ? parts.join(", ") : null;
+}
+
+/** Case-insensitive substring match against live GHL stage names — a May
+ *  2026 error log showed combined names like "Deposit Received/Job Scheduled". */
+export function findStageId(
+  stages: Array<{ id: string; name: string }>,
+  substring: string,
+): string | null {
+  const needle = substring.toLowerCase();
+  const match = stages.find((s) => (s?.name ?? "").toLowerCase().includes(needle));
+  return match ? match.id : null;
+}
+
+// ── handleQuoteAccepted — deps-injected orchestration ─────────────────────────
+
+export interface QuoteAcceptedDeps {
+  supabase: any;
+  fetchOpportunity: (id: string) => Promise<any>;
+  fetchContact: (id: string) => Promise<any>;
+  updateOpportunity: (id: string, body: Record<string, unknown>) => Promise<any>;
+  payloadIn?: unknown;
+}
+
+export interface HandlerResult {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+const UNIQUE_VIOLATION = "23505";
+
+export async function handleQuoteAccepted(
+  deps: QuoteAcceptedDeps,
+  opportunityId: string,
+): Promise<HandlerResult> {
+  const { supabase } = deps;
+
+  // ── Idempotency check first — the UNIQUE constraint on ghl_opportunity_id
+  //    is the backstop, but checking here avoids minting a number we throw away.
+  const { data: existing, error: existingError } = await supabase
+    .from("jobs")
+    .select("id, job_number")
+    .eq("ghl_opportunity_id", opportunityId)
+    .maybeSingle();
+
+  if (existingError) {
+    const msg = `Idempotency check failed: ${existingError.message ?? String(existingError)}`;
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken: "error",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    return { status: 500, body: { success: false, error: msg } };
+  }
+
+  if (existing) {
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken: "skipped",
+      status: "success",
+      payload_in: deps.payloadIn,
+    });
+    await writeJobEvent(supabase, {
+      job_number: existing.job_number,
+      stage_from: null,
+      stage_to: 5,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary: "Skipped — job already exists for this GHL opportunity",
+      status: "skipped",
+      payload_in: deps.payloadIn,
+    });
+    return { status: 200, body: { action: "skipped", job_number: existing.job_number } };
+  }
+
+  // ── Fetch opportunity + contact from GHL ────────────────────────────────────
+  let opp: any;
+  let contactRecord: any;
+  let contactId: string;
+  try {
+    const opportunity = await deps.fetchOpportunity(opportunityId);
+    opp = opportunity?.opportunity ?? opportunity;
+    contactId = opp?.contactId;
+    if (!contactId) throw new Error("Opportunity has no contactId");
+
+    const contact = await deps.fetchContact(contactId);
+    contactRecord = contact?.contact ?? contact;
+  } catch (err: any) {
+    const msg = `Failed to fetch opportunity/contact: ${err.message ?? String(err)}`;
+    console.error("[handleQuoteAccepted]", msg);
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken: "error",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    await writeJobEvent(supabase, {
+      job_number: null,
+      stage_from: null,
+      stage_to: 5,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary: "Aborted — GHL fetch failed",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    return { status: 500, body: { success: false, error: msg } };
+  }
+
+  const labelInput = mapContactToLabelInput(contactRecord);
+  const client = clientLabel(labelInput);
+  const clientType = resolveClientType(contactRecord?.tags);
+
+  const jobAddress =
+    getCustomFieldValue(opp?.customFields ?? opp?.custom_fields, JOB_ADDRESS_FIELD_ID) ??
+    buildContactAddress(contactRecord) ??
+    null;
+  const city = parseCity(jobAddress);
+
+  const rawMonetaryValue = opp?.monetaryValue;
+  const estimateValue =
+    typeof rawMonetaryValue === "number"
+      ? rawMonetaryValue
+      : (Number.isFinite(parseFloat(rawMonetaryValue)) ? parseFloat(rawMonetaryValue) : null);
+
+  // ── Mint job number ──────────────────────────────────────────────────────────
+  const { data: jobNumber, error: mintError } = await supabase.rpc("next_job_number");
+  if (mintError || !jobNumber) {
+    const msg = `Failed to mint job number: ${mintError?.message ?? "no value returned"}`;
+    console.error("[handleQuoteAccepted]", msg);
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken: "error",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    await writeJobEvent(supabase, {
+      job_number: null,
+      stage_from: null,
+      stage_to: 5,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary: "Aborted — job number mint failed",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    return { status: 500, body: { success: false, error: msg } };
+  }
+
+  const jobName = buildJobName(jobNumber, client, city);
+
+  // ── Mint + insert (per brief: select next_job_number() then insert with
+  //    that number; a unique-violation race on ghl_opportunity_id loses cleanly). ──
+  const { data: inserted, error: insertError } = await supabase
+    .from("jobs")
+    .insert({
+      job_number: jobNumber,
+      job_name: jobName,
+      client_name: client,
+      client_type: clientType,
+      job_address: jobAddress,
+      city,
+      ghl_opportunity_id: opportunityId,
+      ghl_contact_id: contactId,
+      estimate_value: estimateValue,
+      status_v2: "accepted",
+    })
+    .select("id, job_number")
+    .single();
+
+  if (insertError) {
+    if (insertError.code === UNIQUE_VIOLATION) {
+      const { data: raced } = await supabase
+        .from("jobs")
+        .select("id, job_number")
+        .eq("ghl_opportunity_id", opportunityId)
+        .maybeSingle();
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "quote_accepted",
+        action_taken: "skipped",
+        status: "success",
+        payload_in: deps.payloadIn,
+      });
+      await writeJobEvent(supabase, {
+        job_number: raced?.job_number ?? null,
+        stage_from: null,
+        stage_to: 5,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: "Skipped — lost insert race on ghl_opportunity_id",
+        status: "skipped",
+        payload_in: deps.payloadIn,
+      });
+      return { status: 200, body: { action: "skipped", job_number: raced?.job_number ?? null } };
+    }
+
+    const msg = `Insert failed: ${insertError.message ?? String(insertError)}`;
+    console.error("[handleQuoteAccepted]", msg);
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken: "error",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    await writeJobEvent(supabase, {
+      job_number: null,
+      stage_from: null,
+      stage_to: 5,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary: "Aborted — DB insert failed",
+      status: "error",
+      error_message: msg,
+      payload_in: deps.payloadIn,
+    });
+    return { status: 500, body: { success: false, error: msg } };
+  }
+
+  // ── GHL write-back — non-fatal. Job row already committed; a failure here
+  //    just means the opportunity's name/custom field lag until a retry re-fires. ──
+  let ghlUpdateStatus: "success" | "failed" = "success";
+  let ghlUpdateError: string | null = null;
+  try {
+    await deps.updateOpportunity(opportunityId, {
+      name: jobName,
+      customFields: [{ id: JOB_NUMBER_FIELD_ID, field_value: jobNumber }],
+    });
+  } catch (err: any) {
+    ghlUpdateStatus = "failed";
+    ghlUpdateError = err.message ?? String(err);
+    console.error("[handleQuoteAccepted] GHL opportunity update failed (non-fatal):", ghlUpdateError);
+  }
+
+  await writeJobEvent(supabase, {
+    job_number: jobNumber,
+    stage_from: null,
+    stage_to: 5,
+    function_name: "ghl-job-webhook",
+    trigger_source: "ghl_workflow",
+    ghl_opportunity_id: opportunityId,
+    action_summary:
+      ghlUpdateStatus === "success"
+        ? "Job created and GHL opportunity updated"
+        : "Job created; GHL opportunity update failed",
+    status: ghlUpdateStatus === "success" ? "success" : "error",
+    error_message: ghlUpdateStatus === "failed" ? `GHL PUT failed (non-fatal): ${ghlUpdateError}` : null,
+    payload_in: deps.payloadIn,
+  });
+
+  await writeSyncLog(supabase, {
+    direction: "ghl_to_supabase",
+    trigger_event: "quote_accepted",
+    action_taken: "created",
+    status: "success",
+    payload_in: deps.payloadIn,
+  });
+
+  return {
+    status: 200,
+    body: {
+      success: true,
+      action: "created",
+      job_number: jobNumber,
+      ghl_update: ghlUpdateStatus,
+    },
+  };
+}
