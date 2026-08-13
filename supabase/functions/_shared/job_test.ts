@@ -20,6 +20,10 @@ Deno.test("city parsing", () => {
   assertEquals(parseCity("Murray, UT 84107"), "Murray");
   assertEquals(parseCity("123 Main St, Murray, UT 84107, USA"), "Murray");
   assertEquals(parseCity("Murray, UT"), "Murray");
+  // Fix round 2: country-only addresses must return null, not throw.
+  assertEquals(parseCity("USA"), null);
+  assertEquals(parseCity(", USA"), null);
+  assertEquals(parseCity("United States"), null);
 });
 
 Deno.test("client label precedence", () => {

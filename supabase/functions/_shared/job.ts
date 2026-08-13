@@ -15,6 +15,7 @@ export function parseCity(address: string | null | undefined): string | null {
   if (parts.length && TRAILING_COUNTRY.test(parts[parts.length - 1])) {
     parts = parts.slice(0, -1);
   }
+  if (!parts.length) return null; // country-only address (e.g. "USA", ", USA") — no city left
   if (parts.length >= 2) {
     // "street, city, state zip" → second-to-last segment unless it's the state itself.
     // Walk left if the candidate turns out to be the state/zip segment (e.g. no street
