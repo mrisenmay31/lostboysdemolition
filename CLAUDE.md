@@ -33,9 +33,12 @@ explicitly resolved.
 **The system was never started, not broken** — as of 2026-07-30. **As of 2026-08-13, Phase A
 (the job record keystone) has shipped and is live**: `ghl-job-webhook` mints a canonical
 `JOB-XXXX` Postgres job record when Dane/Jackson move a GHL opportunity to Quote Accepted, and
-schedules Google Calendar + Slack crew notifications at Job Scheduled. Verified end-to-end from
-the GHL UI, not just curl. See the 2026-08-13 Phase A entry in `BUILD_LOG.md` for the full
-picture; the Airtable/Fillout counts below still describe the pre-Phase-A world.
+schedules Google Calendar + Slack crew notifications at Job Scheduled. **Verification is partial:**
+the create path (Quote Accepted → job record) was verified by Matt dragging a real opportunity
+through the actual GHL UI. The schedule path (Job Scheduled → Calendar/Slack) was verified via a
+direct function invocation, not yet by dragging an opportunity through the actual GHL workflow —
+that drag (workflow 2) is still pending. See the 2026-08-13 Phase A entry in `BUILD_LOG.md` for
+the full picture; the Airtable/Fillout counts below still describe the pre-Phase-A world.
 
 Live: Estimates 296 records, Clients 989, Jobs **9** in the old Airtable pipeline (5 named "Test
 Job"; the new canonical Postgres `jobs` table is separate and holds 1 live row, JOB-1102), zero
@@ -102,9 +105,10 @@ each one still applies to the currently deployed functions.
   (multiSelect, 19 options), Scope Notes (multilineText). Create them, add each field ID to
   `JOB_FIELDS` in `airtable-job-created`, redeploy. Weigh this against Phase 1 — the rebuild may
   land these in Postgres instead.
-- **Slack crew notifications in `airtable-job-scheduled`** are still `SLACK_PLACEHOLDER`. Needs
-  `SLACK_CREW1_CHANNEL`–`SLACK_CREW4_CHANNEL` in Supabase secrets (`SLACK_BOT_TOKEN` is already
-  set), then the notification logic.
+- **Slack crew notifications in `airtable-job-scheduled`** are still `SLACK_PLACEHOLDER`.
+  `SLACK_CREW1_CHANNEL`–`SLACK_CREW4_CHANNEL` secrets were **set 2026-08-13** for the Phase A build
+  (`ghl-job-webhook` and `crew-night-before` already use them); only the notification logic inside
+  `airtable-job-scheduled` itself remains a placeholder.
 
 ## Resolved blockers (stalled since May, closed 2026-07-30)
 
@@ -188,16 +192,22 @@ Slack message; that was abandoned as unreliable and is typed by hand today.
 ├── SYSTEM_AUDIT_2026-07-30.md   # SYSTEMS ground truth — §2 is wrong, see discovery §8
 ├── BUILD_LOG.md                 # Deploy + session history — append an entry every session
 ├── NEXT_SESSION_PROMPT.md       # Ephemeral copy-paste handoff; regenerate each session
+├── docs/
+│   └── superpowers/
+│       └── plans/                    # Implementation plans + frozen session ledgers
 ├── supabase/
-│   ├── functions/               # Deno/TypeScript edge functions (all 7, reconciled 2026-07-30)
+│   ├── functions/               # Deno/TypeScript edge functions (9 + _shared; Phase A additions 2026-08-13)
 │   │   ├── airtable-client-sync/      # Airtable Clients → GHL Contacts  [LIVE, healthy]
 │   │   ├── ghl-contact-sync/          # GHL Contacts → Airtable Clients  [LIVE, known defect — see Edge Functions]
 │   │   ├── airtable-job-created/      # Airtable Jobs → GHL Opportunity (v21, Stage 3)
 │   │   ├── airtable-job-scheduled/    # Stage 6 + Google Calendar + job_events
 │   │   ├── airtable-job-completed/    # Stage 8 → Stripe draft invoice
 │   │   ├── receive-airtable-webhook/  # writes Supabase jobs mirror  [UNAUTHENTICATED]
-│   │   └── push-to-airtable/          # time_entries → Airtable actuals  [dormant, latent bug]
-│   └── migrations/              # RLS + view hardening (2026-07-30)
+│   │   ├── push-to-airtable/          # time_entries → Airtable actuals  [dormant, latent bug]
+│   │   ├── _shared/                   # job naming/validation + Google auth + log writers, unit-tested
+│   │   ├── ghl-job-webhook/           # Phase A: GHL workflow → job record + scheduling  [LIVE v6]
+│   │   └── crew-night-before/         # nightly crew digest, pg_cron  [LIVE v4]
+│   └── migrations/              # RLS + view hardening (2026-07-30) + Phase A schema/cron (4 files, 2026-08-13)
 ├── airtable-automations/        # Airtable Scripting automations (live in base; edit in UI)
 │   ├── create-line-items.js     # Fires on job creation → creates Invoice Line Item child records
 │   ├── update-line-items.js     # Fires on job LI field edits → upserts/soft-deletes child records
@@ -257,7 +267,9 @@ the first):**
   `'supabase_to_slack'` — the latter two were added by migration `phase_a_audit_write_fixups` for
   `ghl-job-webhook` and `crew-night-before`; the constraint originally allowed only the two
   Airtable directions and rejected Phase A's writes with a live 400 until widened.
-- `match_method` and `status` also carry check constraints (see migrations).
+- `match_method` and `status` also carry check constraints — these predate the repo migration set
+  (live-verified 2026-08-13); `job_events.status` check allows `success`|`error`|`skipped`
+  (live-verified).
 Anything outside these is rejected by the check constraint.
 
 ### `airtable-job-created` — detail
@@ -420,9 +432,9 @@ Pipeline") found the live pipeline has **12 stages, not 13** — there is no "Cl
 | 2 | Intake / Qualification | Estimator |
 | 3 | Estimate in Progress | Estimator |
 | 4 | Quote Sent | Client / Dane |
-| 5 | Quote Accepted / Pending Schedule | Dane / Jackson |
+| 5 | Quote Accepted | Dane / Jackson |
 | 6 | Job Scheduled | Dane |
-| 7 | Job in Progress | Foreman |
+| 7 | Job In Progress | Foreman |
 | 8 | Job Completed | Automated |
 | 9 | Invoice Review | Dane |
 | 10 | Invoice Sent | Client / Dane |

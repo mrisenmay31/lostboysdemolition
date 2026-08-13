@@ -26,7 +26,7 @@ shipped.
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A | 🟢 Live (v6) — Phase A keystone, live E2E verified | 2026-08-13 |
-| `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified to test channel | 2026-08-13 |
+| `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -44,7 +44,7 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 Built via subagent-driven development: sonnet implementers, opus adversarial reviewers, Matt
 checkpointing after Task 1 (migration apply), after Task 4 (before real crew channels), and at
 Task 6 (GHL workflow wiring). Full session ledger:
-`.superpowers/sdd/2026-08-13-phase-a-job-record/progress.md`.
+`docs/superpowers/plans/2026-08-13-phase-a-job-record-ledger.md`.
 
 #### What shipped
 
@@ -82,6 +82,12 @@ opportunity returned `skipped`/same job number, and the GHL write-back PUT self-
 One production defect surfaced and fixed mid-session: GHL's "Webhook" workflow action nests the
 payload under a `customData` key rather than sending it top-level — the first real workflow drag
 400'd; fixed to accept both shapes (commit `402b6b0`), redeployed, re-verified.
+
+**`crew-night-before`'s digest Slack leg was live-verified separately, after this entry's original
+docs commit.** The controller created a synthetic scheduled job (JOB-1103, Crew 1, start
+2026-08-14), then force-fired the function: it posted the "⏰ Tomorrow:" digest to `#ops-test`,
+stamped `night_before_sent_on`, and an idempotent re-fire correctly returned "no jobs". The
+synthetic row was then deleted and the Crew 1 Slack secret restored to the real channel.
 
 #### Defects found and fixed pre-production (adversarial review loop)
 

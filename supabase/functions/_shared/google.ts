@@ -1,5 +1,6 @@
-// Lifted verbatim from supabase/functions/airtable-job-scheduled/index.ts (~:141-238),
-// with `export` keywords added. Do not refactor internals — see task-2-brief.md.
+// Lifted verbatim from airtable-job-scheduled/index.ts (see
+// docs/superpowers/plans/2026-08-13-phase-a-job-record.md, Task 2), with `export` keywords
+// added. Do not refactor internals.
 
 export function pemToArrayBuffer(pem: string): ArrayBuffer {
   const b64 = pem

@@ -965,14 +965,27 @@ function happyScheduleDeps(overrides: Partial<{
   };
 }
 
-Deno.test("handleJobScheduled: no job row -> 200 skip, reason explains Quote Accepted", async () => {
+Deno.test("handleJobScheduled: no job row -> 200 response body unchanged (no GHL retry-storm), but logged loudly as an error (F5)", async () => {
   const supabase = fakeScheduleSupabase({ job: null });
   const deps = { supabase, ...happyScheduleDeps() };
   const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  // Response body is deliberately unchanged — GHL must not retry-storm this webhook.
   assertEquals(result.status, 200);
   assertEquals(result.body, { action: "skipped", reason: "no job record — was Quote Accepted skipped?" });
+  // But the audit trail must be loud: this is a missed job, not a benign skip.
   const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
-  assertEquals(syncLogWrites[0].row.action_taken, "skipped");
+  assertEquals(syncLogWrites[0].row.action_taken, "error");
+  assertEquals(syncLogWrites[0].row.status, "error");
+  assertEquals(
+    syncLogWrites[0].row.error_message,
+    "job_scheduled fired but no job record exists — Quote Accepted stage was likely skipped; job NOT created",
+  );
+  const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+  assertEquals(jobEventWrites[0].row.status, "error");
+  assertEquals(
+    jobEventWrites[0].row.error_message,
+    "job_scheduled fired but no job record exists — Quote Accepted stage was likely skipped; job NOT created",
+  );
 });
 
 Deno.test("handleJobScheduled: job exists but crew/start date not set on opportunity -> 200 skip, no external calls", async () => {
@@ -1308,7 +1321,7 @@ Deno.test("handleJobScheduled: I3 — no reschedule when legs unstamped, even if
   assertEquals(jobEventWrites.some((e: any) => e.row.action_summary === "reschedule_detected"), false);
 });
 
-Deno.test("handleJobScheduled: Slack — unmapped crew value -> 'skipped', not 'error'", async () => {
+Deno.test("handleJobScheduled: Slack — unmapped crew value -> 'skipped', not 'error'; sync_log stays clean on the benign skip (F7)", async () => {
   const job = freshJobRow();
   const supabase = fakeScheduleSupabase({ job });
   let slackCalled = false;
@@ -1330,6 +1343,12 @@ Deno.test("handleJobScheduled: Slack — unmapped crew value -> 'skipped', not '
   const result = await handleJobScheduled(deps as any, "opp-sched-1");
   assertEquals(result.body.slack, "skipped");
   assertEquals(slackCalled, false);
+  // F7: "crew not mapped to a known crew Slack channel" is benign skip narration — it must
+  // stay in job_events/action_summary/response only, never leak into sync_log.error_message
+  // on a row whose overall status is 'success' (no leg actually errored).
+  const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
+  assertEquals(syncLogWrites[0].row.status, "success");
+  assertEquals(syncLogWrites[0].row.error_message, null);
 });
 
 Deno.test("handleJobScheduled: Slack — crew mapped but channel env missing -> 'skipped', not 'error'", async () => {

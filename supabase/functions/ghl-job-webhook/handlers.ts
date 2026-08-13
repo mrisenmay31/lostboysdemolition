@@ -769,11 +769,20 @@ export async function handleJobScheduled(
 
     if (!job) {
       const guard = shouldSkipSchedule(null, { crew: null, startDate: null, endDate: null });
+      // F5 (final review): this is NOT a benign skip — job_scheduled firing with no
+      // matching job row means Quote Accepted was very likely never processed (or its
+      // insert failed), so the job was never created. That must be loud, not a quiet
+      // 'skipped'/'success' pair that never gets noticed. The 200 response body is kept
+      // as-is (unchanged 'skipped' shape) so GHL doesn't retry-storm the workflow.
+      const missedJobMsg =
+        "job_scheduled fired but no job record exists — Quote Accepted stage was likely " +
+        "skipped; job NOT created";
       await writeSyncLog(supabase, {
         direction: "ghl_to_supabase",
         trigger_event: "job_scheduled",
-        action_taken: "skipped",
-        status: "success",
+        action_taken: "error",
+        status: "error",
+        error_message: missedJobMsg,
         payload_in: deps.payloadIn,
       });
       await writeJobEvent(supabase, {
@@ -784,7 +793,8 @@ export async function handleJobScheduled(
         trigger_source: "ghl_workflow",
         ghl_opportunity_id: opportunityId,
         action_summary: `Skipped — ${guard.reason}`,
-        status: "skipped",
+        status: "error",
+        error_message: missedJobMsg,
         payload_in: deps.payloadIn,
       });
       return { status: 200, body: { action: "skipped", reason: guard.reason } };
@@ -1154,7 +1164,11 @@ export async function handleJobScheduled(
       trigger_event: "job_scheduled",
       action_taken: "updated",
       status: anyLegError ? "error" : "success",
-      error_message: overallErrorMsg,
+      // F7 (final review): overallErrorMsg can be non-null on a success row — e.g. an
+      // unmapped crew or a gated/no-op BILL leg narrates itself via legError even though
+      // no leg actually errored. That benign narration belongs in action_summary/job_events/
+      // the response body, never in sync_log.error_message on a success row.
+      error_message: anyLegError ? overallErrorMsg : null,
       payload_in: deps.payloadIn,
     });
 

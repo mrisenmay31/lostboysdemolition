@@ -80,9 +80,8 @@ Start by telling me what you think the highest-value next move is, and why.
   `5c52c8b`, `7fca329`, `55c17f6`, `0b8f5b2`, `358cf8a`, `b6f0f27`, `9fa8770`, `bd7aca7`,
   `79b479d`, `0f3c6a9`, `f63be73`, `4942552`, `402b6b0`, plus this docs close-out commit. Decide
   whether/when to merge before starting Phase B.
-- **Full build ledger:** `.superpowers/sdd/2026-08-13-phase-a-job-record/progress.md` — every
-  ruling, defect, and review round from the session, in order. The task briefs/reports in that
-  same directory have implementation-level detail if a specific decision needs re-litigating.
+- **Full build ledger:** `docs/superpowers/plans/2026-08-13-phase-a-job-record-ledger.md` — every
+  ruling, defect, and review round from the session, in order (frozen, closed 2026-08-13).
 - **CLAUDE.md was corrected in three places this session** beyond the Phase A additions: the GHL
   pipeline table went from 13 stages to the live 12 (no "Closed Lost / Cancelled" stage exists);
   the `sync_log` constraints section now documents `direction`/`match_method`/`status` checks, not
@@ -93,7 +92,7 @@ Start by telling me what you think the highest-value next move is, and why.
   before.
 - **Slack crew channel IDs are now in Supabase secrets** (set 2026-08-13): Crew1 `C087S6M0Q4Q`
   (Nick), Crew2 `C087S6G3248` (Alex), Crew3 `C0ABF44937A` (Brady), Crew4 `C0ABF4XMKDE` (Cade).
-- **Airtable Pipeline Reference base updates from the plan's Task 7 step were not done** — this
-  close-out session was scoped to the three repo docs only (BUILD_LOG.md, CLAUDE.md,
-  NEXT_SESSION_PROMPT.md). If the base needs the new secrets/field IDs recorded, do it next
-  session.
+- **Airtable Pipeline Reference base updates from the plan's Task 7 step are now done.** Both
+  tables were updated by the controller: Secrets & Credentials has the 4 `SLACK_CREW1..4_CHANNEL`
+  rows marked ✅ Live, and Field Registry records `Gtl6ADpbBGOlYYFil4n6` as reused for the Job
+  Number field.
