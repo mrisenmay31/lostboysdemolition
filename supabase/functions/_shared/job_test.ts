@@ -16,6 +16,10 @@ Deno.test("city parsing", () => {
   assertEquals(parseCity("Holladay"), "Holladay");                      // bare city
   assertEquals(parseCity(""), null);
   assertEquals(parseCity(null), null);
+  // Fix round 1, Finding 2: comma branch must not return the state/zip segment as the city.
+  assertEquals(parseCity("Murray, UT 84107"), "Murray");
+  assertEquals(parseCity("123 Main St, Murray, UT 84107, USA"), "Murray");
+  assertEquals(parseCity("Murray, UT"), "Murray");
 });
 
 Deno.test("client label precedence", () => {

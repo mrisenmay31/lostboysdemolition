@@ -4,8 +4,10 @@ export async function writeSyncLog(supabase: any, entry: {
   action_taken: "created" | "updated" | "skipped" | "error";
   status: "success" | "error"; error_message?: string | null; payload_in?: unknown;
 }) {
-  try { await supabase.from("sync_log").insert(entry); }
-  catch (e) { console.error("[log] sync_log insert failed:", e); }
+  try {
+    const { error } = await supabase.from("sync_log").insert(entry);
+    if (error) console.error("[log] sync_log insert failed:", error);
+  } catch (e) { console.error("[log] sync_log insert failed:", e); }
 }
 
 export async function writeJobEvent(supabase: any, event: {
@@ -14,6 +16,8 @@ export async function writeJobEvent(supabase: any, event: {
   action_summary: string; status: "success" | "error" | "skipped";
   error_message?: string | null; payload_in?: unknown;
 }) {
-  try { await supabase.from("job_events").insert(event); }
-  catch (e) { console.error("[log] job_events insert failed:", e); }
+  try {
+    const { error } = await supabase.from("job_events").insert(event);
+    if (error) console.error("[log] job_events insert failed:", error);
+  } catch (e) { console.error("[log] job_events insert failed:", e); }
 }

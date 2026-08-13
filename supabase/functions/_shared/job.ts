@@ -3,15 +3,30 @@ export function isValidJobNumber(s: string): boolean {
 }
 
 const STATE_TOKEN = /^(UT|Utah)\.?,?$/i;
+const TRAILING_COUNTRY = /^(USA|United States)\.?$/i;
+// Whole-segment is just a state (optionally with a trailing zip) — never a city
+const STATE_ZIP_ONLY = /^(UT|Utah)\.?(\s+\d{5}(-\d{4})?)?$/i;
+const ZIP_ONLY = /^\d{5}(-\d{4})?$/;
 
 export function parseCity(address: string | null | undefined): string | null {
   if (!address?.trim()) return null;
-  const parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  let parts = address.split(",").map((p) => p.trim()).filter(Boolean);
+  // drop a trailing country segment before selecting the candidate
+  if (parts.length && TRAILING_COUNTRY.test(parts[parts.length - 1])) {
+    parts = parts.slice(0, -1);
+  }
   if (parts.length >= 2) {
-    // "street, city, state zip" → second-to-last segment unless it's the state itself
-    const candidate = parts.length >= 3 ? parts[parts.length - 2] : parts[1];
-    const cleaned = candidate.replace(/\s+(UT|Utah)\.?(\s+\d{5}(-\d{4})?)?$/i, "").trim();
-    return cleaned || null;
+    // "street, city, state zip" → second-to-last segment unless it's the state itself.
+    // Walk left if the candidate turns out to be the state/zip segment (e.g. no street
+    // segment present, so "city, state zip" only has 2 parts).
+    let idx = parts.length >= 3 ? parts.length - 2 : 1;
+    while (idx >= 0) {
+      const candidate = parts[idx];
+      const cleaned = candidate.replace(/\s+(UT|Utah)\.?(\s+\d{5}(-\d{4})?)?$/i, "").trim();
+      if (cleaned && !STATE_ZIP_ONLY.test(cleaned) && !ZIP_ONLY.test(cleaned)) return cleaned;
+      idx--;
+    }
+    return null;
   }
   // No commas: take tokens before a state token, drop leading street-number/name heuristically
   const tokens = parts[0].split(/\s+/);
