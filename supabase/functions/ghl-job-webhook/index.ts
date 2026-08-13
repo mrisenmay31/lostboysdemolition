@@ -18,6 +18,7 @@ import {
   parseWebhookBody,
   type QuoteAcceptedDeps,
 } from "./handlers.ts";
+import { writeSyncLog } from "../_shared/log.ts";
 
 const GHL_API_KEY          = Deno.env.get("GHL_API_KEY")!;
 const GHL_LOCATION_ID      = Deno.env.get("GHL_LOCATION_ID")!;
@@ -32,14 +33,17 @@ const GHL_AUTH = {
 };
 
 // ── Cold start: resolve "Job Pipeline" and its Quote Accepted / Job Scheduled
-//    stage IDs. Both are resolved now even though the create path (Task 3)
-//    doesn't move stages itself — Task 4's schedule path needs
-//    jobScheduledStageId, and this module owns one cold-start pipeline cache. ──
+//    stage IDs. `PIPELINE` is set as soon as "Job Pipeline" itself is found —
+//    fix round 1 (I5, controller ruling): a missing individual stage ID is
+//    NOT fatal here. The create path (quote_accepted) uses neither stage ID
+//    at all; only the future job_scheduled path (Task 4) will require
+//    jobScheduledStageId, and it will enforce that itself when built. Both
+//    stage names are still resolved and logged now for visibility. ─────────
 
 interface PipelineCache {
   pipelineId:           string;
-  quoteAcceptedStageId: string;
-  jobScheduledStageId:  string;
+  quoteAcceptedStageId: string | null;
+  jobScheduledStageId:  string | null;
 }
 
 let PIPELINE: PipelineCache | null = null;
@@ -69,22 +73,18 @@ try {
     const quoteAcceptedStageId = findStageId(stages, "quote accepted");
     const jobScheduledStageId  = findStageId(stages, "job scheduled");
 
-    console.log(
-      `[startup] Matched "Quote Accepted" substring -> ${quoteAcceptedStageId ?? "NOT FOUND"}; ` +
-      `"Job Scheduled" substring -> ${jobScheduledStageId ?? "NOT FOUND"}`,
-    );
-
-    if (!quoteAcceptedStageId || !jobScheduledStageId) {
-      const missing = [
-        !quoteAcceptedStageId ? '"Quote Accepted"' : null,
-        !jobScheduledStageId  ? '"Job Scheduled"'  : null,
-      ].filter(Boolean).join(" and ");
-      STARTUP_ERROR = `Stage(s) matching ${missing} not found. Live stage names: ${stages.map((s: any) => s.name).join(", ")}`;
-      console.error("[startup]", STARTUP_ERROR);
-    } else {
-      PIPELINE = { pipelineId: pipeline.id, quoteAcceptedStageId, jobScheduledStageId };
-      console.log("[startup] Resolved pipeline:", JSON.stringify(PIPELINE));
+    console.log(`[startup] Matched "Quote Accepted" substring -> ${quoteAcceptedStageId ?? "NOT FOUND"}`);
+    console.log(`[startup] Matched "Job Scheduled" substring -> ${jobScheduledStageId ?? "NOT FOUND"}`);
+    if (!quoteAcceptedStageId) {
+      console.warn('[startup] "Quote Accepted" stage not matched — non-fatal, the create path uses neither stage ID.');
     }
+    if (!jobScheduledStageId) {
+      console.warn('[startup] "Job Scheduled" stage not matched — non-fatal for now; Task 4\'s schedule path will need it.');
+    }
+
+    // Pipeline itself resolved — set the cache regardless of stage-match outcome.
+    PIPELINE = { pipelineId: pipeline.id, quoteAcceptedStageId, jobScheduledStageId };
+    console.log("[startup] Resolved pipeline:", JSON.stringify(PIPELINE));
   }
 } catch (err: any) {
   STARTUP_ERROR = `Pipeline resolution failed: ${err.message ?? String(err)}`;
@@ -137,38 +137,70 @@ Deno.serve(async (req) => {
     return json(401, { error: "Unauthorized" });
   }
 
-  let raw: unknown;
+  // I4: created before the STARTUP_ERROR gate so a startup failure can still
+  // be written to sync_log instead of leaving no DB trace at all.
+  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+
   try {
-    raw = await req.json();
-  } catch {
-    return json(400, { error: "Invalid JSON" });
-  }
+    let raw: unknown;
+    try {
+      raw = await req.json();
+    } catch {
+      return json(400, { error: "Invalid JSON" });
+    }
 
-  const parsed = parseWebhookBody(raw);
-  if ("error" in parsed) {
-    return json(400, { error: parsed.error });
-  }
+    const parsed = parseWebhookBody(raw);
+    if ("error" in parsed) {
+      return json(400, { error: parsed.error });
+    }
 
-  if (!PIPELINE) {
-    const msg = STARTUP_ERROR ?? "Pipeline not resolved — check startup logs";
-    console.error("[handler] Aborting: pipeline not ready.", msg);
+    // I5 (controller ruling): gate is per-event in spirit — PIPELINE is only
+    // ever null when "Job Pipeline" itself failed to resolve (a hard startup
+    // failure), which blocks every event. A missing individual stage ID does
+    // NOT null out PIPELINE (see cold-start block above), so quote_accepted
+    // proceeds even when only one of the two stage names matched.
+    if (!PIPELINE) {
+      const msg = STARTUP_ERROR ?? "Pipeline not resolved — check startup logs";
+      console.error("[handler] Aborting: pipeline not ready.", msg);
+      await writeSyncLog(supabase, {
+        direction:      "ghl_to_supabase",
+        trigger_event:  parsed.event,
+        action_taken:   "error",
+        status:         "error",
+        error_message:  msg,
+        payload_in:     raw,
+      });
+      return json(500, { success: false, error: msg });
+    }
+
+    if (parsed.event === "job_scheduled") {
+      // Task 4 will implement handleJobScheduled — same routing shape as below.
+      return json(501, { error: "not implemented yet" });
+    }
+
+    const deps: QuoteAcceptedDeps = {
+      supabase,
+      fetchOpportunity: fetchGhlOpportunity,
+      fetchContact:     fetchGhlContact,
+      updateOpportunity: updateGhlOpportunity,
+      payloadIn:        raw,
+    };
+
+    const result = await handleQuoteAccepted(deps, parsed.opportunityId);
+    return json(result.status, result.body);
+  } catch (err: any) {
+    // I1: outer safety net for the request handler itself. handleQuoteAccepted
+    // has its own outer catch, so this only fires for failures outside it
+    // (req.json/parseWebhookBody edge cases, deps construction, etc).
+    const msg = `Unexpected error in ghl-job-webhook: ${err.message ?? String(err)}`;
+    console.error("[handler]", msg);
+    await writeSyncLog(supabase, {
+      direction:     "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken:  "error",
+      status:        "error",
+      error_message: msg,
+    });
     return json(500, { success: false, error: msg });
   }
-
-  if (parsed.event === "job_scheduled") {
-    // Task 4 will implement handleJobScheduled — same routing shape as below.
-    return json(501, { error: "not implemented yet" });
-  }
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-  const deps: QuoteAcceptedDeps = {
-    supabase,
-    fetchOpportunity: fetchGhlOpportunity,
-    fetchContact:     fetchGhlContact,
-    updateOpportunity: updateGhlOpportunity,
-    payloadIn:        raw,
-  };
-
-  const result = await handleQuoteAccepted(deps, parsed.opportunityId);
-  return json(result.status, result.body);
 });
