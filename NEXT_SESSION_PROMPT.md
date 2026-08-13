@@ -1,7 +1,7 @@
 # Next Session Prompt
 
 **Ephemeral.** Regenerate at the end of each session; this file describes a moment, not the plan.
-The plan is `BUILD_PLAN.md`. Generated 2026-07-31, at the end of that session.
+The plan is `BUILD_PLAN.md`. Generated 2026-08-13, at the end of the Phase A build session.
 
 ---
 
@@ -9,48 +9,53 @@ The plan is `BUILD_PLAN.md`. Generated 2026-07-31, at the end of that session.
 
 ```
 Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (business ground
-truth — read this before anything else), then BUILD_PLAN.md (official plan, amended 2026-07-31).
-SYSTEM_AUDIT_2026-07-30.md is still useful for systems state but its §2 is materially wrong and
-carries a correction banner.
+truth), then BUILD_PLAN.md (official plan, amended 2026-07-31, phases A–G + Track B).
+SYSTEM_AUDIT_2026-07-30.md is still useful for pre-Phase-A systems state but its §2 is materially
+wrong and carries a correction banner.
 
-Where the last session left off (2026-07-31, pushed, tree clean): business discovery and financial
-analysis. No code, no deploys, nothing live touched. I supplied a workflow overview, answered 45
-discovery questions, and exported Stripe payments, BILL transactions, Gusto payroll, and the GHL
-invoice list. The analysis is in DISCOVERY_2026-07-31.md.
+Where the last session left off (2026-08-13, branch `phase-a-job-record`, NOT YET MERGED to main):
+Phase A — the job record keystone — shipped and is live. Two new Supabase Edge Functions:
+ghl-job-webhook (v6) and crew-night-before (v4), plus 4 migrations (canonical `jobs` schema with
+JOB-XXXX sequence starting 1100, RLS, two rounds of adversarial-review fixups, and a pg_cron
+schedule for the night-before digest), plus a first-ever shared module at
+supabase/functions/_shared/ (job-name/city parsing, lifted Google Calendar auth, hardened
+sync_log/job_events writers). 98 tests on ghl-job-webhook, 41 on crew-night-before, all deno-check
+clean.
 
-The headline finding: a deliberate dump-fee pad (+$221k/yr) has been almost exactly financing a
-labor estimating shortfall (-$246k/yr). Every number in the pricing engine is wrong; they cancel to
-roughly +$31k. No pricing input may be corrected in isolation and no quoted price may move —
-correcting the dump rate alone would strip out the buffer covering a ~$246k annual gap. Every fix
-is a reporting change; repricing is a separate decision Dane makes on real data.
+This was built via subagent-driven development — sonnet implementers, opus adversarial reviewers,
+me checkpointing at three points — and it is LIVE-VERIFIED, not just tested: Matt dragged a real
+GHL opportunity to Quote Accepted in the GHL UI and it minted JOB-1102 with the client name/type
+correctly pulled from the GHL contact; the opportunity card visually renamed itself in GHL; the
+schedule-path drag (via direct test, not yet the actual workflow drag) drove both Google Calendars
+and a Slack post to a test channel, with idempotent re-fires proven safe. One production defect
+was found and fixed mid-session — GHL's "Webhook" workflow action nests its payload under a
+customData key rather than sending it top-level; the parser now accepts both shapes. Two more
+were found live (not by any mock) via a probe with a bogus opportunity ID: sync_log.direction and
+job_events.job_id had check constraints that silently 400'd every Phase A audit write; both
+widened in a third migration. Full defect list — including 7 caught by adversarial review before
+any of this went live — is in the 2026-08-13 Phase A entry of BUILD_LOG.md; read that entry before
+touching this code again.
 
-Phase numbering changed. The 0–9 sequence is retired. The canonical structure is A–G + Track B in
-BUILD_PLAN.md → "Revised phases (2026-07-31)". Phase A (the job record) is the start point — it's
-the keystone that makes automation we already built and paid for finally fire.
+IMMEDIATE OPEN ITEMS, in priority order:
+1. JOB-1102 needs a keep-or-cancel decision from me before 2026-08-16 — the night-before digest
+   will otherwise fire to the real Crew 1 Slack channel for a job that only exists because of a
+   live-verification drag.
+2. Workflow 2 (job_scheduled) still needs its GHL-workflow drag done — the create-path drag was
+   verified through the real GHL UI; the schedule path was verified by a direct function call, not
+   yet by dragging the opportunity through the actual GHL workflow.
+3. BILL credentials, if the BILL job-code leg should go live now rather than waiting for Phase C.
+   BILL_API_TOKEN is unset everywhere by design; the leg no-ops cleanly without it.
+4. ghl-contact-sync v20 has a live, pre-existing, unfixed bug — an unlogged
+   `TypeError: tags.map is not a function` on some live traffic, found by accident during this
+   session. Not Phase A code. Needs its own small fix.
+5. receive-airtable-webhook retirement is still queued and unrelated to Phase A — disable Airtable
+   automations wflYoupCQ00h2BrVa and wfldrRGvkSgRsE3ok in base apptzp0IclCaAtOk2 first, then remove
+   the function, so they fail closed.
 
-ONE THING BLOCKS WORK — decide it first. Phase D, time tracking. Gusto has no project-creation API
-(time_tracking/time_sheets requires a pre-existing job_uuid). Crews already clock in reliably; the
-project is what's missing, and it can't be created programmatically. Four options are in
-BUILD_PLAN.md under "The one open decision": foreman-confirms-hours on the existing form
-(cheapest), ClockShark (~$180-250/mo at ~20 seats), build our own PWA, or standardise Gusto names
-and assign an owner. Everything else in the plan is decided.
-
-Artifacts I still owe you:
-- 2–3 example GHL estimates AND their matching invoices — to model customer-facing line-item
-  grouping, and to confirm whether invoice line items track estimate line items.
-- Fillout bid calculator screenshots/export — final confirmation of the formulas.
-- What Blue Collar Haulers and Chew It Up Enterprises actually do (ask Dane) — $19,664 across 7
-  transactions, currently distorting per-load dump cost.
-- Clarification on client sign-off at completion — my earlier answer was ambiguous.
-
-Defects found and not fixed:
-- BILL: Job Name on only 35.5% of transactions; 14% of spend uncategorised; ~$6,944 of dump spend
-  mis-tagged; Little Caesars $4.33 booked as a dump fee.
-- GHL: $61,150 overdue across 18 invoices; 46 invoices (17%) with blank status and $0 — drafts,
-  voids, or a data problem, nobody knows which.
-- receive-airtable-webhook is still live and unauthenticated. The decision is made: RETIRE it,
-  don't secure it. Disable automations wflYoupCQ00h2BrVa and wfldrRGvkSgRsE3ok in base
-  apptzp0IclCaAtOk2 FIRST, then remove the function, so they fail closed.
+NEXT BUILD: Phase B — the estimate builder. It replaces the Fillout bid calculator (the
+Fillout/estimate side of the system is completely untouched by Phase A) and must reproduce today's
+prices to the cent before anything else about it matters. Read BUILD_PLAN.md's Phase B section
+before planning it.
 
 Standing rules that apply to you:
 (a) Before writing code for any new build, produce a plan and wait for my explicit approval —
@@ -71,14 +76,24 @@ Start by telling me what you think the highest-value next move is, and why.
 
 ## Session context not in the prompt above
 
-- The working plan file from the discovery session lives outside the repo at
-  `~/.claude/plans/reactive-knitting-sphinx.md`. `DISCOVERY_2026-07-31.md` supersedes it; the plan
-  file is kept only for provenance.
-- Source data for every figure in the discovery doc came from four exports in `~/Downloads`
-  (Stripe `unified_payments`, BILL transactions, Gusto payroll summary, GHL invoice list). They are
-  **not** committed — they contain customer and employee PII. Re-export if the analysis needs
-  rerunning.
-- The v21 GHL UI verification, open since 2026-05-15, **dropped in priority**. It was justified by
-  the "GHL opportunity is the screen Dane and Jackson use" premise, which discovery showed does not
-  hold today — GHL is used for estimates and payments, not pipeline tracking. Matt does want GHL to
-  become that surface, so the check retains some value, just not urgency.
+- **Branch state:** all Phase A work is on `phase-a-job-record`, not merged to `main`. Commits:
+  `5c52c8b`, `7fca329`, `55c17f6`, `0b8f5b2`, `358cf8a`, `b6f0f27`, `9fa8770`, `bd7aca7`,
+  `79b479d`, `0f3c6a9`, `f63be73`, `4942552`, `402b6b0`, plus this docs close-out commit. Decide
+  whether/when to merge before starting Phase B.
+- **Full build ledger:** `.superpowers/sdd/2026-08-13-phase-a-job-record/progress.md` — every
+  ruling, defect, and review round from the session, in order. The task briefs/reports in that
+  same directory have implementation-level detail if a specific decision needs re-litigating.
+- **CLAUDE.md was corrected in three places this session** beyond the Phase A additions: the GHL
+  pipeline table went from 13 stages to the live 12 (no "Closed Lost / Cancelled" stage exists);
+  the `sync_log` constraints section now documents `direction`/`match_method`/`status` checks, not
+  just `action_taken`; and `job_events`'s column list now includes `job_number` and
+  `ghl_opportunity_id`, which the live schema always had but the docs omitted.
+- **PII in debug logs** (the `[ghl]` contact-fetch log and related create-path logs) was
+  deliberately left in place — trim once Phase A's live payload shapes are fully confirmed, not
+  before.
+- **Slack crew channel IDs are now in Supabase secrets** (set 2026-08-13): Crew1 `C087S6M0Q4Q`
+  (Nick), Crew2 `C087S6G3248` (Alex), Crew3 `C0ABF44937A` (Brady), Crew4 `C0ABF4XMKDE` (Cade).
+- **Airtable Pipeline Reference base updates from the plan's Task 7 step were not done** — this
+  close-out session was scoped to the three repo docs only (BUILD_LOG.md, CLAUDE.md,
+  NEXT_SESSION_PROMPT.md). If the base needs the new secrets/field IDs recorded, do it next
+  session.

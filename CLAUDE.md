@@ -28,12 +28,20 @@ explicitly resolved.
 
 ---
 
-## Where the project actually stands (2026-07-30)
+## Where the project actually stands (2026-07-30 / updated 2026-08-13)
 
-**The system was never started, not broken.** Live: Estimates 296 records, Clients 989,
-Jobs **9** (5 named "Test Job"), zero actuals anywhere — Expenses 0, Change Orders 0,
-`time_entries` 0, `labor_actuals` 0, `expense_actuals` 0. Every variance field reads −100%.
-The pricing engine has never computed a number (see audit §2).
+**The system was never started, not broken** — as of 2026-07-30. **As of 2026-08-13, Phase A
+(the job record keystone) has shipped and is live**: `ghl-job-webhook` mints a canonical
+`JOB-XXXX` Postgres job record when Dane/Jackson move a GHL opportunity to Quote Accepted, and
+schedules Google Calendar + Slack crew notifications at Job Scheduled. Verified end-to-end from
+the GHL UI, not just curl. See the 2026-08-13 Phase A entry in `BUILD_LOG.md` for the full
+picture; the Airtable/Fillout counts below still describe the pre-Phase-A world.
+
+Live: Estimates 296 records, Clients 989, Jobs **9** in the old Airtable pipeline (5 named "Test
+Job"; the new canonical Postgres `jobs` table is separate and holds 1 live row, JOB-1102), zero
+actuals anywhere — Expenses 0, Change Orders 0, `time_entries` 0, `labor_actuals` 0,
+`expense_actuals` 0. Every variance field reads −100%. The pricing engine has never computed a
+number (see audit §2).
 
 **What runs daily:** Fillout (bid calculator + 3 foreman checklists), Google Calendar, Slack
 crew channels, GHL (estimates sometimes, payments), Stripe via GHL, Gusto for payroll. The
@@ -183,7 +191,7 @@ Slack message; that was abandoned as unreliable and is typed by hand today.
 ├── supabase/
 │   ├── functions/               # Deno/TypeScript edge functions (all 7, reconciled 2026-07-30)
 │   │   ├── airtable-client-sync/      # Airtable Clients → GHL Contacts  [LIVE, healthy]
-│   │   ├── ghl-contact-sync/          # GHL Contacts → Airtable Clients  [LIVE, healthy]
+│   │   ├── ghl-contact-sync/          # GHL Contacts → Airtable Clients  [LIVE, known defect — see Edge Functions]
 │   │   ├── airtable-job-created/      # Airtable Jobs → GHL Opportunity (v21, Stage 3)
 │   │   ├── airtable-job-scheduled/    # Stage 6 + Google Calendar + job_events
 │   │   ├── airtable-job-completed/    # Stage 8 → Stripe draft invoice
@@ -212,18 +220,27 @@ Slack message; that was abandoned as unreliable and is typed by hand today.
 
 ## Edge Functions
 
-All self-contained Deno/TypeScript. No shared utility library — helpers are inline per function.
-Supabase project: `eiqqqwajmcpcwhvxxnhx`.
+All self-contained Deno/TypeScript. The 5 Airtable-era functions keep helpers inline; as of
+2026-08-13, `ghl-job-webhook` and `crew-night-before` share `supabase/functions/_shared/`
+(job-name/city parsing, Google Calendar auth lifted from `airtable-job-scheduled`, and
+`sync_log`/`job_events` writers that check and log `supabase-js` errors). Supabase project:
+`eiqqqwajmcpcwhvxxnhx`.
+
+Legacy function version numbers in the table below may read higher than last documented here —
+the Supabase CLI's deploy tooling bumps version counters on unrelated already-deployed functions
+as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic, not a redeploy.
 
 | Function | Deploy ver | Purpose |
 |---|---|---|
 | `airtable-client-sync` | 19 | Airtable Clients → GHL Contacts. Handles GHL duplicate-blocked 400 via `meta.contactId`. |
-| `ghl-contact-sync` | 20 | GHL Contacts → Airtable Clients (reverse). |
+| `ghl-contact-sync` | 20 | GHL Contacts → Airtable Clients (reverse). **Known defect (found live 2026-08-13, unfixed):** throws an unlogged `TypeError: tags.map is not a function` on some live traffic — pre-existing, not Phase A code, needs its own small fix. |
 | `airtable-job-created` | 21 | Jobs → GHL Opportunity at **Stage 3 only**. 15 custom fields via `buildCustomFields()` using `id:` format. Logs `job_events`. |
 | `airtable-job-scheduled` | 16 | Advances to Stage 6, creates Google Calendar events (main + crew). Slack still a placeholder. |
 | `airtable-job-completed` | 14 | Stage 8 → Stripe **draft** invoice, GHL Stage 9, task for Dane. Slack paused via `SLACK_NOTIFICATIONS_ENABLED = false`. |
-| `receive-airtable-webhook` | 11 | Writes Supabase `jobs` mirror. **No auth.** Only handles `Scheduled`/`Invoiced` — never `Completed`, so the mirror is permanently stale. |
+| `receive-airtable-webhook` | 11 | Writes Supabase `jobs` mirror. **No auth.** Only handles `Scheduled`/`Invoiced` — never `Completed`, so the mirror is permanently stale. Retirement queued. |
 | `push-to-airtable` | 11 | Aggregates `time_entries` → Airtable actuals. Never run. Latent bug: PATCHes a formula field. |
+| `ghl-job-webhook` | 6 | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. |
+| `crew-night-before` | 4 | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. |
 
 **Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
 sum is below Total Bid, a "Project Total" line is appended for the difference. Fallback with no
@@ -233,8 +250,15 @@ line items: one "Demolition Services" line at Total Bid.
 `POST /invoiceitems` with `price_data[product]` = the product ID. **Never** use
 `price_data[product_data]` on `/invoiceitems` — Stripe rejects it.
 
-**`sync_log` constraint:** `action_taken` must be one of `'created'`, `'updated'`, `'skipped'`,
-`'error'`. Anything else is rejected by the check constraint.
+**`sync_log` constraints (all discovered/documented 2026-08-13 — CLAUDE.md previously recorded only
+the first):**
+- `action_taken` must be one of `'created'`, `'updated'`, `'skipped'`, `'error'`.
+- `direction` must be one of `'ghl_to_airtable'`, `'airtable_to_ghl'`, `'ghl_to_supabase'`,
+  `'supabase_to_slack'` — the latter two were added by migration `phase_a_audit_write_fixups` for
+  `ghl-job-webhook` and `crew-night-before`; the constraint originally allowed only the two
+  Airtable directions and rejected Phase A's writes with a live 400 until widened.
+- `match_method` and `status` also carry check constraints (see migrations).
+Anything outside these is rejected by the check constraint.
 
 ### `airtable-job-created` — detail
 
@@ -296,15 +320,25 @@ Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA I
 
 | Table | Rows | Purpose |
 |---|---|---|
-| `sync_log` | 668 | Audit trail of all sync operations. Every function writes here — no exceptions. |
+| `sync_log` | 918+ | Audit trail of all sync operations. Every function writes here — no exceptions. |
 | `client_sync_state` | 280 | Email, Airtable record ID, GHL contact/company IDs, last sync direction/time |
-| `job_events` | 8 | Stage-transition audit log |
-| `jobs` | 7 | Stale mirror of Airtable Jobs — exists only so `time_entries` has an FK target |
+| `job_events` | growing | Stage-transition audit log |
+| `jobs` | 1 (JOB-1102, live) | **Canonical Phase A job record** as of 2026-08-13 (migration `phase_a_jobs_keystone`). `job_number` (`JOB-XXXX`, minted via `next_job_number()`/`job_number_seq`, starting 1100) is the canonical key going forward — see Key Rules. Columns: `job_number`, `client_name`, `client_type`, `job_address`, `city`, `ghl_opportunity_id`, `ghl_contact_id`, `estimate_value`, `crew`, `start_date`, `end_date`, `status_v2` (`job_lifecycle` enum: accepted/scheduled/in_progress/completed/invoiced/paid/cancelled), `gcal_main_event_id`, `gcal_crew_event_id`, `slack_notified_at`, `night_before_sent_on`, `bill_job_code`, `updated_at`. Legacy columns (`airtable_job_id`, `airtable_status`, `estimated_hours`, `job_start_date`, `archived_at`, and the old `status` enum) are kept, nullable, for legacy readers during parallel running. RLS enabled, no policies by design (two stale clock-in-era policies were dropped in the fixups migration to restore that posture). |
+| `jobs_legacy_backup` | 7 | Archived copy of the pre-Phase-A `jobs` rows (May-2026 test mirrors), created before `jobs` was reset. RLS enabled, no policies. |
 | `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
 | `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding (created by migration 002) |
 
+JOB-1102 was minted from a real GHL opportunity during live E2E verification and is pending a
+keep-or-cancel decision from Matt before the 2026-08-16 night-before digest run (it would
+otherwise fire to the real Crew 1 Slack channel).
+
 `job_events` columns: `stage_from`, `stage_to`, `function_name`, `trigger_source`,
-`action_summary`, `status`, `error_message`, `payload_in`.
+`action_summary`, `status`, `error_message`, `payload_in`, plus `job_number` and
+`ghl_opportunity_id` (present on the live schema but omitted from this list before 2026-08-13 —
+Task 2's review caught the gap; the writers were already correct). `job_id` is the **legacy**
+column, holding Airtable `recXXX` IDs written by the `airtable-*` functions; it was `NOT NULL`
+until the `phase_a_audit_write_fixups` migration dropped that constraint, because new Phase A code
+(`ghl-job-webhook`, `crew-night-before`) intentionally writes `job_number` only and omits it.
 
 The three empty tables were provisioned ahead of use: `labor_actuals` for per-job labor hours,
 `expense_actuals` for per-job card expenses, `invoice_reminders` for invoice follow-ups. Note that
@@ -325,6 +359,7 @@ AIRTABLE_BASE_ID              GHL_LOCATION_ID          STRIPE_WEBHOOK_SECRET
 AIRTABLE_WEBHOOK_SECRET       GHL_WEBHOOK_SECRET       SLACK_BOT_TOKEN
 SUPABASE_URL                  SUPABASE_SERVICE_ROLE_KEY
 GOOGLE_SERVICE_ACCOUNT_KEY    GOOGLE_CALENDAR_MAIN     GOOGLE_CALENDAR_CREW1..4
+SLACK_CREW1_CHANNEL..4        BILL_API_TOKEN (absent by design)
 ```
 
 `.env` is stale — `AIRTABLE_WEBHOOK_SECRET` does not match Supabase. **Use the Supabase secret
@@ -335,6 +370,14 @@ as authoritative.**
 CREW4 Cade.
 
 **Google Calendar service account:** `lost-boys-calendar@lost-boys-demo.iam.gserviceaccount.com` — must have "Make changes to events" sharing permission on all 5 calendars.
+
+`SLACK_CREW1_CHANNEL`–`SLACK_CREW4_CHANNEL` — **set 2026-08-13** for the Phase A build. Crew1
+`C087S6M0Q4Q` (Nick), Crew2 `C087S6G3248` (Alex), Crew3 `C0ABF44937A` (Brady), Crew4
+`C0ABF4XMKDE` (Cade). Used by both `ghl-job-webhook`'s schedule leg and `crew-night-before`.
+
+`BILL_API_TOKEN` — **absent in every environment, by design.** No BILL credentials exist yet;
+`ghl-job-webhook`'s BILL job-code leg is gated on this variable and no-ops cleanly while it's
+unset. Supply it to turn the leg on (Phase A) or wait for Phase C.
 
 ---
 
@@ -362,7 +405,14 @@ CREW4 Cade.
 
 ---
 
-## 13-Stage GHL Pipeline
+## 12-Stage GHL Pipeline
+
+⚠️ **Corrected 2026-08-13.** This table previously listed 13 stages including a separate
+"Closed Lost / Cancelled". Live verification during the Phase A build (`ghl-job-webhook`'s
+cold-start pipeline resolution, which fetches and logs every stage name on the real "Job
+Pipeline") found the live pipeline has **12 stages, not 13** — there is no "Closed Lost
+(Cancelled)" stage in GHL. "Quote Accepted" and "Job Scheduled" — the two stages
+`ghl-job-webhook` triggers on — were confirmed present and resolved by substring match.
 
 | # | Stage | Exit Owner |
 |---|---|---|
@@ -378,10 +428,11 @@ CREW4 Cade.
 | 10 | Invoice Sent | Client / Dane |
 | 11 | Paid / Closed Won | Automated |
 | 12 | Closed Lost / Declined | Dane |
-| 13 | Closed Lost / Cancelled | Dane |
 
-Stages 12 and 13 are distinct — financially different (declined vs. cancelled after acceptance).
-Rescheduled jobs return to Stage 5, not a separate hold stage.
+Rescheduled jobs return to Stage 5, not a separate hold stage. The former stage-13 distinction
+(declined vs. cancelled after acceptance) does not exist as a separate pipeline stage live — if
+that distinction still matters financially, it needs another representation (e.g. a field), not a
+stage.
 
 ---
 
@@ -450,7 +501,7 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 
 | Phase | Status |
 |---|---|
-| **A — The job record (keystone)** | ⭐ **START HERE.** Not started. Standardised `JOB-XXXX` propagated to Calendar, Slack, BILL, Gusto, Stripe, GHL. Makes already-built automation finally fire. |
+| **A — The job record (keystone)** | 🟢 **Substantially complete 2026-08-13** — job record + GHL workflows + calendar/Slack live; BILL leg gated; night-before digest live. See `BUILD_LOG.md`. |
 | **B — Estimate builder** | Not started. Kills the Fillout→GHL rekeying Dane named as a huge friction point. Must reproduce today's prices to the cent. |
 | **C — Expenses + dump counts (BILL)** | Not started. One transaction = one dump load, so this delivers cost *and* count. |
 | **D — Time tracking** | 🔴 **Blocked** on the open decision. |

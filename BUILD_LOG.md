@@ -23,8 +23,10 @@ shipped.
 | `airtable-job-created` | 3 | 🟡 In Progress (v21) — **GHL UI verification still pending since 2026-05-15** | 2026-07-30 |
 | `airtable-job-scheduled` | 6 | 🟢 Live (v16) — verified end to end | 2026-05-15 |
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
-| `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated** | 2026-07-30 |
+| `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
+| `ghl-job-webhook` | A | 🟢 Live (v6) — Phase A keystone, live E2E verified | 2026-08-13 |
+| `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified to test channel | 2026-08-13 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -34,6 +36,123 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-13 — Phase A build: job record keystone SHIPPED — GHL→Postgres→Calendar/Slack live
+**Status:** 🟢 Complete · **Deploys:** `ghl-job-webhook` (new, v6) · `crew-night-before` (new, v4) ·
+4 migrations applied · branch `phase-a-job-record`
+
+Built via subagent-driven development: sonnet implementers, opus adversarial reviewers, Matt
+checkpointing after Task 1 (migration apply), after Task 4 (before real crew channels), and at
+Task 6 (GHL workflow wiring). Full session ledger:
+`.superpowers/sdd/2026-08-13-phase-a-job-record/progress.md`.
+
+#### What shipped
+
+- **`ghl-job-webhook`** (new function, v6) — one webhook, two events. `quote_accepted` mints a
+  canonical `JOB-XXXX` job record in Postgres from a GHL opportunity (name format
+  `JOB-XXXX – Client – City`, client name/type from the GHL contact, city parsed from the job
+  address). `job_scheduled` fires the schedule leg: Google Calendar (main + crew), Slack crew
+  notification, and a gated BILL job-code leg (no-ops — `BILL_API_TOKEN` isn't set anywhere).
+  Accepts the request body either top-level (`{event, opportunityId}`, curl/Custom Webhook shape)
+  or nested under `customData` (GHL's "Webhook" workflow action shape) — both parsed by the same
+  `parseWebhookBody`.
+- **`crew-night-before`** (new function, v4) — nightly per-crew Slack digest of tomorrow's jobs.
+  Fires via `pg_cron` at both 22:30 and 23:30 UTC; the function self-gates on America/Denver local
+  hour (`Intl.DateTimeFormat`) so exactly one of the two daily fires actually sends, with no DST
+  seasonal cron edits required.
+- **4 migrations** (`supabase/migrations/2026081300000*`): `phase_a_jobs_keystone` (canonical
+  `jobs` reshape, `JOB-XXXX` sequence starting at 1100, `job_lifecycle` enum, RLS), `..._fixups`
+  (Task 1 review fixes), `schedule_crew_night_before` (pg_cron + pg_net, twice-daily UTC), and
+  `phase_a_audit_write_fixups` (sync_log/job_events constraint widening — found live, see below).
+- **`supabase/functions/_shared/`** (new) — first shared module in the codebase: job-name/city
+  parsing (`job.ts`, unit-tested), Google Calendar auth lifted out of `airtable-job-scheduled`
+  (`google.ts`, transitional duplication — old function untouched, cleanup deferred to Phase-B
+  era), and `sync_log`/`job_events` writers that now check and log `supabase-js` errors instead of
+  swallowing them (`log.ts`).
+- **98 tests** on `ghl-job-webhook`, **41** on `crew-night-before` — both `deno check` clean.
+
+#### Live E2E results
+
+JOB-1102 minted from a **real GHL opportunity** (`OQzr5dwMbqpuOBKf5xsD`) via Matt dragging it to
+Quote Accepted in the GHL UI — not a curl test. Opportunity card visually confirmed renamed
+"JOB-1102 – Contractor Company" in GHL (Matt's screenshot). Schedule-leg drag drove both
+calendars and a Slack post to `#ops-test` — exact message shape confirmed, address emoji correctly
+omitted when the field is null. Idempotency proven: re-firing the create webhook against the same
+opportunity returned `skipped`/same job number, and the GHL write-back PUT self-heals on re-fire.
+One production defect surfaced and fixed mid-session: GHL's "Webhook" workflow action nests the
+payload under a `customData` key rather than sending it top-level — the first real workflow drag
+400'd; fixed to accept both shapes (commit `402b6b0`), redeployed, re-verified.
+
+#### Defects found and fixed pre-production (adversarial review loop)
+
+- **Enum collision** — the plan's migration would have silently bound `status_v2` to the
+  *existing* `job_status` enum (`{active,archived}`, from the legacy schema) instead of a new one;
+  inserts of `'accepted'` would have failed at runtime. Renamed the new type `job_lifecycle`.
+- **NOT NULL trap** — `jobs.airtable_job_id` was `NOT NULL` with no default; every canonical
+  (non-Airtable) insert would have hit `23502`. Relaxed in the fixups migration.
+- **23505 misattribution** — the create path couldn't distinguish a `job_number` sequence
+  collision from a genuine `ghl_opportunity_id` race, risking a silent 200/skipped/success with no
+  row actually written. Fixed with race-path tests that exercise the divergence.
+- **Silent log-write failures** — `supabase-js` returns `{error}` rather than throwing; the
+  original `sync_log`/`job_events` writers never checked it. Fixed to check and `console.error`.
+- **Per-event-ID calendar resumability** — the schedule leg wasn't resumable per event ID; a
+  partial failure (main calendar written, crew calendar not) could duplicate crew events or mask
+  configuration errors as success on re-fire. Fixed with per-leg idempotency and tests for both
+  directions.
+- **`sync_log.direction` check constraint** — found live, not in review: the constraint allowed
+  only the two legacy Airtable directions (`ghl_to_airtable`, `airtable_to_ghl`); Phase A's new
+  directions (`ghl_to_supabase`, `supabase_to_slack`) were rejected with a 400 on every write.
+  Widened via `phase_a_audit_write_fixups`.
+- **`job_events.job_id` NOT NULL** — also found live: the legacy column (holds Airtable `recXXX`
+  IDs) is `NOT NULL`, but Phase A code intentionally writes `job_number` only, omitting it.
+  Dropped the constraint in the same fixups migration. Both audit-write defects were invisible to
+  mocks — only Matt's live probe with a real secret and a bogus opportunity ID caught them; the
+  error path is now fully live-verified (500 response + both `sync_log` and `job_events` rows
+  landing).
+
+#### Defects found, not fixed
+
+- **`ghl-contact-sync` v20 — live `TypeError: tags.map is not a function`.** Unlogged, on real
+  traffic at 22:24 during this session. Pre-existing deployed function, **not** Phase A code —
+  needs its own small fix in a future session.
+- **PII in debug logs** — the `[ghl]` contact-fetch console log and the create-path logs carry
+  contact PII. Kept deliberately until Phase A's live payload shapes are fully confirmed; trim
+  once they are.
+
+#### Decisions/rulings that matter forward
+
+- **Night-before digest is single-send, no same-day retry.** A missed digest is now *visible* as
+  a `sync_log` error (previously invisible) but not auto-resent — the calendar event is the
+  primary signal; retry machinery was judged too baroque for a convenience layer.
+- **Reschedules ship as visibility, not automation.** When crew/dates change after the schedule
+  legs are already stamped, the function updates the DB and logs a `reschedule_detected` event
+  with old→new values but does not move calendar events or re-notify. Full auto-reschedule is a
+  surfaced backlog item for Matt; reschedules are hand-managed today anyway.
+- **BILL leg ships gated off.** `BILL_API_TOKEN` is absent in every environment by design — no
+  BILL credentials exist yet. The leg no-ops cleanly; Phase C turns it on once Matt supplies
+  credentials.
+- **Legacy function version counters may read higher than documented** — the Supabase CLI's
+  deploy tooling bumps version numbers on unrelated already-deployed functions as a side effect;
+  their `sha256` is unchanged, so this is cosmetic, not a redeploy.
+
+#### What next session needs to know
+
+- **JOB-1102 needs a cancel-or-keep decision from Matt before 2026-08-16** — the night-before
+  digest will fire to the real Crew 1 Slack channel for it otherwise.
+- **Workflow 2 (job_scheduled) drag is still pending** — Task 6's create-path drag was verified
+  live; the schedule-path drag through the actual GHL workflow (vs. the earlier direct-curl
+  schedule-leg test) has not been done.
+- **BILL credentials** — supply if the BILL leg should go live in Phase A; otherwise it stays
+  gated until Phase C.
+- **Fillout/estimate side is untouched.** Phase B (estimate builder) is next.
+- **`receive-airtable-webhook` retirement is still queued**, unrelated to this build — disable
+  Airtable automations `wflYoupCQ00h2BrVa`/`wfldrRGvkSgRsE3ok` first, then remove the function.
+
+Commits: `5c52c8b`, `7fca329`, `55c17f6`, `0b8f5b2`, `358cf8a`, `b6f0f27`, `9fa8770`, `bd7aca7`,
+`79b479d`, `0f3c6a9`, `f63be73`, `4942552`, `402b6b0` (branch `phase-a-job-record`, not yet merged
+to `main`).
+
+---
 
 ### 2026-08-13 — Status review; Aug-11 sync error burst analyzed; Phase A decisions taken
 **Status:** 🟢 Complete · **Deploys:** none (review + planning only)
