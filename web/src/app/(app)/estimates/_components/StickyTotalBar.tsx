@@ -10,7 +10,6 @@ interface StickyTotalBarProps {
   onToggleExpand: () => void;
   onSave: () => void;
   saving: boolean;
-  saveDisabled?: boolean;
   saveError?: string | null;
 }
 
@@ -24,6 +23,15 @@ const currency = new Intl.NumberFormat("en-US", { style: "currency", currency: "
  * already shown in the collapsed bar). The amber markup-floor advisory is
  * non-blocking — Save stays enabled below the floor, per the plan's
  * "15% floor is an advisory warning, never blocking."
+ *
+ * Save is disabled ONLY while a save is in flight (`saving`) — never for
+ * a validation reason. Task 11 review Finding 2: disabling it for
+ * client-name/job-name/materials-floor left a greyed-out button with zero
+ * explanation on a phone (the inputs aren't in a `<form>`, so browser
+ * `required` validation never fires, and the caller's friendly error
+ * messages for exactly those conditions could only run once the button
+ * was already enabled — dead code). The caller's `handleSave` now always
+ * runs and surfaces its own blocking reason via `saveError` below.
  */
 export function StickyTotalBar({
   outputs,
@@ -33,7 +41,6 @@ export function StickyTotalBar({
   onToggleExpand,
   onSave,
   saving,
-  saveDisabled,
   saveError,
 }: StickyTotalBarProps) {
   const belowFloor = markupPct < markupFloorPct;
@@ -80,7 +87,7 @@ export function StickyTotalBar({
         <button
           type="button"
           onClick={onSave}
-          disabled={saving || saveDisabled}
+          disabled={saving}
           className="h-12 rounded-lg bg-zinc-900 px-6 text-sm font-semibold text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
         >
           {saving ? "Saving…" : "Save"}

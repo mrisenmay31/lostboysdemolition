@@ -56,6 +56,52 @@ export function sumLineItems(lineItems: readonly LineItemDraft[]): LineItemSums 
 }
 
 /**
+ * Parses a raw decimal-input string into a finite, non-negative number for
+ * computation. THE RAW STRING ITSELF stays the source of truth for what's
+ * DISPLAYED in the input — this function only derives a number from it for
+ * `computeEstimate()`/submission, it never writes anything back into the
+ * field.
+ *
+ * Why this exists (Task 11 review Finding 1): `<input type="number">`'s
+ * HTML value-sanitization algorithm returns `""` from `.value` for any
+ * string that isn't a syntactically complete float — including legal
+ * *intermediate* states of typing a fraction, like ".25" (the grammar
+ * requires a digit before the decimal point) or "0.". Every one of those
+ * keystrokes delivered `""` to a handler that mapped `"" -> 0`, so React
+ * saw the state go 0 -> 0 -> 0 and (correctly) never re-rendered the
+ * input — meaning the DOM was never told to fix itself, and the field
+ * visibly showed ".25" while state, the live preview, and the persisted
+ * row all silently held 0. The fix is structural, not a smarter parse:
+ * builder inputs that need fractional entry hold their RAW TEXT in state
+ * (via a `type="text" inputMode="decimal"` field, which the browser never
+ * sanitizes) and call this function only to derive the number used for
+ * math — so displayed text and computed value can never fight each other.
+ */
+export function parseNonNegativeDecimal(raw: string): number {
+  const trimmed = raw.trim();
+  if (trimmed === "") return 0;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, parsed);
+}
+
+/**
+ * Assigns `sortOrder` = array index to every line item, discarding
+ * whatever value (if any) it carried in. MUST be called at submit time,
+ * not at add time (Task 11 review Finding 3): assigning `sortOrder =
+ * prev.length` when a line item is added goes stale the moment a MIDDLE
+ * item is later removed — add A/B/C (sort_order 0/1/2), remove B, add D
+ * (sort_order = prev.length = 2) leaves C and D both claiming sort_order
+ * 2, permanently, since `estimate_line_items` rows are immutable once
+ * written. Deriving fresh 0..n-1 values from the final array's order at
+ * submit time makes a collision structurally impossible. Does not mutate
+ * its input.
+ */
+export function assignSortOrders(items: readonly LineItemDraft[]): LineItemDraft[] {
+  return items.map((item, index) => ({ ...item, sortOrder: index }));
+}
+
+/**
  * The `scope_library` row shape the builder's server shell (Task 11's
  * page.tsx) queries and hands to the client component. Not part of the
  * Task 8 data layer's types.ts because scope_library isn't versioned/

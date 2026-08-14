@@ -11,7 +11,13 @@ import type {
   JobType,
   LineItemDraft,
 } from "@/lib/estimates/types";
-import { deriveMode, sumLineItems, type ScopeLibraryItem } from "@/lib/estimates/builderLogic";
+import {
+  assignSortOrders,
+  deriveMode,
+  parseNonNegativeDecimal,
+  sumLineItems,
+  type ScopeLibraryItem,
+} from "@/lib/estimates/builderLogic";
 import { createEstimateAction } from "../actions";
 import { Field, fieldInputClass, fieldTextareaClass, readOnlyValueClass } from "./Field";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
@@ -46,17 +52,6 @@ const LABOR_METHOD_OPTIONS: readonly SegmentedOption<LaborMethod>[] = [
   { value: "days_employees", label: "Days × crew" },
 ];
 
-/** Clamps a raw number-input string to a finite, non-negative number.
- *  HARD REQUIREMENT (Task 8/10 review carries): every header numeric
- *  field must be prevented from going negative client-side, not just
- *  server-side. */
-function toNonNegative(raw: string): number {
-  if (raw === "") return 0;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.max(0, parsed);
-}
-
 function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -80,20 +75,19 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   const [lineItems, setLineItems] = useState<LocalLineItem[]>([]);
   const [scopePickerOpen, setScopePickerOpen] = useState(false);
 
-  // Labor
+  // Labor, Dumps, Costs, Markup — all six of these hold RAW TEXT, not a
+  // number, and are parsed via parseNonNegativeDecimal below (Task 11
+  // review Finding 1: a `type="number"` input blanks `.value` for
+  // legal-but-incomplete decimal states like ".25" or "0.", fighting
+  // every keystroke of a fractional entry — see that function's doc
+  // comment for the full explanation).
   const [laborMethod, setLaborMethod] = useState<LaborMethod>("total_hours");
-  const [totalJobHoursQuick, setTotalJobHoursQuick] = useState(0);
-  const [daysAtJob, setDaysAtJob] = useState(0);
-  const [numEmployees, setNumEmployees] = useState(0);
-
-  // Dumps
-  const [dumpCountQuick, setDumpCountQuick] = useState(0);
-
-  // Costs
-  const [jobSpecificCosts, setJobSpecificCosts] = useState(0);
-
-  // Markup
-  const [markupPct, setMarkupPct] = useState(ratesConfig.defaultMarkupPct);
+  const [totalJobHoursRaw, setTotalJobHoursRaw] = useState("0");
+  const [daysAtJobRaw, setDaysAtJobRaw] = useState("0");
+  const [numEmployeesRaw, setNumEmployeesRaw] = useState("0");
+  const [dumpCountRaw, setDumpCountRaw] = useState("0");
+  const [jobSpecificCostsRaw, setJobSpecificCostsRaw] = useState("0");
+  const [markupPctRaw, setMarkupPctRaw] = useState(() => String(ratesConfig.defaultMarkupPct));
 
   // Path B — "record only, no formal proposal". Held as pure client form
   // state for now, named to match the approved contract from
@@ -113,6 +107,14 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
 
   const mode = deriveMode(laborMethod, lineItems.length);
   const lineItemSums = useMemo(() => sumLineItems(lineItems), [lineItems]);
+
+  // Derived numbers from the six raw-text fields above.
+  const totalJobHoursQuick = parseNonNegativeDecimal(totalJobHoursRaw);
+  const daysAtJob = parseNonNegativeDecimal(daysAtJobRaw);
+  const numEmployees = parseNonNegativeDecimal(numEmployeesRaw);
+  const dumpCountQuick = parseNonNegativeDecimal(dumpCountRaw);
+  const jobSpecificCosts = parseNonNegativeDecimal(jobSpecificCostsRaw);
+  const markupPct = parseNonNegativeDecimal(markupPctRaw);
 
   const effectiveTotalJobHours =
     laborMethod === "total_hours"
@@ -165,6 +167,11 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   }, [scopeItems, jobType]);
 
   function addLineItem(scopeItem: ScopeLibraryItem) {
+    // sortOrder is deliberately NOT set here (see assignSortOrders' doc
+    // comment, Task 11 review Finding 3) — it's derived fresh from the
+    // final array's order at submit time instead, so removing a middle
+    // item and adding a new one can never collide two items on the same
+    // sort_order.
     setLineItems((prev) => [
       ...prev,
       {
@@ -175,7 +182,6 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
         laborHours: scopeItem.defaultLaborHours,
         dumpCount: scopeItem.defaultDumpCount,
         materialsCost: scopeItem.defaultMaterialsCost ?? 0,
-        sortOrder: prev.length,
       },
     ]);
     setScopePickerOpen(false);
@@ -199,8 +205,6 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
       setLineItems([]);
     }
   }
-
-  const canSave = clientName.trim().length > 0 && jobName.trim().length > 0 && !jobSpecificCostsBelowFloor;
 
   async function handleSave() {
     setSaveError(null);
@@ -240,7 +244,10 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
       dumpCount: effectiveDumpCount,
       jobSpecificCosts,
       markupPct,
-      lineItems: lineItems.map(({ key: _key, ...rest }) => rest),
+      // sort_order is derived fresh from final array order here, not
+      // carried from add-time (Task 11 review Finding 3 — see
+      // assignSortOrders' doc comment).
+      lineItems: assignSortOrders(lineItems.map(({ key: _key, ...rest }) => rest)),
     };
 
     setSaving(true);
@@ -482,12 +489,10 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
               ) : (
                 <input
                   id="totalJobHours"
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  min={0}
-                  step="0.25"
-                  value={totalJobHoursQuick}
-                  onChange={(e) => setTotalJobHoursQuick(toNonNegative(e.target.value))}
+                  value={totalJobHoursRaw}
+                  onChange={(e) => setTotalJobHoursRaw(e.target.value)}
                   className={fieldInputClass}
                 />
               )}
@@ -497,24 +502,20 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
               <Field label="Days at job" htmlFor="daysAtJob">
                 <input
                   id="daysAtJob"
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  min={0}
-                  step="0.5"
-                  value={daysAtJob}
-                  onChange={(e) => setDaysAtJob(toNonNegative(e.target.value))}
+                  value={daysAtJobRaw}
+                  onChange={(e) => setDaysAtJobRaw(e.target.value)}
                   className={fieldInputClass}
                 />
               </Field>
               <Field label="Number of employees" htmlFor="numEmployees">
                 <input
                   id="numEmployees"
-                  type="number"
+                  type="text"
                   inputMode="numeric"
-                  min={0}
-                  step="1"
-                  value={numEmployees}
-                  onChange={(e) => setNumEmployees(toNonNegative(e.target.value))}
+                  value={numEmployeesRaw}
+                  onChange={(e) => setNumEmployeesRaw(e.target.value)}
                   className={fieldInputClass}
                 />
               </Field>
@@ -539,12 +540,10 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
             ) : (
               <input
                 id="dumpCount"
-                type="number"
+                type="text"
                 inputMode="decimal"
-                min={0}
-                step="0.05"
-                value={dumpCountQuick}
-                onChange={(e) => setDumpCountQuick(toNonNegative(e.target.value))}
+                value={dumpCountRaw}
+                onChange={(e) => setDumpCountRaw(e.target.value)}
                 className={fieldInputClass}
               />
             )}
@@ -568,12 +567,10 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
           >
             <input
               id="jobSpecificCosts"
-              type="number"
+              type="text"
               inputMode="decimal"
-              min={0}
-              step="1"
-              value={jobSpecificCosts}
-              onChange={(e) => setJobSpecificCosts(toNonNegative(e.target.value))}
+              value={jobSpecificCostsRaw}
+              onChange={(e) => setJobSpecificCostsRaw(e.target.value)}
               className={fieldInputClass}
             />
           </Field>
@@ -587,10 +584,9 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
           <Field label="Markup %" htmlFor="markupPct">
             <PresetChips
               inputId="markupPct"
-              value={markupPct}
-              onChange={setMarkupPct}
+              rawValue={markupPctRaw}
+              onRawChange={setMarkupPctRaw}
               presets={MARKUP_PRESETS}
-              min={0}
             />
           </Field>
         </section>
@@ -629,7 +625,6 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
         onToggleExpand={() => setExpanded((v) => !v)}
         onSave={handleSave}
         saving={saving}
-        saveDisabled={!canSave}
         saveError={saveError}
       />
 
