@@ -419,20 +419,94 @@ export function __resetCustomFieldDefsCacheForTests(): void {
 
 // ── Estimate docs (also the live scope smoke test target) ────────────────
 
+async function fetchEstimateDocsPage(params: {
+  contactId?: string;
+  limit: number;
+  offset: number;
+}): Promise<unknown> {
+  const qs = new URLSearchParams({
+    altId: getLocationId(),
+    altType: "location",
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.contactId) qs.set("contactId", params.contactId);
+  const { data } = await ghlFetch(`/invoices/estimate/list?${qs.toString()}`);
+  return data;
+}
+
+/** Page size used when auto-paginating (no explicit `limit` passed — see
+ *  below). ASSUMPTION, not live-verified as part of this fix (review
+ *  finding I-1 was fixed without making any live GHL calls, per task
+ *  instructions): GHL's `/invoices/estimate/list` is assumed to accept a
+ *  page size this large the same way it accepts the default of 10 that
+ *  was live-confirmed by task-9's smoke test. Flag for live verification
+ *  before relying on it beyond the mocked test coverage in
+ *  client.test.ts. If the real ceiling is lower, the short-page stop
+ *  condition below still terminates correctly — it would just take more
+ *  round trips. */
+const AUTO_PAGE_SIZE = 100;
+
+/** Defensive circuit breaker on the auto-paginate loop below — stops
+ *  after this many pages even if the API's `total`/page-length signals
+ *  never converge, rather than looping forever. 50 pages * AUTO_PAGE_SIZE
+ *  = 5,000 docs, comfortably above the 510 seen live (task-9 report). */
+const MAX_AUTO_PAGES = 50;
+
 /** GET /invoices/estimate/list?altId=<locationId>&altType=location&limit=
  *  &offset=&contactId= — this is ALSO the live scope smoke test: a 200
  *  means the "invoices.readonly"/estimates scope is granted (doc push is
  *  GO); a 401/403 means it isn't yet (Manual Setup #1 — the estimate push
- *  module runs fields-only until Matt adds the scope). */
+ *  module runs fields-only until Matt adds the scope).
+ *
+ *  Pagination (review finding I-1): passing an explicit `limit` fetches
+ *  exactly that one page, same behavior as before this fix — a caller
+ *  that wants a specific page still gets exactly that. Omitting `limit`
+ *  (both current callers — push.ts's status lookup and estimateDoc.ts's
+ *  findDocByMeta — do this) now auto-paginates through the FULL result
+ *  set instead of silently defaulting to the first 10: the response
+ *  confirmed live is `{ estimates: [...], total, traceId }` (task-9
+ *  report), so subsequent pages are fetched until `collected.length`
+ *  reaches `total`, a page comes back shorter than AUTO_PAGE_SIZE (the
+ *  standard "last page" signal), or MAX_AUTO_PAGES is hit. This matters
+ *  because a status/meta lookup that only sees page 1 and doesn't find
+ *  its doc there returns null, which `decideDocAction` treats as "no
+ *  known doc" / "still draft" — silently full-replacing (PUT) a doc that
+ *  actually exists further down the list and may already be
+ *  sent/accepted. The bare-array response shape (no `total`, seen
+ *  nowhere live but tolerated defensively elsewhere in this module) is
+ *  treated as a single complete page — there's no pagination signal to
+ *  page further with. */
 export async function listEstimateDocs(params: ListEstimateDocsParams = {}): Promise<unknown> {
-  const { contactId, limit = 10, offset = 0 } = params;
-  const qs = new URLSearchParams({
-    altId: getLocationId(),
-    altType: "location",
-    limit: String(limit),
-    offset: String(offset),
-  });
-  if (contactId) qs.set("contactId", contactId);
-  const { data } = await ghlFetch(`/invoices/estimate/list?${qs.toString()}`);
-  return data;
+  const { contactId, limit, offset = 0 } = params;
+
+  if (limit !== undefined) {
+    return fetchEstimateDocsPage({ contactId, limit, offset });
+  }
+
+  const collected: unknown[] = [];
+  let pageOffset = offset;
+  let total: number | null = null;
+  let traceId: unknown;
+
+  for (let page = 0; page < MAX_AUTO_PAGES; page++) {
+    const data = await fetchEstimateDocsPage({ contactId, limit: AUTO_PAGE_SIZE, offset: pageOffset });
+    const shaped = data as { estimates?: unknown[]; total?: number; traceId?: unknown } | unknown[] | null;
+    const items = Array.isArray(shaped) ? shaped : (shaped?.estimates ?? []);
+
+    if (!Array.isArray(shaped)) {
+      if (typeof shaped?.total === "number") total = shaped.total;
+      traceId = shaped?.traceId;
+    }
+
+    collected.push(...items);
+    pageOffset += items.length;
+
+    const bareArrayShape = Array.isArray(shaped);
+    const doneByTotal = total !== null && collected.length >= total;
+    const doneByShortPage = items.length < AUTO_PAGE_SIZE;
+    if (bareArrayShape || doneByTotal || doneByShortPage) break;
+  }
+
+  return { estimates: collected, total: total ?? collected.length, traceId };
 }

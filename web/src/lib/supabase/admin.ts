@@ -4,8 +4,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 /**
  * Service-role Supabase client factory. `import "server-only"` makes any
  * accidental import from a Client Component a BUILD ERROR, not a runtime
- * leak — see web/src/app/debug/page.tsx's sibling test in task-6-report.md
- * for the spot-check that proves it.
+ * leak.
  *
  * `SUPABASE_SERVICE_ROLE_KEY` is read lazily INSIDE this function, not at
  * module top level, so importing this module never requires the variable

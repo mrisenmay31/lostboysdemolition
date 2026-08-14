@@ -1,11 +1,12 @@
 import { redirect } from "next/navigation";
 
 /**
- * `/` has no content of its own — it's just the auth-gated entry point.
- * Estimates pages are a later task's scope, so this 404s for now (there
- * is no src/app/(app)/estimates route yet); the redirect itself, and the
- * fact that it only fires for an authenticated request, is what this
- * task verifies.
+ * `/` has no content of its own — it's the internal tool's landing route,
+ * and it exists only to send everyone straight to the estimate list at
+ * `/estimates` (src/app/(app)/estimates/page.tsx). There is no login gate
+ * here: identity is a picker (see EstimatorChip.tsx) validated against the
+ * Dane/Jackson/Matt allowlist inside the server actions, not a session
+ * check on this route.
  */
 export default function RootPage() {
   redirect("/estimates");
