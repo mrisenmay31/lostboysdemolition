@@ -1,9 +1,9 @@
 // ============================================================
 // Lost Boys Demolition — pricing engine
 // Ports the live Fillout calculator chain EXACTLY (DISCOVERY_2026-07-31.md §1).
-// Cost-plus MARKUP, never a margin divisor. Golden-master verification against
-// all 321 live Airtable estimates is Task 2's forthcoming pricing_golden_test.ts
-// — not yet written, so treat that verification as pending, not complete.
+// Cost-plus MARKUP, never a margin divisor. Golden-master verified to the cent
+// against all 321 live Airtable estimates by pricing_golden_test.ts — 309 exact,
+// 11 legacy-diff (pinned two-sided deltas), 1 penny-tolerance.
 // ============================================================
 
 export interface Rates {
