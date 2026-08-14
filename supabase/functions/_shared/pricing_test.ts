@@ -7,6 +7,11 @@ Deno.test("roundToCent rounds half-up to 2 decimals", () => {
   assertEquals(roundToCent(0), 0);
 });
 
+Deno.test("roundToCent rounds half-up above $2 (Finding 1 regression)", () => {
+  assertEquals(roundToCent(2.135), 2.14);
+  assertEquals(roundToCent(320.155), 320.16);
+});
+
 // Jorge's Interior (estimate 1321, live Fillout output 2026-08-12):
 // 34 hrs, 1 dump, $0 JSC, 25% markup → total bid $2,543.51
 Deno.test("total_hours method matches live record Jorge's Interior", () => {
@@ -83,6 +88,39 @@ Deno.test("custom rates override DEFAULT_RATES", () => {
   // (260+300+230) × 1.25 = 987.50; cc = 29.63 (@3%); total = 1017.13
   assertEquals(out.ccFee, 29.63);
   assertEquals(out.totalBid, 1017.13);
+});
+
+// Cent-bearing jobSpecificCosts (0.62), hand-derived under the half-up fix:
+// 20 hrs, 1 dump, $0.62 JSC, 25% markup.
+// laborCost 520.00, dumpFees 300.00, totalDirect 820.62, overhead 460.00,
+// profit = roundToCent(1280.62 × 0.25) = roundToCent(320.155) = 320.16 (half-up),
+// ccFee = roundToCent(1600.78 × 0.035) = 56.03, totalBid = 1656.81.
+Deno.test("cent-bearing jobSpecificCosts rounds profit half-up (Finding 1)", () => {
+  const out = computeEstimate({
+    laborMethod: "total_hours", totalJobHours: 20,
+    dumpCount: 1, jobSpecificCosts: 0.62, markupPct: 25,
+  });
+  assertEquals(out.effectiveHours, 20);
+  assertEquals(out.laborCost, 520.00);
+  assertEquals(out.dumpFees, 300.00);
+  assertEquals(out.totalDirect, 820.62);
+  assertEquals(out.overhead, 460.00);
+  assertEquals(out.profit, 320.16);
+  assertEquals(out.ccFee, 56.03);
+  assertEquals(out.totalBid, 1656.81);
+});
+
+Deno.test("validation: rejects bad rates (Finding 2)", () => {
+  const base = { laborMethod: "total_hours" as const, totalJobHours: 10, dumpCount: 1, jobSpecificCosts: 0, markupPct: 25 };
+  assertThrows(() => computeEstimate(base, { ...DEFAULT_RATES, laborRatePerHour: -1 }));
+  assertThrows(() => computeEstimate(base, { ...DEFAULT_RATES, overheadRatePerHour: NaN }));
+  assertThrows(() => computeEstimate(base, { ...DEFAULT_RATES, dumpRatePerLoad: -300 }));
+  assertThrows(() => computeEstimate(base, { ...DEFAULT_RATES, ccFeeRate: -0.01 }));
+  // The exact regression this finding guards against: a rate entered as a
+  // whole-number percent (3.5) instead of a fraction (0.035) must be rejected,
+  // not silently accepted and left to inflate every bid ~100x.
+  assertThrows(() => computeEstimate(base, { ...DEFAULT_RATES, ccFeeRate: 3.5 }));
+  assertThrows(() => computeEstimate(base, { ...DEFAULT_RATES, ccFeeRate: 1 }));
 });
 
 Deno.test("validation: rejects bad inputs", () => {

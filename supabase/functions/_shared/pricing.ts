@@ -1,8 +1,9 @@
 // ============================================================
 // Lost Boys Demolition — pricing engine
 // Ports the live Fillout calculator chain EXACTLY (DISCOVERY_2026-07-31.md §1).
-// Cost-plus MARKUP, never a margin divisor. Verified to the cent against all
-// 321 live Airtable estimates (see pricing_golden_test.ts).
+// Cost-plus MARKUP, never a margin divisor. Golden-master verification against
+// all 321 live Airtable estimates is Task 2's forthcoming pricing_golden_test.ts
+// — not yet written, so treat that verification as pending, not complete.
 // ============================================================
 
 export interface Rates {
@@ -44,7 +45,10 @@ export interface EstimateOutputs {
 }
 
 export function roundToCent(n: number): number {
-  return Math.round((n + Number.EPSILON) * 100) / 100;
+  // True decimal half-up: scale to cents, clean up binary float noise with a
+  // precision guard, then round half-away-from-zero (Math.round is half-up
+  // for the non-negative values this engine only ever rounds).
+  return Math.round(Number((n * 100).toPrecision(12))) / 100;
 }
 
 function requireFinite(name: string, v: number | undefined, { min = 0 } = {}): number {
@@ -55,10 +59,21 @@ function requireFinite(name: string, v: number | undefined, { min = 0 } = {}): n
   return v;
 }
 
+function requireRates(rates: Rates): void {
+  requireFinite("rates.laborRatePerHour", rates.laborRatePerHour);
+  requireFinite("rates.overheadRatePerHour", rates.overheadRatePerHour);
+  requireFinite("rates.dumpRatePerLoad", rates.dumpRatePerLoad);
+  const ccFeeRate = requireFinite("rates.ccFeeRate", rates.ccFeeRate);
+  if (ccFeeRate >= 1) {
+    throw new Error(`pricing: rates.ccFeeRate must be < 1, got ${ccFeeRate}`);
+  }
+}
+
 export function computeEstimate(
   inputs: EstimateInputs,
   rates: Rates = DEFAULT_RATES,
 ): EstimateOutputs {
+  requireRates(rates);
   const dumpCount = requireFinite("dumpCount", inputs.dumpCount);
   const jobSpecificCosts = requireFinite("jobSpecificCosts", inputs.jobSpecificCosts);
   const markupPct = requireFinite("markupPct", inputs.markupPct);
