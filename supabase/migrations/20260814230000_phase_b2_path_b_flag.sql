@@ -134,7 +134,7 @@ begin
     (nullif(p_estimate->>'airtable_estimate_id', ''))::int,
     nullif(p_estimate->>'created_by', '')::uuid,
     p_estimate->>'created_by_name',
-    coalesce((p_estimate->>'is_path_b')::boolean, false)
+    coalesce((nullif(p_estimate->>'is_path_b', ''))::boolean, false)
   )
   returning * into v_estimate;
 
