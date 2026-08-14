@@ -66,7 +66,7 @@ async function updateAirtableClient(recordId: string, fields: Record<string, str
 
 function resolveClientType(tags: string[]): string | null {
   if (!tags || tags.length === 0) return null
-  const lower = tags.map(t => t.toLowerCase())
+  const lower = tags.map(t => String(t).toLowerCase())
   if (lower.includes('contractor')) return 'Contractor'
   if (lower.includes('homeowner'))  return 'Homeowner'
   return null
@@ -84,22 +84,10 @@ Deno.serve(async (req) => {
   try { payload = await req.json() }
   catch { return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400 }) }
 
-  const triggerEvent = payload.type ?? 'contact_updated'
-  const ghlContactId = payload.contact_id
-  const email        = payload.email?.toLowerCase()?.trim()
-  const firstName    = payload.first_name ?? ''
-  const lastName     = payload.last_name ?? ''
-  const clientName   = `${firstName} ${lastName}`.trim() || email
-  const phone        = payload.phone ?? ''
-  const companyName  = payload.company_name ?? ''
-  const ghlCompanyId = payload.company_id ?? ''
-  const tags         = payload.tags ?? []
-  const clientType   = resolveClientType(tags)
-
-  const address = payload.location?.address ?? payload.full_address ?? ''
-  const city    = payload.location?.city ?? ''
-  const state   = payload.location?.state ?? payload.state ?? ''
-  const zip     = payload.location?.postalCode ?? payload.postal_code ?? ''
+  let triggerEvent: any = 'contact_updated'
+  let ghlContactId: any = undefined
+  let email: any = undefined
+  let clientType: string | null = null
 
   let matchMethod: string = 'none'
   let actionTaken: string = 'error'
@@ -108,6 +96,28 @@ Deno.serve(async (req) => {
   let errorMessage: string | null = null
 
   try {
+    triggerEvent = payload.type ?? 'contact_updated'
+    ghlContactId = payload.contact_id
+    email        = payload.email?.toLowerCase()?.trim()
+    const firstName    = payload.first_name ?? ''
+    const lastName     = payload.last_name ?? ''
+    const clientName   = `${firstName} ${lastName}`.trim() || email
+    const phone        = payload.phone ?? ''
+    const companyName  = payload.company_name ?? ''
+    const ghlCompanyId = payload.company_id ?? ''
+    const rawTags = payload.tags
+    const tags: string[] = Array.isArray(rawTags)
+      ? rawTags.map((t: unknown) => String(t))
+      : typeof rawTags === 'string'
+        ? rawTags.split(',').map((t: string) => t.trim()).filter((t: string) => t.length > 0)
+        : []
+    clientType   = resolveClientType(tags)
+
+    const address = payload.location?.address ?? payload.full_address ?? ''
+    const city    = payload.location?.city ?? ''
+    const state   = payload.location?.state ?? payload.state ?? ''
+    const zip     = payload.location?.postalCode ?? payload.postal_code ?? ''
+
     const airtableFields: Record<string, string> = {
       [FIELDS.ghlContactId]: ghlContactId,
     }
