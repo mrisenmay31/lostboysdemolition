@@ -109,6 +109,19 @@ describe("mapDraftToEstimatePayload — writer contract", () => {
     expect(estimate.source).toBe("app");
   });
 
+  it("defaults is_path_b to false when the draft omits isPathB, and passes an explicit true through", () => {
+    const { estimate: defaultPayload } = mapDraftToEstimatePayload(draft, outputs, ratesConfig, user);
+    expect(defaultPayload.is_path_b).toBe(false);
+
+    const { estimate: pathBPayload } = mapDraftToEstimatePayload(
+      { ...draft, isPathB: true },
+      outputs,
+      ratesConfig,
+      user,
+    );
+    expect(pathBPayload.is_path_b).toBe(true);
+  });
+
   it("maps header fields to snake_case, defaulting absent optionals to null", () => {
     const minimalDraft: EstimateDraft = {
       laborMethod: "days_employees",
@@ -137,6 +150,7 @@ describe("mapDraftToEstimatePayload — writer contract", () => {
     expect(estimate.num_employees).toBe(3);
     expect(estimate.quoted_price).toBeNull();
     expect(estimate.quote_override_reason).toBeNull();
+    expect(estimate.is_path_b).toBe(false);
     expect(lineItems).toEqual([]);
   });
 

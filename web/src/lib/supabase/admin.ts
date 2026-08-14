@@ -18,9 +18,11 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
  * never write to cookies or attempt a token refresh loop.
  *
  * There is no login in this tool — the service-role key bypasses RLS
- * entirely, and the only access control in front of every table is that
- * the estimates server actions validate the picker-declared estimator
- * name against the fixed allowlist before ever touching this client.
+ * entirely, and there is no access control in front of any table this
+ * client touches. The estimates server actions validating the
+ * picker-declared estimator name against the fixed allowlist is not
+ * access control — it only constrains attribution (who a write is
+ * recorded as coming from), not whether the write is allowed.
  */
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;

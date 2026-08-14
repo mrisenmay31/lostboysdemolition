@@ -183,6 +183,19 @@ describe("validateEstimateDraft — HARD REQUIREMENT: negative-input rejection",
   });
 });
 
+describe("validateEstimateDraft — isPathB", () => {
+  it("defaults isPathB to false and passes an explicit true through", () => {
+    const base = baseQuickDraft();
+    const result = validateEstimateDraft(base);
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.isPathB).toBe(false);
+
+    const trueResult = validateEstimateDraft({ ...base, isPathB: true });
+    expect(trueResult.success).toBe(true);
+    expect(trueResult.success && trueResult.data.isPathB).toBe(true);
+  });
+});
+
 describe("validateQuoteOverride — override-reason rule", () => {
   it("passes when quotedPrice is null/undefined (no override at all)", () => {
     expect(validateQuoteOverride(null, 1000, null).ok).toBe(true);

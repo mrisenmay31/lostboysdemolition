@@ -71,6 +71,7 @@ const baseEstimateDraftSchema = z.object({
   status: z
     .enum(["draft", "sent", "accepted", "declined", "superseded", "historical"])
     .optional(),
+  isPathB: z.boolean().optional().default(false),
   lineItems: z.array(lineItemDraftSchema).default([]),
 });
 

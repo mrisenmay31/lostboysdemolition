@@ -76,6 +76,11 @@ export interface EstimateDraft {
   quotedPrice?: number | null;
   quoteOverrideReason?: string | null;
   status?: EstimateStatus; // defaults to 'draft' in the RPC when omitted
+  /** Path B = internal record only, no proposal doc pushed. Optional here
+   *  (mirrors every other RPC-defaulted flag on this type); defaults to
+   *  false in both validate.ts's zod schema and map.ts's payload builder,
+   *  matching the DB column's own `not null default false`. */
+  isPathB?: boolean;
   lineItems: LineItemDraft[];
 }
 
@@ -143,6 +148,7 @@ export interface EstimateRow {
   created_at: string;
   created_by: string | null;
   created_by_name: string | null;
+  is_path_b: boolean;
 }
 
 export interface EstimateLineItemRow {

@@ -91,6 +91,7 @@ export function mapDraftToEstimatePayload(
     source: "app",
     created_by: user.id,
     created_by_name: user.name,
+    is_path_b: draft.isPathB ?? false,
   };
 
   if (draft.status) {
