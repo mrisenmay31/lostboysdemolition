@@ -38,6 +38,114 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-14 (late) — Repo file/doc hygiene pass (docs only, no code touched)
+
+**Status:** 🟢 Complete on branch `chore/repo-hygiene` (4 commits, `964184c..9062012`), **not
+merged** — awaiting Matt. No deploy, no Supabase change, no live system touched.
+
+**Scope, as chosen by Matt:** file/doc hygiene only · archive rather than delete · separate atomic
+commits on a branch. Explicit standing instruction for the session: **nothing gets deleted without
+his specific per-item approval.** Nothing was.
+
+**What shipped**
+
+1. **`.gitignore` gaps closed** (`964184c`) — added `supabase/.temp/` (Supabase CLI scratch:
+   `linked-project.json` carrying the project ref + org id, and `cli-latest`; the only active source
+   of untracked noise), `.claude/` (previously invisible *only* because of a rule in Matt's
+   machine-global `~/.config/git/ignore` — a portability gap, not a leak), and `*.tsbuildinfo` /
+   `*.log` / `coverage/` hoisted from `web/.gitignore` to root. Left alone deliberately: the blanket
+   `*.csv` and `*.pdf` rules, which are wider than they look — a rate sheet or spec PDF you *want*
+   committed will silently fail to stage.
+
+2. **`docs/archive/` created; 8 documents moved in** (`01161e4`) — all six tracked files moved as
+   git **renames**, so history follows them. Tracked: `SCHEMA_AUDIT_REPORT.md`, `schema_audit.json`,
+   `schema_overview.md`, `LostBoys_PricingEngine_ProjectBrief.md`, `jobs_schema_prompt.txt`,
+   `lostboys_demolition_airtable_prompt.txt`. Previously untracked, now tracked: `OPS_ROADMAP.md`,
+   `prompt.md`. `docs/archive/README.md` records per file what it was, what superseded it, and why.
+   **Filenames are unchanged** — older BUILD_LOG entries citing them by name still resolve, only the
+   directory moved.
+
+3. **Doc pointers repointed** (`e5efbaf`) — `CLAUDE.md`'s START HERE preamble and Repository
+   Structure tree; `INTEGRATION_DESIGN.md`'s two now-broken relative links (and its wrong
+   description of `schema_overview.md` as "Canonical Airtable schema"); `web/README.md` replaced
+   (was still verbatim `create-next-app` boilerplate).
+
+4. **Two supersession banners** (`9062012`) — on the slice-2 plan (whose Architecture/Tech Stack
+   lines still advertised Supabase Auth + `@supabase/ssr`, and whose Task 6 login gate was deleted
+   mid-session) and on `airtable-automations/README.md` (mirror-only code, unverified against the
+   live base since 2026-07-30, on the Phase B/E retirement path).
+
+**Things worth knowing that this pass surfaced**
+
+- **Security: clean.** No secret-bearing file has ever been committed across all 109 commits. A
+  full-history content scan for `eyJhbGciOi` / `sbp_` / `sk-` / bearer tokens found only npm
+  `sha512-` integrity hashes. `.env` and `web/.env.local` exist on disk and are correctly ignored.
+- **Nothing was ignored-but-tracked** before this pass, and no tracked file is missing from disk.
+- **`web/src` carries zero orphans from the deleted Supabase Auth work** — no `middleware.ts`, no
+  `/login`, no `requireUser`, and `@supabase/ssr` appears nowhere in `web/package-lock.json`. The
+  no-login deletion was complete.
+- `CLAUDE.md`'s repo tree had **never listed `WORKFLOW_OVERVIEW_2026-07-31.md`** — which is why it
+  looked orphaned. It is not stale; it is Matt's raw source prose and `DISCOVERY_2026-07-31.md` was
+  built from it. Now documented. (Its own first line calls the company "Lost Point Demolition" —
+  left as written rather than silently edited.)
+
+**Defect found and self-corrected mid-pass:** the step-3 commit was made with `git add -A`, which
+swept in the untracked 413 KB session transcript — a file explicitly on the pending-approval list.
+Caught by the `git diff main --stat` verification step (6,447 insertions where ~500 were expected).
+The two affected commits were rewound with `git reset --mixed` and rebuilt from explicit paths;
+final diff is 506 insertions and the transcript is untracked again. **Lesson for future sessions:
+never `git add -A` in a repo with pending-decision untracked files — stage explicit paths.**
+
+**Not done — carried forward**
+
+- **`.env.example` still lists 2 of the 8 keys the real `.env` carries.** Missing *names*:
+  `GHL_API_KEY`, `GHL_LOCATION_ID`, `GHL_WEBHOOK_SECRET`, `AIRTABLE_WEBHOOK_SECRET`,
+  `FILLOUT_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Editing it was blocked by a local permission rule
+  on env files — **Matt to add by hand.**
+- **Deletion checklist, all still pending Matt's per-item approval:** 3 `.DS_Store` files; empty
+  dirs `.claude/worktrees/` and `node_modules/.vite-temp/`; the 413 KB transcript
+  `2026-07-31-150137-*.txt` (untracked, zero references — recommend moving *outside* the repo
+  rather than committing it); the 5 unreferenced `create-next-app` SVGs in `web/public/`; local
+  branch `phase-b-slice-2` and remotes `origin/phase-b-slice-2` +
+  `origin/claude/build-spec-backlog-items-i5y5g3` + `origin/claude/codebase-review-summary-r57jug`
+  (all three verified fully merged into `main`); `web/.next` (91 MB) + `web/node_modules` (497 MB).
+- **`git gc` not run.** The object store is 1,062 loose objects with zero packs — it has never been
+  packed. Non-destructive, would compress well. Deliberately deferred because the rewound commits
+  above are still reachable via reflog and gc would prune that safety net.
+- **Out of scope by Matt's choice, recorded so they don't get lost:** retiring
+  `setup_airtable.js` / `setup_airtable_v2.js` / `audit_schema.js` (April one-shots for a retiring
+  platform — ⚠️ re-running either `setup_airtable*.js` against the drifted live base would be
+  actively harmful) plus the root `package.json`/`package-lock.json` that exist only to give them
+  `dotenv`; archiving `INTEGRATION_DESIGN.md` (needs a comment fix in `ghl-job-webhook/index.ts`);
+  the dead `allocateAmounts` re-export at `web/src/lib/ghl/estimateDoc.ts:135`; and the real
+  duplication in the Airtable-era functions — `airtable-job-scheduled/index.ts:141–240` still holds
+  the ~100 lines of Google auth/calendar helpers `_shared/google.ts` was lifted *from*,
+  `formatCurrency` exists a third time in `airtable-job-completed/index.ts:109`, and ~14 raw
+  `sync_log`/`job_events` inserts across five functions bypass `_shared/log.ts`. That last one is
+  genuine debt, but every edit forces a same-session redeploy of a live function under the parity
+  rule, and most of those functions are slated for retirement — `airtable-job-scheduled` is the
+  only one that survives past Airtable and the only one worth the risk.
+
+**Verification (all green):**
+- `git diff main --stat -- web/src supabase/functions supabase/migrations` → **empty**. No shipped
+  code changed, which is the whole guarantee of a docs-only pass.
+- `deno task test` → **18/18**. `cd web && npx vitest run` → **261/261**. Both unchanged.
+- All six tracked moves registered as `R` (rename), not delete + add.
+- `git check-ignore -v` confirms the new rules catch `supabase/.temp/linked-project.json` and
+  `.claude/settings.local.json`. `git status` now shows exactly one untracked file (the transcript
+  awaiting Matt's decision), down from four.
+- Grep for broken relative links to any moved file → **none**.
+
+**Deliberately left unedited:** `BUILD_LOG.md`'s and `SYSTEM_AUDIT_2026-07-30.md`'s existing
+references to the moved files at their old root paths. Both are dated historical records; rewriting
+them to match today's layout would falsify the snapshot. The old-path → new-path mapping lives in
+`docs/archive/README.md`. Also untouched: the 15 applied migrations, the plan/ledger files under
+`docs/superpowers/plans/` (append-only), `_shared/package.json`, `web/next.config.ts`'s
+`externalDir`/`turbopack.root`, `deno.json`, and `field_mapping.md` / `ghl_field_mapping.md` (three
+live code paths cite those two by filename as the sole authority for GHL custom field IDs).
+
+---
+
 ### 2026-08-14 (night) — Phase B slice-2 COMPLETE on branch: T11/T11b/T12/T9f + no-login scope change + final review; T13 docs close-out
 
 **Status:** 🟢 Complete on branch `phase-b-slice-2` (tip `53e7d64`, 16 new commits since the last
