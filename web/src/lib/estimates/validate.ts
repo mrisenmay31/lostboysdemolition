@@ -66,7 +66,7 @@ const baseEstimateDraftSchema = z.object({
   dumpCount: nonNegativeNumber("dumpCount"),
   jobSpecificCosts: nonNegativeNumber("jobSpecificCosts"),
   markupPct: nonNegativeNumber("markupPct"),
-  quotedPrice: z.number().nullish(),
+  quotedPrice: nonNegativeNumber("quotedPrice").nullish(),
   quoteOverrideReason: z.string().nullish(),
   status: z
     .enum(["draft", "sent", "accepted", "declined", "superseded", "historical"])

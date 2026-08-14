@@ -104,6 +104,28 @@ describe("validateEstimateDraft — itemized-mode reconciliation", () => {
     }
   });
 
+  it("LOCK: accepts a mismatch exactly AT the 0.01 epsilon boundary", () => {
+    // Math.abs(diff) > RECONCILE_EPSILON is a strict `>`, so a diff of
+    // exactly 0.01 must still pass (only diffs strictly greater than 0.01
+    // are rejected).
+    const result = validateEstimateDraft({
+      ...reconciledDraft,
+      totalJobHours: reconciledDraft.totalJobHours! + 0.01,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("LOCK: rejects a mismatch just OVER the 0.01 epsilon boundary (0.02 drift)", () => {
+    const result = validateEstimateDraft({
+      ...reconciledDraft,
+      totalJobHours: reconciledDraft.totalJobHours! + 0.02,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.errors.some((e) => e.includes("totalJobHours"))).toBe(true);
+    }
+  });
+
   it("rejects when dumpCount does not equal the sum of line item dumpCount", () => {
     const result = validateEstimateDraft({ ...reconciledDraft, dumpCount: 5 });
     expect(result.success).toBe(false);
@@ -134,6 +156,7 @@ describe("validateEstimateDraft — HARD REQUIREMENT: negative-input rejection",
     ["dumpCount (header)", { dumpCount: -1 }],
     ["jobSpecificCosts", { jobSpecificCosts: -1 }],
     ["markupPct", { markupPct: -1 }],
+    ["quotedPrice", { quotedPrice: -1 }],
   ])("rejects negative header field: %s", (_label, overrides) => {
     const result = validateEstimateDraft(baseQuickDraft(overrides as Partial<EstimateDraft>));
     expect(result.success).toBe(false);

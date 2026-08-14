@@ -34,7 +34,7 @@ export default function AppLayout({
           Estimates
         </Link>
         <Link
-          href="/new"
+          href="/estimates/new"
           className="flex h-16 items-center justify-center text-base font-medium"
         >
           New
