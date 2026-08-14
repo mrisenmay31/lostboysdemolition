@@ -246,8 +246,10 @@ deployed function. True half-up cent rounding (`roundToCent`) and `requireRates`
 unit tests) and `pricing_golden_test.ts` (2 tests, backed by `fixtures/estimates-golden-321.json`)
 prove it reproduces all 321 live Airtable estimates to the cent — 309 exact, 11 legacy two-sided
 pinned deltas, 1 penny-tolerance — under the corrected rounding, i.e. the rounding fix moved no
-quoted price. Run the whole `_shared` suite with `deno test --allow-all supabase/functions/_shared/`
-(18/18 passing as of 2026-08-14, including `job_test.ts`). The engine currently snapshots
+quoted price. Run the whole `_shared` suite with `deno task test` (canonical, via the repo-root
+`deno.json` task added in Phase B slice-2; the older `deno test --allow-all
+supabase/functions/_shared/` form still works). (18/18 passing as of 2026-08-14, including
+`job_test.ts`). The engine currently snapshots
 `DEFAULT_RATES`; reading rates from `pricing_variables` at runtime arrives with the estimate
 builder UI, the next Phase B slice.
 
