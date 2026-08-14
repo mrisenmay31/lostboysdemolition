@@ -29,6 +29,7 @@ shipped.
 | `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lbd-estimates.vercel.app** — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
+| BL-4 crew Slack + repo fixes | — | 🟡 **Planned and approved, NOT built** — brief at `docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md`; next session executes it | 2026-08-14 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -38,6 +39,81 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-14 (night, second) — BL-4 + repo fixes PLANNED and APPROVED (planning only, nothing built)
+
+**Status:** 🟡 Plan approved, **not built**. No code written, no function deployed, no migration
+applied, no live system touched. The approved build brief is
+`docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md` — **the next session starts
+there.**
+
+**Scope Matt chose:** BL-4 (crew Slack message format) plus the three repo-level fix items, then a
+live test of the estimate tool and workflow. He explicitly **declined** the historical import of
+the 321 Airtable estimates.
+
+**Decisions taken this session (all Matt's):**
+- **Scope source = hybrid.** Render the scope line from the linked estimate's line items, falling
+  back to the GHL `Job Scope` multi-select when no estimate is linked. This requires building the
+  estimate→job promotion that has never existed.
+- **Both messages get the new format** — `ghl-job-webhook`'s schedule-leg post and
+  `crew-night-before`'s digest.
+- **GHL "Job Start Time" is not reliably populated.** Wire the field so it lights up if adopted;
+  omit the line when blank rather than ship a permanently-empty line. Getting it populated is a
+  habit/config item for Dane, not a code item.
+
+**Findings worth keeping, independent of whether BL-4 ever ships:**
+
+- **Three of BL-4's four missing fields are already fetched and discarded.** Quote Accepted already
+  does `GET /contacts/{id}` and holds `phone` + `companyName` (the latter collapsed into a single
+  `client_name` label by `_shared/job.ts:51`); the schedule leg already does
+  `GET /opportunities/{id}` and reads 3 of its custom fields, discarding the rest — including Job
+  Start Time, Job Scope, and Scope Notes. **Net new GHL calls needed for BL-4: zero.**
+- **The estimate→job link has never existed and has zero callers.** `estimates.job_number` carries
+  the comment "job link set at promotion"; `update_estimate_job_number`'s own docstring says it
+  exists for "a *future* estimate-to-job promotion"; `grep updateJobNumber web/src` returns only
+  its definition. No edge function queries `estimates` at all. The only latent join key is
+  `jobs.ghl_opportunity_id` ↔ `ghl_push_state.ghl_opportunity_id`.
+- **BL-4 is a restoration, not an invention.** `airtable-job-scheduled/index.ts:241-271` already
+  built this exact block (client, revenue, crew, address, start time, phone, client type, then a
+  JOB SCOPE section). Phase A's rebuild dropped it because the Postgres fields didn't exist.
+- **⚠️ `airtable-client-sync` is worse than previously recorded.** Known: `searchGhlByEmail`
+  (`:33-40`) uses the dead `GET /contacts/?email=` shape and never checks `res.ok`, so it returns
+  `null` indistinguishably from "no such contact". **Newly established: that makes the
+  update-in-place branch (`:132-136`) unreachable, so every existing contact is matched via the
+  duplicate-400 fallback and its field changes are silently dropped — Airtable edits have never
+  propagated to existing GHL contacts.** This is data loss, not just misleading `match_method`
+  logging. The fix must also add `updateGhlContact` on the duplicate-400 path, not only repair the
+  search.
+- **⚠️ `notify_airtable_on_archive` is a live enabled trigger on `jobs`** that POSTs to the dormant,
+  latently-buggy `push-to-airtable`. Verified via `pg_get_functiondef` that it fires only on
+  `status → 'archived'` (the legacy enum), so it is inert for ordinary `jobs` writes — but no
+  future work should assume `jobs` is trigger-free.
+- **The `SECURITY DEFINER` count is 5, not 6.** `SYSTEM_AUDIT_2026-07-30.md` was right; this log
+  and `NEXT_SESSION_PROMPT.md` were wrong and are corrected. Live:
+  `calculate_duration_and_cost`, `get_my_crew_id`, `get_my_role`, `handle_new_auth_user`,
+  `notify_airtable_on_archive`. None pin `search_path`; all are `anon`-EXECUTE-able. **Three are
+  triggers**; only `get_my_role`/`get_my_crew_id` are genuinely callable RPCs, and both read a
+  0-row `users` table keyed by `auth.uid()` (NULL for anon). **Real data exposure today: none** —
+  the risk is the unpinned `search_path`, not a leak. Separately, `next_job_number()` is
+  `anon`-executable with no revoke, so an anon caller could burn job numbers.
+- **`crew-night-before`'s redeploy stops being a separate task** — BL-4 touches both Slack senders
+  and `_shared/`, so the redeploy falls out of it and closes the
+  `_shared/package.json {"type":"module"}` question for free.
+- **A structural problem the plan had to solve:** `buildCrewDigest` joins job blocks with `\n\n`,
+  but Matt's requested format uses blank lines *inside* a block, which would make multi-job digests
+  unreadable. The plan keeps a headline line per block and adds a divider between jobs — a
+  deliberate, flagged deviation from the literal spec.
+
+**Not done, deliberately:** nothing was implemented. The deletion checklist from the previous entry
+is still open and untouched, and `.env.example` still needs Matt's 6 key names added by hand.
+
+**Next session:** execute
+`docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md` as written. Note its
+verification step 2 doubles as the outstanding estimate-tool test — creating a TEST estimate,
+pushing it to GHL, and dragging the opportunity Quote Accepted → Job Scheduled exercises the full
+Phase B → Phase A chain, which has never been run end to end.
+
+---
 
 ### 2026-08-14 (late) — Repo file/doc hygiene pass (docs only, no code touched)
 

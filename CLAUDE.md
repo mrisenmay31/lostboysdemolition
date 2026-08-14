@@ -398,8 +398,16 @@ affected by the first one:
   `POST /contacts/search` with an `eq` filter, live-verified. **The same broken shape is still live
   in `airtable-client-sync` v19's `searchGhlByEmail()`** — it never checks `res.ok` before
   `res.json()`, so the search leg is dead code today; the function survives only because the
-  GHL-side duplicate-contact 400 exposes `meta.contactId` as a fallback match. Needs its own
-  edge-function fix task (not done this session — see BUILD_LOG).
+  GHL-side duplicate-contact 400 exposes `meta.contactId` as a fallback match.
+  **⚠️ Consequence established 2026-08-14 (planning pass), worse than previously recorded: because
+  the search always returns `null`, the update-in-place branch (`index.ts:132-136`) is
+  *unreachable*, so every existing contact takes the duplicate-400 fallback — which matches the
+  contact and writes its ID back to Airtable but never PUTs the new field values. Airtable edits
+  have therefore never propagated to existing GHL contacts.** That is data loss, not just a
+  misleading `match_method`. Repairing the search alone is not sufficient; the duplicate-400 path
+  needs its own `updateGhlContact` call. Scheduled as part of the approved BL-4 brief
+  (`docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md`). Note it is a **live
+  behavior change on a daily-traffic function**.
 
 ---
 
@@ -438,6 +446,26 @@ The three empty tables were provisioned ahead of use: `labor_actuals` for per-jo
 `expense_actuals` for per-job card expenses, `invoice_reminders` for invoice follow-ups. Note that
 the rebuild sources labor from our own clock-in (pushed *to* Gusto) and expenses from BILL Spend &
 Expense — not from the Gusto/Divvy reads these tables were originally shaped for.
+
+**⚠️ `jobs` is not trigger-free.** `trigger_push_to_airtable_on_archive` is **live and enabled** on
+the table and calls `notify_airtable_on_archive()`, which POSTs to the dormant, latently-buggy
+`push-to-airtable` edge function. Verified via `pg_get_functiondef` (2026-08-14) that it fires only
+when the **legacy** `status` enum transitions to `'archived'` — so it is inert for ordinary writes
+to Phase A columns. Do not assume the table is trigger-free when adding writes, and do not write the
+legacy `status` column without expecting this to fire.
+
+**Legacy `SECURITY DEFINER` functions — the live count is 5, not 6** (verified 2026-08-14;
+`SYSTEM_AUDIT_2026-07-30.md` was right, `BUILD_LOG.md`/`NEXT_SESSION_PROMPT.md` were wrong before
+this date). They predate the migrations directory and exist **only in the live database** — nothing
+in the repo defines them, so they cannot be enumerated from git. Live:
+`calculate_duration_and_cost`, `get_my_crew_id`, `get_my_role`, `handle_new_auth_user`,
+`notify_airtable_on_archive`. None pin `search_path`; all are `anon`-EXECUTE-able. **Three are
+trigger functions**; only `get_my_role`/`get_my_crew_id` are genuinely callable RPCs, and both read
+a 0-row `users` table keyed by `auth.uid()` (NULL for anon), so **real data exposure today is
+none** — the risk is the unpinned `search_path`, not a leak. Separately, `next_job_number()` is not
+`SECURITY DEFINER` but *is* `anon`-executable with no revoke, so an anon caller could burn job
+numbers. A revoke + `search_path` pass is part of the approved BL-4 brief; **no drops** (standing
+delete rule).
 
 RLS is enabled on all of the above with **no policies by design** — `service_role` has
 `rolbypassrls = true`, so edge functions are unaffected and anon is denied. The views
@@ -603,6 +631,7 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **F — Profitability** | Not started. Variance, job report on the GHL opportunity, change orders, callbacks. |
 | **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
+| **BL-4 — crew Slack message format** | 🟡 **Planned and APPROVED 2026-08-14, not built.** Build brief: `docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md` — **the next session executes it.** Bundles the three repo-level fixes. Bigger than formatting: `jobs` has no `client_phone`, business name, time-of-day, or scope column, and the hybrid scope decision means it builds the **estimate→job promotion** that has never existed (`estimates.job_number` has zero writers). |
 | **Backlog (BL-1/2/3)** | ⚪ Captured 2026-07-31, **not scheduled.** Equipment maintenance, tool inventory, crew-level P&L + foreman incentive comp. See `BUILD_PLAN.md` → "Backlog — captured, not scheduled". |
 
 Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening.
