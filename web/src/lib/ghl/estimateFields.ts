@@ -12,10 +12,23 @@
 // GHL field IDs are sourced verbatim from field_mapping.md /
 // ghl_field_mapping.md (repo root, Group 1/2/4) — never re-typed by hand
 // anywhere else in this module.
+//
+// buildCustomFieldsPayload lives here (moved from client.ts by task T9f,
+// 2026-08-14) rather than in client.ts, which it originally shipped in:
+// client.ts gained a top-level `import "server-only"` in that same task,
+// and this module's only real caller of it (buildEstimateCustomFields,
+// below) needs to stay importable from plain vitest without a
+// "server-only" mock. It is a pure array transform with zero GHL-client
+// dependency, so moving it doesn't cost anything.
+//
+// allocateAmounts is imported from "./allocation" (not "./estimateDoc",
+// its historical home) for the same reason: estimateDoc.ts itself imports
+// client.ts for real ghlFetch calls, so importing from estimateDoc.ts
+// would transitively pull in server-only here too. allocation.ts has zero
+// dependencies, so this module stays genuinely guard-free.
 // ============================================================
 
-import { allocateAmounts } from "./estimateDoc";
-import { buildCustomFieldsPayload } from "./client";
+import { allocateAmounts } from "./allocation";
 import type { GhlCustomFieldWrite, GhlOpportunity } from "./types";
 import type { EstimateLineItemRow, EstimateRow } from "@/lib/estimates/types";
 
@@ -196,6 +209,22 @@ export function buildScopeNotes(input: BuildScopeNotesInput): string {
 
 // ── Custom fields payload ──────────────────────────────────────────────────
 
+/** Builds a GHL custom-fields write payload from [fieldId, value] pairs,
+ *  omitting any entry whose value is null, undefined, an empty string, or
+ *  a zero-length array — same omit-empty rule as
+ *  airtable-job-created/index.ts's buildCustomFields()/push(). Numbers are
+ *  passed through as JSON numbers, unchanged. (Moved here from client.ts
+ *  by task T9f — see module header.) */
+export function buildCustomFieldsPayload(entries: Array<[string, unknown]>): GhlCustomFieldWrite[] {
+  const out: GhlCustomFieldWrite[] = [];
+  for (const [id, value] of entries) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value) && value.length === 0) continue;
+    out.push({ id, field_value: value });
+  }
+  return out;
+}
+
 export interface BuildEstimateCustomFieldsInput {
   estimate: Pick<
     EstimateRow,
@@ -217,9 +246,9 @@ export interface BuildEstimateCustomFieldsInput {
 
 /** Builds the full 12-field GHL customFields write payload (7 estimate
  *  fields + Job Scope + Scope Notes + Job Address/Job Type + Estimator +
- *  Airtable Job ID). Reuses client.ts's buildCustomFieldsPayload for the
- *  omit-empty-value rule (null/undefined/""/[] entries are dropped, never
- *  sent as an explicit empty write) — same convention as the existing
+ *  Airtable Job ID). Reuses this module's own buildCustomFieldsPayload for
+ *  the omit-empty-value rule (null/undefined/""/[] entries are dropped,
+ *  never sent as an explicit empty write) — same convention as the existing
  *  airtable-job-created edge function.
  *
  *  Estimator is sourced from estimate.created_by_name — the durable

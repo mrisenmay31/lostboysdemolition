@@ -1,4 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// vitest runs in a plain Node environment (no "react-server" export
+// condition), so the real server-only package throws on import outside a
+// Server Component. estimateDoc.ts imports client.ts (real ghlFetch calls),
+// which gained a top-level `import "server-only"` in task T9f — stub it so
+// that's inert under test, same pattern as log.test.ts/client.test.ts.
+vi.mock("server-only", () => ({}));
+
 import {
   allocateAmounts,
   buildEstimateDocPayload,

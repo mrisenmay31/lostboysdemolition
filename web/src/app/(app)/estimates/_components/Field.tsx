@@ -34,8 +34,8 @@ export function Field({ label, htmlFor, hint, error, children }: FieldProps) {
 
 /** Shared Tailwind classes for a bare `<input>`/`<select>`, so every field
  *  in the builder looks and behaves the same (large touch target — Dane
- *  and Jackson estimate on phones — matching web/src/app/login/LoginForm.tsx's
- *  precedent). */
+ *  and Jackson estimate on phones — matching the h-12 (48px) targets used
+ *  throughout this directory, e.g. StickyTotalBar.tsx's Save button). */
 export const fieldInputClass =
   "h-12 w-full rounded-lg border border-zinc-300 px-3 text-base outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-100";
 

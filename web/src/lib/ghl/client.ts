@@ -1,3 +1,5 @@
+import "server-only";
+
 // ============================================================
 // Lost Boys Demolition — web app — GHL API client
 //
@@ -10,19 +12,23 @@
 //
 // Env vars (GHL_API_KEY, GHL_LOCATION_ID) are read lazily, inside
 // functions — never at module top level — so this module has zero
-// side effects at import time and stays safely importable from any
-// server-only context without requiring secrets to exist at build time.
+// side effects at import time beyond the `server-only` guard below.
 //
-// NOTE: `server-only` is intentionally NOT imported here. The package
-// isn't installed in this worktree yet (a parallel lane installs it);
-// the controller notes a later task wires the guard in when lanes merge.
-// Callers must not import this module from client components until then.
+// `server-only` IS imported here (task T9f, 2026-08-14) — the parallel-lane
+// package.json contention that deferred it during Task 9 is long resolved.
+// This throws a build-time error if any client component tries to import
+// this module, same guard as push.ts/log.ts; vitest stubs the package (see
+// client.test.ts's `vi.mock("server-only", ...)`, same pattern as
+// log.test.ts). One consequence: estimateFields.ts declares itself pure/
+// server-only-free but imported this module's buildCustomFieldsPayload, so
+// that one pure helper moved to estimateFields.ts (its only caller) to
+// keep that module transitively guard-free — see estimateFields.ts's
+// header. Everything else here is unchanged.
 // ============================================================
 
 import type {
   GhlCustomFieldDef,
   GhlCustomFieldRead,
-  GhlCustomFieldWrite,
   GhlContact,
   GhlOpportunity,
   ListEstimateDocsParams,
@@ -208,21 +214,6 @@ export function getCustomFieldValue(
   return match.field_value ?? match.fieldValue ?? match.value ?? undefined;
 }
 
-/** Builds a GHL custom-fields write payload from [fieldId, value] pairs,
- *  omitting any entry whose value is null, undefined, an empty string, or
- *  a zero-length array — same omit-empty rule as
- *  airtable-job-created/index.ts's buildCustomFields()/push(). Numbers are
- *  passed through as JSON numbers, unchanged. */
-export function buildCustomFieldsPayload(entries: Array<[string, unknown]>): GhlCustomFieldWrite[] {
-  const out: GhlCustomFieldWrite[] = [];
-  for (const [id, value] of entries) {
-    if (value === undefined || value === null || value === "") continue;
-    if (Array.isArray(value) && value.length === 0) continue;
-    out.push({ id, field_value: value });
-  }
-  return out;
-}
-
 // ── Contacts ───────────────────────────────────────────────────────────────
 
 export function extractContactId(data: unknown): string | null {
@@ -230,11 +221,34 @@ export function extractContactId(data: unknown): string | null {
   return d?.contact?.id ?? d?.id ?? null;
 }
 
-/** GET /contacts/?locationId=...&email=... — returns the first matching
- *  contact, or null if none exists. */
+/** POST /contacts/search — returns the first matching contact, or null if
+ *  none exists.
+ *
+ *  FIXED 2026-08-14 (task T9f). The original implementation called
+ *  `GET /contacts/?locationId=...&email=...`, which the live GHL API
+ *  rejects with a 422 (`"property email should not exist"`) — that query
+ *  shape is no longer accepted (first found during Task 12's live E2E; see
+ *  push.ts's resolveContact comment for the workaround that shipped
+ *  instead of blocking on this file). Live-probed three replacement
+ *  shapes against the real API (2026-08-14): `GET /contacts/?locationId&
+ *  query=` returns 200 with a correct result but does a general-purpose
+ *  text search, not an email-scoped one; `GET /contacts/lookup?email=`
+ *  400s outright; `POST /contacts/search` with a structured
+ *  `filters: [{ field: "email", operator: "eq", value }]` returns 200 with
+ *  an exact, email-scoped match (empty `contacts: []` for a nonexistent
+ *  email, one result for a real one) — this is GHL's documented
+ *  contacts-search endpoint and the only one of the three that can't
+ *  return a false-positive substring match, so it's the shape used here. */
 export async function searchContactByEmail(email: string): Promise<GhlContact | null> {
-  const qs = new URLSearchParams({ locationId: getLocationId(), email });
-  const { data } = await ghlFetch(`/contacts/?${qs.toString()}`);
+  const { data } = await ghlFetch("/contacts/search", {
+    method: "POST",
+    body: JSON.stringify({
+      locationId: getLocationId(),
+      filters: [{ field: "email", operator: "eq", value: email }],
+      page: 1,
+      pageLimit: 10,
+    }),
+  });
   const contacts = (data as { contacts?: GhlContact[] } | null)?.contacts ?? [];
   return contacts[0] ?? null;
 }
@@ -405,20 +419,94 @@ export function __resetCustomFieldDefsCacheForTests(): void {
 
 // ── Estimate docs (also the live scope smoke test target) ────────────────
 
+async function fetchEstimateDocsPage(params: {
+  contactId?: string;
+  limit: number;
+  offset: number;
+}): Promise<unknown> {
+  const qs = new URLSearchParams({
+    altId: getLocationId(),
+    altType: "location",
+    limit: String(params.limit),
+    offset: String(params.offset),
+  });
+  if (params.contactId) qs.set("contactId", params.contactId);
+  const { data } = await ghlFetch(`/invoices/estimate/list?${qs.toString()}`);
+  return data;
+}
+
+/** Page size used when auto-paginating (no explicit `limit` passed — see
+ *  below). ASSUMPTION, not live-verified as part of this fix (review
+ *  finding I-1 was fixed without making any live GHL calls, per task
+ *  instructions): GHL's `/invoices/estimate/list` is assumed to accept a
+ *  page size this large the same way it accepts the default of 10 that
+ *  was live-confirmed by task-9's smoke test. Flag for live verification
+ *  before relying on it beyond the mocked test coverage in
+ *  client.test.ts. If the real ceiling is lower, the short-page stop
+ *  condition below still terminates correctly — it would just take more
+ *  round trips. */
+const AUTO_PAGE_SIZE = 100;
+
+/** Defensive circuit breaker on the auto-paginate loop below — stops
+ *  after this many pages even if the API's `total`/page-length signals
+ *  never converge, rather than looping forever. 50 pages * AUTO_PAGE_SIZE
+ *  = 5,000 docs, comfortably above the 510 seen live (task-9 report). */
+const MAX_AUTO_PAGES = 50;
+
 /** GET /invoices/estimate/list?altId=<locationId>&altType=location&limit=
  *  &offset=&contactId= — this is ALSO the live scope smoke test: a 200
  *  means the "invoices.readonly"/estimates scope is granted (doc push is
  *  GO); a 401/403 means it isn't yet (Manual Setup #1 — the estimate push
- *  module runs fields-only until Matt adds the scope). */
+ *  module runs fields-only until Matt adds the scope).
+ *
+ *  Pagination (review finding I-1): passing an explicit `limit` fetches
+ *  exactly that one page, same behavior as before this fix — a caller
+ *  that wants a specific page still gets exactly that. Omitting `limit`
+ *  (both current callers — push.ts's status lookup and estimateDoc.ts's
+ *  findDocByMeta — do this) now auto-paginates through the FULL result
+ *  set instead of silently defaulting to the first 10: the response
+ *  confirmed live is `{ estimates: [...], total, traceId }` (task-9
+ *  report), so subsequent pages are fetched until `collected.length`
+ *  reaches `total`, a page comes back shorter than AUTO_PAGE_SIZE (the
+ *  standard "last page" signal), or MAX_AUTO_PAGES is hit. This matters
+ *  because a status/meta lookup that only sees page 1 and doesn't find
+ *  its doc there returns null, which `decideDocAction` treats as "no
+ *  known doc" / "still draft" — silently full-replacing (PUT) a doc that
+ *  actually exists further down the list and may already be
+ *  sent/accepted. The bare-array response shape (no `total`, seen
+ *  nowhere live but tolerated defensively elsewhere in this module) is
+ *  treated as a single complete page — there's no pagination signal to
+ *  page further with. */
 export async function listEstimateDocs(params: ListEstimateDocsParams = {}): Promise<unknown> {
-  const { contactId, limit = 10, offset = 0 } = params;
-  const qs = new URLSearchParams({
-    altId: getLocationId(),
-    altType: "location",
-    limit: String(limit),
-    offset: String(offset),
-  });
-  if (contactId) qs.set("contactId", contactId);
-  const { data } = await ghlFetch(`/invoices/estimate/list?${qs.toString()}`);
-  return data;
+  const { contactId, limit, offset = 0 } = params;
+
+  if (limit !== undefined) {
+    return fetchEstimateDocsPage({ contactId, limit, offset });
+  }
+
+  const collected: unknown[] = [];
+  let pageOffset = offset;
+  let total: number | null = null;
+  let traceId: unknown;
+
+  for (let page = 0; page < MAX_AUTO_PAGES; page++) {
+    const data = await fetchEstimateDocsPage({ contactId, limit: AUTO_PAGE_SIZE, offset: pageOffset });
+    const shaped = data as { estimates?: unknown[]; total?: number; traceId?: unknown } | unknown[] | null;
+    const items = Array.isArray(shaped) ? shaped : (shaped?.estimates ?? []);
+
+    if (!Array.isArray(shaped)) {
+      if (typeof shaped?.total === "number") total = shaped.total;
+      traceId = shaped?.traceId;
+    }
+
+    collected.push(...items);
+    pageOffset += items.length;
+
+    const bareArrayShape = Array.isArray(shaped);
+    const doneByTotal = total !== null && collected.length >= total;
+    const doneByShortPage = items.length < AUTO_PAGE_SIZE;
+    if (bareArrayShape || doneByTotal || doneByShortPage) break;
+  }
+
+  return { estimates: collected, total: total ?? collected.length, traceId };
 }
