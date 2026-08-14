@@ -33,15 +33,18 @@ explicitly resolved.
 **The system was never started, not broken** — as of 2026-07-30. **As of 2026-08-13, Phase A
 (the job record keystone) has shipped and is live**: `ghl-job-webhook` mints a canonical
 `JOB-XXXX` Postgres job record when Dane/Jackson move a GHL opportunity to Quote Accepted, and
-schedules Google Calendar + Slack crew notifications at Job Scheduled. **Verification is partial:**
-the create path (Quote Accepted → job record) was verified by Matt dragging a real opportunity
-through the actual GHL UI. The schedule path (Job Scheduled → Calendar/Slack) was verified via a
-direct function invocation, not yet by dragging an opportunity through the actual GHL workflow —
-that drag (workflow 2) is still pending. See the 2026-08-13 Phase A entry in `BUILD_LOG.md` for
-the full picture; the Airtable/Fillout counts below still describe the pre-Phase-A world.
+schedules Google Calendar + Slack crew notifications at Job Scheduled. **Verification is complete
+as of 2026-08-14:** both paths were verified by Matt dragging real opportunities through the actual
+GHL UI — Quote Accepted minted JOB-1104, Job Scheduled drove both calendars + Slack, a real-workflow
+re-drag proved idempotency AND that GHL allows workflow re-entry, and the loud no-job-record error
+guard fired correctly when Job Scheduled was hit before Quote Accepted. GHL DATE custom fields
+arrive ISO-parseable through the real workflow (the epoch-ms risk did not materialize). See the
+2026-08-13 Phase A entry and the 2026-08-14 entry in `BUILD_LOG.md`; the Airtable/Fillout counts
+below still describe the pre-Phase-A world.
 
 Live: Estimates 296 records, Clients 989, Jobs **9** in the old Airtable pipeline (5 named "Test
-Job"; the new canonical Postgres `jobs` table is separate and holds 1 live row, JOB-1102), zero
+Job"; the new canonical Postgres `jobs` table is separate and holds 2 test rows, JOB-1102 and
+JOB-1104, both cancelled), zero
 actuals anywhere — Expenses 0, Change Orders 0, `time_entries` 0, `labor_actuals` 0,
 `expense_actuals` 0. Every variance field reads −100%. The pricing engine has never computed a
 number (see audit §2).
@@ -243,7 +246,7 @@ as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic
 | Function | Deploy ver | Purpose |
 |---|---|---|
 | `airtable-client-sync` | 19 | Airtable Clients → GHL Contacts. Handles GHL duplicate-blocked 400 via `meta.contactId`. |
-| `ghl-contact-sync` | 20 | GHL Contacts → Airtable Clients (reverse). **Known defect (found live 2026-08-13, unfixed):** throws an unlogged `TypeError: tags.map is not a function` on some live traffic — pre-existing, not Phase A code, needs its own small fix. |
+| `ghl-contact-sync` | 27 | GHL Contacts → Airtable Clients (reverse). **Tags defect FIXED 2026-08-14** (commit `65cae85`): GHL workflow webhooks send `tags` as a comma-separated string; now normalized, and payload extraction moved inside the try so parse errors log to `sync_log` instead of escaping as unlogged 500s. Live-verified same day. Review found contacts with tags had *never* synced client type before this fix (all 590 logged payloads carried string tags). |
 | `airtable-job-created` | 21 | Jobs → GHL Opportunity at **Stage 3 only**. 15 custom fields via `buildCustomFields()` using `id:` format. Logs `job_events`. |
 | `airtable-job-scheduled` | 16 | Advances to Stage 6, creates Google Calendar events (main + crew). Slack still a placeholder. |
 | `airtable-job-completed` | 14 | Stage 8 → Stripe **draft** invoice, GHL Stage 9, task for Dane. Slack paused via `SLACK_NOTIFICATIONS_ENABLED = false`. |
@@ -335,14 +338,15 @@ Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA I
 | `sync_log` | 918+ | Audit trail of all sync operations. Every function writes here — no exceptions. |
 | `client_sync_state` | 280 | Email, Airtable record ID, GHL contact/company IDs, last sync direction/time |
 | `job_events` | growing | Stage-transition audit log |
-| `jobs` | 1 (JOB-1102, live) | **Canonical Phase A job record** as of 2026-08-13 (migration `phase_a_jobs_keystone`). `job_number` (`JOB-XXXX`, minted via `next_job_number()`/`job_number_seq`, starting 1100) is the canonical key going forward — see Key Rules. Columns: `job_number`, `client_name`, `client_type`, `job_address`, `city`, `ghl_opportunity_id`, `ghl_contact_id`, `estimate_value`, `crew`, `start_date`, `end_date`, `status_v2` (`job_lifecycle` enum: accepted/scheduled/in_progress/completed/invoiced/paid/cancelled), `gcal_main_event_id`, `gcal_crew_event_id`, `slack_notified_at`, `night_before_sent_on`, `bill_job_code`, `updated_at`. Legacy columns (`airtable_job_id`, `airtable_status`, `estimated_hours`, `job_start_date`, `archived_at`, and the old `status` enum) are kept, nullable, for legacy readers during parallel running. RLS enabled, no policies by design (two stale clock-in-era policies were dropped in the fixups migration to restore that posture). |
+| `jobs` | 2 (JOB-1102, JOB-1104 — both cancelled test rows) | **Canonical Phase A job record** as of 2026-08-13 (migration `phase_a_jobs_keystone`). `job_number` (`JOB-XXXX`, minted via `next_job_number()`/`job_number_seq`, starting 1100) is the canonical key going forward — see Key Rules. Columns: `job_number`, `client_name`, `client_type`, `job_address`, `city`, `ghl_opportunity_id`, `ghl_contact_id`, `estimate_value`, `crew`, `start_date`, `end_date`, `status_v2` (`job_lifecycle` enum: accepted/scheduled/in_progress/completed/invoiced/paid/cancelled), `gcal_main_event_id`, `gcal_crew_event_id`, `slack_notified_at`, `night_before_sent_on`, `bill_job_code`, `updated_at`. Legacy columns (`airtable_job_id`, `airtable_status`, `estimated_hours`, `job_start_date`, `archived_at`, and the old `status` enum) are kept, nullable, for legacy readers during parallel running. RLS enabled, no policies by design (two stale clock-in-era policies were dropped in the fixups migration to restore that posture). |
 | `jobs_legacy_backup` | 7 | Archived copy of the pre-Phase-A `jobs` rows (May-2026 test mirrors), created before `jobs` was reset. RLS enabled, no policies. |
 | `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
 | `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding (created by migration 002) |
 
-JOB-1102 was minted from a real GHL opportunity during live E2E verification and is pending a
-keep-or-cancel decision from Matt before the 2026-08-16 night-before digest run (it would
-otherwise fire to the real Crew 1 Slack channel).
+JOB-1102 (2026-08-13) and JOB-1104 (2026-08-14) were minted from real GHL opportunities during
+live E2E verification; both are `status_v2='cancelled'`, so no night-before digest will fire for
+them. Their four test calendar events (JOB-1102 on Aug 17, JOB-1104 on Aug 20, each on main +
+Crew 1 calendars) await manual deletion.
 
 `job_events` columns: `stage_from`, `stage_to`, `function_name`, `trigger_source`,
 `action_summary`, `status`, `error_message`, `payload_in`, plus `job_number` and

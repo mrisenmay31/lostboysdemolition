@@ -336,9 +336,34 @@ P&L visible in near-real-time, and bonus foremen on their crew's financial perfo
 > (callbacks, rework hours). Confirm the pricing distortion is corrected or explicitly neutralised
 > in the allocation before any dollar is attached to these numbers.
 
+### BL-4 — Crew Slack notification message format (Matt, 2026-08-14)
+
+The schedule-leg crew Slack message (`ghl-job-webhook`) should be reformatted to:
+
+```
+Client Name
+Business Name (if applicable)
+Client Phone Number
+
+Job Start Date
+Job Start Time
+Job Address
+
+Job Scope description
+```
+
+- **When:** at the **end of Phase B** (Matt's explicit call, 2026-08-14) — Phase B's estimate
+  line items are what make a real "Job Scope description" available to the message, and the
+  client phone/business fields may ride along on the estimate→job promotion path.
+- **Scope:** the `ghl-job-webhook` schedule-leg Slack post; review `crew-night-before`'s digest
+  for consistency at the same time. Note the current job record has no `client_phone`,
+  `business_name`, `start_time`, or scope-description fields — populating them is part of the
+  work, not just formatting.
+
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
 Phase A. BL-3 should not be attempted before Phase F, and paying against it should not happen
-until Phase G has enough `measured` history to make the variance numbers trustworthy.
+until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 is
+scheduled for the end of Phase B.
 
 ---
 
