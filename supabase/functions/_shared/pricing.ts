@@ -59,7 +59,7 @@ function requireFinite(name: string, v: number | undefined, { min = 0 } = {}): n
   return v;
 }
 
-function requireRates(rates: Rates): void {
+export function requireRates(rates: Rates): void {
   requireFinite("rates.laborRatePerHour", rates.laborRatePerHour);
   requireFinite("rates.overheadRatePerHour", rates.overheadRatePerHour);
   requireFinite("rates.dumpRatePerLoad", rates.dumpRatePerLoad);
