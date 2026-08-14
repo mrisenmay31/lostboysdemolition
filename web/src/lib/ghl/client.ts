@@ -24,6 +24,7 @@ import type {
   GhlCustomFieldRead,
   GhlCustomFieldWrite,
   GhlContact,
+  GhlOpportunity,
   ListEstimateDocsParams,
   OpportunityUpdatePayload,
   PipelineResolution,
@@ -354,6 +355,21 @@ export async function updateOpportunity(id: string, partial: OpportunityUpdatePa
     body: JSON.stringify(partial),
   });
   return data;
+}
+
+/** GET /opportunities/search?contact_id=...&location_id=... — snake_case
+ *  query params, unlike every other endpoint in this client (contacts/
+ *  pipelines use `locationId`). This is the exact live-verified shape
+ *  already shipped in airtable-job-created/index.ts's searchGhlOpportunity
+ *  — reused here (as a full list rather than pre-filtered by a specific
+ *  field match) for the estimate push's search-before-create idempotency
+ *  check. Returns [] on an empty/malformed response rather than throwing,
+ *  same tolerant-parse style as resolvePipelineUncached. */
+export async function searchOpportunitiesByContact(contactId: string): Promise<GhlOpportunity[]> {
+  const qs = new URLSearchParams({ contact_id: contactId, location_id: getLocationId() });
+  const { data } = await ghlFetch(`/opportunities/search?${qs.toString()}`);
+  const d = data as { opportunities?: GhlOpportunity[] } | GhlOpportunity[] | null;
+  return (Array.isArray(d) ? d : (d?.opportunities ?? [])) as GhlOpportunity[];
 }
 
 // ── Custom field definitions — cached per process ─────────────────────────
