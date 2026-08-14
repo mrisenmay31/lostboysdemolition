@@ -182,6 +182,44 @@ gracefully. CLAUDE.md line corrected this session.
 
 Phase A implementation plan written and approved; build follows in next entry.
 
+---
+
+### 2026-07-31 — Three backlog items captured from Dane meeting (equipment, tools, crew P&L)
+**Status:** 🟢 Complete · **Deploys:** none · **Documentation only — nothing live was touched**
+
+Matt relayed three asks from a meeting with Dane the same day. All three were explicitly framed as
+"not now" — they are recorded as backlog, **not** folded into the A–G critical path.
+
+New section in `BUILD_PLAN.md`: **"Backlog — captured, not scheduled"**, placed after Track B.
+
+- **BL-1 — Equipment maintenance tracking.** Service/repair per unit. Today it disappears into
+  ~$572k/yr of BILL card spend with no equipment dimension. Reserve an `equipment` table and
+  `expenses.equipment_id` in the initial schema; capture on the foreman completion checklist.
+- **BL-2 — Tool inventory.** What exists, which crew has it, what is lost/replaced. Reserve
+  `tools` + a `tool_assignments` ledger keyed to `crew_id` (per-crew, not per-employee). Scope to
+  exceptions only — a full per-job tool enumeration will not get done.
+- **BL-3 — Crew-level P&L + foreman incentive comp.** Each crew as a business unit, foreman cost
+  allocated to the crew, bonus on financial performance.
+
+**The one thing a future session must not miss:** BL-3 carries a real hazard, flagged inline in the
+plan. Because the dump pad (+$221k/yr) and the labor shortfall (−$246k/yr) cancel, **absolute crew
+margin moves with how a job was priced, not how well the crew ran it** — dump-heavy jobs carry the
+pad, labor-heavy jobs carry the shortfall. Bonusing on absolute margin would pay foremen for the
+estimator's job mix and incentivise them toward dump-heavy work. The defensible basis is **variance
+against the accepted estimate** (hours vs. estimated hours, loads vs. estimated loads) plus a
+quality gate. Do not attach dollars until the distortion is corrected or explicitly neutralised.
+
+Dependency note: BL-3 is mostly a reporting increment on Phase F — crew is already a first-class
+dimension (`crews`, per-crew calendars, per-crew Slack channels, `Crew 1–4` on the job). The new
+work is *allocating non-job-level costs* (foreman salary, equipment, tools, overhead share), and
+the allocation basis is an unmade decision. BL-3 also depends on **Phase D, which is still
+blocking** — no per-crew hours means no labor actual means no crew P&L.
+
+Also added a Backlog row to the `CLAUDE.md` phase roadmap table so it is visible from the entry
+point. No open decision changed; the Phase D blocker is unaffected.
+
+---
+
 ### 2026-07-31 — Business discovery + financial analysis; BUILD_PLAN amended to A–G; four pads found
 **Status:** 🟢 Complete · **Deploys:** none · **Nothing live was touched**
 
