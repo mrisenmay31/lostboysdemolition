@@ -25,7 +25,7 @@ shipped.
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
-| `ghl-job-webhook` | A | 🟢 Live (v6) — Phase A keystone, live E2E verified | 2026-08-13 |
+| `ghl-job-webhook` | A | 🟢 Live (v7) — Phase A keystone, live E2E verified; v7 = final-review fix wave | 2026-08-13 |
 | `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
@@ -38,7 +38,7 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ## Entries
 
 ### 2026-08-13 — Phase A build: job record keystone SHIPPED — GHL→Postgres→Calendar/Slack live
-**Status:** 🟢 Complete · **Deploys:** `ghl-job-webhook` (new, v6) · `crew-night-before` (new, v4) ·
+**Status:** 🟢 Complete · **Deploys:** `ghl-job-webhook` (new, v7 after fix wave) · `crew-night-before` (new, v4) ·
 4 migrations applied · branch `phase-a-job-record`
 
 Built via subagent-driven development: sonnet implementers, opus adversarial reviewers, Matt
@@ -48,7 +48,7 @@ Task 6 (GHL workflow wiring). Full session ledger:
 
 #### What shipped
 
-- **`ghl-job-webhook`** (new function, v6) — one webhook, two events. `quote_accepted` mints a
+- **`ghl-job-webhook`** (new function, v7) — one webhook, two events. `quote_accepted` mints a
   canonical `JOB-XXXX` job record in Postgres from a GHL opportunity (name format
   `JOB-XXXX – Client – City`, client name/type from the GHL contact, city parsed from the job
   address). `job_scheduled` fires the schedule leg: Google Calendar (main + crew), Slack crew

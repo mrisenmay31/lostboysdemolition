@@ -15,7 +15,7 @@ wrong and carries a correction banner.
 
 Where the last session left off (2026-08-13, branch `phase-a-job-record`, NOT YET MERGED to main):
 Phase A — the job record keystone — shipped and is live. Two new Supabase Edge Functions:
-ghl-job-webhook (v6) and crew-night-before (v4), plus 4 migrations (canonical `jobs` schema with
+ghl-job-webhook (v7) and crew-night-before (v4), plus 4 migrations (canonical `jobs` schema with
 JOB-XXXX sequence starting 1100, RLS, two rounds of adversarial-review fixups, and a pg_cron
 schedule for the night-before digest), plus a first-ever shared module at
 supabase/functions/_shared/ (job-name/city parsing, lifted Google Calendar auth, hardened

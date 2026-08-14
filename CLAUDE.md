@@ -205,7 +205,7 @@ Slack message; that was abandoned as unreliable and is typed by hand today.
 │   │   ├── receive-airtable-webhook/  # writes Supabase jobs mirror  [UNAUTHENTICATED]
 │   │   ├── push-to-airtable/          # time_entries → Airtable actuals  [dormant, latent bug]
 │   │   ├── _shared/                   # job naming/validation + Google auth + log writers, unit-tested
-│   │   ├── ghl-job-webhook/           # Phase A: GHL workflow → job record + scheduling  [LIVE v6]
+│   │   ├── ghl-job-webhook/           # Phase A: GHL workflow → job record + scheduling  [LIVE v7]
 │   │   └── crew-night-before/         # nightly crew digest, pg_cron  [LIVE v4]
 │   └── migrations/              # RLS + view hardening (2026-07-30) + Phase A schema/cron (4 files, 2026-08-13)
 ├── airtable-automations/        # Airtable Scripting automations (live in base; edit in UI)
