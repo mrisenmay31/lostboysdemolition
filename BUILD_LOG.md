@@ -27,6 +27,7 @@ shipped.
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A | 🟢 Live (v7) — Phase A keystone, live E2E verified; v7 = final-review fix wave | 2026-08-13 |
 | `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
+| Phase B slice-2 (`web/` app + DB) | B | 🟡 In progress — 10/14 tasks on branch `phase-b-slice-2` (not merged to main); 3 migrations live; T11/T11b/T12/T13 remain | 2026-08-14 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -36,6 +37,45 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-14 (evening) — Phase B slice-2 IN PROGRESS: 10/14 tasks done on branch `phase-b-slice-2` (paused mid-build)
+
+**Status:** 🟡 In progress, paused for session close. Branch `phase-b-slice-2` (tip `123b74a`), **16 commits, NOT merged to main.** Tasks T1–T10 complete + reviewed + merged onto the branch; **T11, T11b, T12, T13 remain.** Executed subagent-driven (sonnet implements / opus reviews per task + fix loops) under a **hybrid-lane concurrency model Matt approved** — a DB migration lane and a web lane ran concurrently via isolated git worktrees, each task merged back after its own review passed. SDD ledger + all task briefs/reports live under `.superpowers/sdd/2026-08-14-phase-b-slice-2-estimate-builder-ghl-push/` (gitignored) — read `progress.md` there first next session.
+
+**What shipped this session (all on the branch, all reviewed):**
+
+*DB lane — 3 new migrations, all APPLIED LIVE to `eiqqqwajmcpcwhvxxnhx` and committed (parity holds):*
+- `20260814200000_phase_b2_estimator_columns.sql` — adds `estimates.created_by uuid → auth.users`, `created_by_name text` (both **immutable**, added to the `enforce_estimate_immutability` guard list; mutable set unchanged: status/quoted_price/quote_override_reason/job_number).
+- `20260814210000_phase_b2_rpcs_audit.sql` + `20260814215000_phase_b2_rpcs_fixups.sql` — the estimate **write RPCs** (`create_estimate_with_items`, `update_estimate_status`, `update_estimate_quote`, `update_estimate_job_number`) + `estimate_mutations_audit` table & AFTER-UPDATE trigger. All RPCs service-role-only (revoked from public/anon/authenticated), `search_path=public`, take `p_actor`/`p_actor_name` for the audit trail. The create RPC is one transaction (writer contract: v1 omits estimate_number→sequence, vN passes parent's number + supersedes_estimate_id, flips parent to superseded). Fixups added: insert-path override-reason CHECK (`quote_override_reason_required`), `nullif('')` cast hardening, quote-clearing allowed, 2dp rounding, audit-table immutability guard, and actor-on-supersede.
+- `20260814220000_phase_b2_ghl_push_state.sql` — `ghl_push_state` table (PK estimate_id → estimates; contact/opp/estimate-doc ids, per-target timestamps, last_error, attempts; mutable, app sets updated_at) + widened `sync_log_direction_check` with `app_to_ghl`.
+- **Test estimate rows** (permanent — estimates are undeletable): `estimate_number 1414` (v1+v2, both `job_name='TEST — void, do not use'`, left `declined`) from the T3 verification. `1415` **burned** by the T3-fixups negative-CHECK test (nextval non-transactional). Numbers 1400–1413 burned earlier by dev rollbacks. **First real estimate will be ≥ 1416.**
+
+*Web lane — first Next.js app code, in `web/` (own package.json; legacy root untouched):*
+- **T5 scaffold** — Next 16.3 App Router + Tailwind 4 + vitest 4; imports the golden-tested `_shared/pricing.ts` via a re-export shim `web/src/lib/pricing.ts` (never forked). Needed `supabase/functions/_shared/package.json {"type":"module"}` for Turbopack ESM resolution (proven deploy-inert — absent from the Deno module graph).
+- **T6 auth** — Supabase Auth (email/password, 3 users, no self-signup), `@supabase/ssr` middleware, `requireUser()`, service-role `admin.ts` (`import "server-only"`), gated `(app)` group. **Open-redirect hardening took 3 fix rounds** (protocol-relative, control-char, and normalized-output re-entrancy bypasses each found+closed; final `safeNext` uses `new URL()` origin re-resolution, fuzzed 71k cases 0 violations).
+- **T7 rates loader** — `web/src/lib/rates.ts` `loadRatesConfig()` reads all 6 `pricing_variables` live via service role; throws on any missing key (**never** falls back to DEFAULT_RATES). Exported `requireRates` from pricing.ts (one word; golden gate held 18/18).
+- **T9 GHL client** — `web/src/lib/ghl/client.ts` (contacts/opportunities/pipelines/custom-field-defs/estimate-list + retry-once ghlFetch). **Live scope smoke = GO: the existing `GHL_API_KEY` already has estimate scopes** (HTTP 200, 510 docs) — no token rotation needed.
+- **T10 estimate-doc builder** — `web/src/lib/ghl/estimateDoc.ts`: builds the customer-facing GHL draft estimate. **Live-validated 3 payload corrections** the OpenAPI spec got wrong (`name`≤40 chars, line items need `type:"one_time"`, `frequencySettings.schedule` must be `null`). Allocation uses **largest-remainder (Hamilton)** so line amounts sum to the quoted price exactly AND are never negative. ⚠️ **GHL stores `meta` keys CAMELCASED** (`lbdEstimateId`) — read-back must use camelCase (T12 must honor).
+- **T8 data layer** — `web/src/lib/estimates/{types,validate,map,repo}.ts` + `app/(app)/estimates/actions.ts`. Pure validate (zod; itemized reconciliation; **rejects negative inputs** the DB doesn't constrain) + map (writer contract) + repo (the 7 operations via RPCs, service-role, numeric-as-string normalization at every boundary) + server actions (each calls `requireUser()` itself). Added `zod ^4.4.3` as an explicit web dep.
+
+**Gates at pause:** web vitest **139/139**, `deno task test` **18/18** (golden 321 intact), `npm run build` green with env supplied. `pricing.ts` engine only changed by the one-word `export` — no quoted price moved.
+
+**Defects found but deferred to next session (from reviews, none blocking the merge):**
+- `listEstimates` `q` param is PostgREST-filter-injectable (`repo.ts` ~1116) — **sanitize `,()` before T11b wires the list page** (low risk: 3 trusted users, read-only, service-role, same table).
+- `quotedPrice` not non-negative-guarded (`validate.ts:69`) — a negative override → negative GHL amount in T12; add `nonNegativeNumber`.
+- `updateStatus` accepts any of the 6 statuses with no transition rules — T11b UI must only offer sent/accepted/declined.
+- `createNewVersion` on a stale (already-superseded) parent fails with a raw unique-violation string — T11b should add a friendly "newer version exists" check.
+- T6 minor: middleware matcher exempts `*.png`-suffixed routes at any depth (inert today).
+- T1 doc minors (fold into T13 doc pass): CLAUDE.md prose polish around the test command; `deno.json` absent from the repo-structure tree.
+
+**Manual setup still owed by Matt (carried; none blocked this session's work):**
+1. **`web/.env.local`** must be hand-created before local `npm run dev`/build (the M5 env-guard throws without it — by design). Needs `NEXT_PUBLIC_SUPABASE_URL=https://eiqqqwajmcpcwhvxxnhx.supabase.co`, `NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_ZmXLIhozN3vMWf-8e13hQQ_59AkdjnY`, and the **service-role key** (server-only). The permission layer blocked agents from writing it.
+2. **Provision the 3 auth users** (Dane/Jackson/Matt) in the Supabase dashboard with `display_name` metadata, then disable public signups. Only 1 pre-existing account exists today. Record their emails in CLAUDE.md once created.
+3. GHL estimate scopes: **already present** — no action needed (smoke test confirmed).
+
+**Repo-hygiene note for future migration work:** migration **filenames** carry 14-digit timestamps but the live `schema_migrations` **version** stamps differ (MCP `apply_migration` uses its own wall-clock) — repo-wide, pre-existing. Consequence: a `supabase db push` from the repo would see these as unapplied and re-run `create table` (fails). Don't "fix" by renaming applied files; document only.
+
+**Next session — resume at T11 + T12 (both unblocked, can run in parallel):** T11 = the mobile-first estimate builder page (live recalc via client-side `computeEstimate`, scope picker, quick/itemized modes, Path B toggle) with a first-real-create live smoke test; T12 = push orchestration (`pushEstimateToGhl`, per-target idempotent via `ghl_push_state`, honoring the meta-camelCase read + search-before-create idempotency the reviews flagged). Then T11b (list+detail+lifecycle), then T13 (Vercel deploy + docs + BUILD_LOG close + optionally merge to main). Briefs are staged in the SDD workspace dir.
 
 ### 2026-08-14 — Phase B slice-1 COMPLETE: golden master, seeds, full verification (Tasks 2, 4, 5)
 
