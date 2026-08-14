@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { isEstimatorName } from "@/lib/estimator";
+import { isValidEstimateId } from "@/lib/estimates/ids";
 import {
   EstimateValidationError,
   createEstimate,
@@ -10,6 +11,8 @@ import {
   updateStatus,
 } from "@/lib/estimates/repo";
 import type { EstimateActor, EstimateRow, EstimateStatus } from "@/lib/estimates/types";
+import { pushEstimateToGhl } from "@/lib/ghl/push";
+import type { PushResult } from "@/lib/ghl/push";
 
 /**
  * Server actions for the estimates data layer. Every action here is a
@@ -154,5 +157,37 @@ export async function updateQuoteAction(
     return { ok: true, estimate };
   } catch (err) {
     return toActionResult(err);
+  }
+}
+
+export type PushActionResult = { ok: true; result: PushResult } | { ok: false; error: string };
+
+/**
+ * Pushes one estimate version to GHL (Task 11b's detail-page Push/Retry
+ * button). Unlike every other action in this file, this one takes no
+ * `estimatorName` — there is no attribution to record (pushEstimateToGhl
+ * sources the "Estimator" GHL field from the estimate row's own
+ * created_by_name snapshot, per the Task 12 ruling), so there is nothing
+ * here for the picker allowlist to gate. The action is still the trust
+ * boundary for its one real input, `estimateId` — isValidEstimateId
+ * rejects anything that isn't UUID-shaped before it can reach
+ * getEstimate()'s query (see lib/estimates/ids.ts's doc comment).
+ *
+ * Never throws: pushEstimateToGhl's own contract is "no target's
+ * try/catch escapes" (see push.ts's module doc comment), and any error
+ * that somehow still escapes (e.g. getEstimate() itself failing) is
+ * caught here the same way every other action in this file handles it.
+ */
+export async function pushEstimateAction(estimateId: string): Promise<PushActionResult> {
+  if (!isValidEstimateId(estimateId)) {
+    return { ok: false, error: "invalid estimate id" };
+  }
+  try {
+    const result = await pushEstimateToGhl(estimateId);
+    revalidatePath(`/estimates/${estimateId}`);
+    return { ok: true, result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message };
   }
 }

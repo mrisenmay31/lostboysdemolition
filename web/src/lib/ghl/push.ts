@@ -475,7 +475,13 @@ export async function pushEstimateToGhl(estimateId: string): Promise<PushResult>
         ghl_estimate_id: docOut.docId,
         ghl_estimate_number: docOut.docNumber,
         doc_pushed_at: nowIso(),
-        last_error: null,
+        // Task 11b review carry (deferred Low from T12 fix round 1 re-
+        // review): a doc-success upsert unconditionally clearing
+        // last_error clobbers a fields-target error from THIS SAME run —
+        // the detail page's push-state panel would then show no error at
+        // all even though `fields: "error"` came back in the PushResult.
+        // Only clear last_error when the fields target didn't just fail.
+        ...(fieldsResult === "error" ? {} : { last_error: null }),
       });
       await writeSyncLog(admin, {
         direction: "app_to_ghl",

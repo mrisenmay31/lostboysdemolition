@@ -5,6 +5,8 @@ import { loadRatesConfig } from "@/lib/rates";
 import { computeEstimate, type EstimateInputs } from "@/lib/pricing";
 import { validateEstimateDraft, validateQuoteOverride } from "./validate";
 import { mapDraftToEstimatePayload, type VersionInfo } from "./map";
+import { NEWER_VERSION_EXISTS_MESSAGE, isUniqueViolationError } from "./errors";
+import { sanitizeSearchTerm } from "./search";
 import type {
   EstimateActor,
   EstimateDetail,
@@ -171,6 +173,17 @@ async function computeAndCreate(
   });
 
   if (error) {
+    // Binding carry (Task 8 review, Task 11b brief item 3): a v2+ create
+    // races on the DB's (estimate_number, version) uniqueness whenever
+    // two estimators revise the same parent at nearly the same time —
+    // the loser hits a unique_violation and, unhandled, would surface
+    // Postgres's raw constraint-violation string. versionInfo is only
+    // set on the createNewVersion path (never version-1 creates, which
+    // mint a fresh number via nextval and can't collide this way), so
+    // gating on its presence keeps this narrow to the actual race.
+    if (versionInfo && isUniqueViolationError(error)) {
+      throw new EstimateValidationError([NEWER_VERSION_EXISTS_MESSAGE]);
+    }
     throw new Error(`create_estimate_with_items failed: ${error.message}`);
   }
 
@@ -348,7 +361,7 @@ export async function listEstimates(
   let query = admin
     .from("estimates")
     .select(
-      "id, estimate_number, version, status, job_number, job_name, client_name, total_bid, quoted_price, created_at",
+      "id, estimate_number, version, status, job_number, job_name, client_name, total_bid, quoted_price, created_at, is_path_b",
     )
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -359,8 +372,18 @@ export async function listEstimates(
 
   const trimmed = q?.trim();
   if (trimmed) {
-    const pattern = `%${trimmed}%`;
-    query = query.or(`job_name.ilike.${pattern},client_name.ilike.${pattern}`);
+    // Binding carry (Task 8 review, Task 11b brief item 1): `trimmed` is
+    // untrusted search-box text embedded directly into a raw PostgREST
+    // `.or(...)` filter string below — sanitizeSearchTerm neutralizes
+    // both the filter-syntax characters (`,`/`(`/`)`) and the SQL LIKE
+    // wildcards (`%`/`_`) before it ever reaches that string. A search
+    // that's ENTIRELY filter-syntax characters (e.g. "(),") sanitizes to
+    // "" — skip filtering rather than sending a vacuous `ilike.%%`.
+    const sanitized = sanitizeSearchTerm(trimmed);
+    if (sanitized) {
+      const pattern = `%${sanitized}%`;
+      query = query.or(`job_name.ilike.${pattern},client_name.ilike.${pattern}`);
+    }
   }
 
   const { data, error } = await query;

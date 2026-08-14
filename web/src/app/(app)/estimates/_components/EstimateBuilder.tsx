@@ -18,7 +18,7 @@ import {
   sumLineItems,
   type ScopeLibraryItem,
 } from "@/lib/estimates/builderLogic";
-import { createEstimateAction } from "../actions";
+import { createEstimateAction, newVersionAction } from "../actions";
 import { useEstimator } from "@/app/(app)/EstimatorChip";
 import {
   DecimalInputHint,
@@ -33,9 +33,56 @@ import { ScopePickerSheet } from "./ScopePickerSheet";
 import { LineItemCard } from "./LineItemCard";
 import { StickyTotalBar } from "./StickyTotalBar";
 
+/**
+ * Preloaded values for the revise flow (Task 11b) — one field per piece of
+ * builder state that a fresh create doesn't have a starting value for.
+ * `lineItems` here are plain drafts (no client-side `key`) — EstimateBuilder
+ * assigns each a fresh `crypto.randomUUID()` key in its OWN initial-state
+ * initializer (see the `lineItems` useState below), the same way
+ * `addLineItem` already does for a line item added interactively. That's
+ * what keeps the review's "revise page must mount FRESH LineItemCard
+ * components" requirement structurally true: this is a brand-new
+ * EstimateBuilder mount (a different route, `[id]/revise/page.tsx`, never
+ * the same component instance the parent's OWN detail page rendered), so
+ * there is no existing LineItemCard whose raw-text state this could ever
+ * desync from — the keys are generated once, at this mount's first render,
+ * and LineItemCard's internal raw-text state initializes from `item.*`
+ * exactly once per key, same as the create flow.
+ */
+export interface BuilderInitialValues {
+  clientName: string;
+  clientType: ClientType | null;
+  clientEmail: string;
+  clientPhone: string;
+  jobName: string;
+  jobAddress: string;
+  city: string;
+  jobType: JobType | null;
+  estimateDate: string;
+  jobDetails: string;
+  laborMethod: LaborMethod;
+  totalJobHoursRaw: string;
+  daysAtJobRaw: string;
+  numEmployeesRaw: string;
+  dumpCountRaw: string;
+  jobSpecificCostsRaw: string;
+  markupPctRaw: string;
+  isPathB: boolean;
+  lineItems: LineItemDraft[];
+}
+
 interface EstimateBuilderProps {
   ratesConfig: RatesConfig;
   scopeItems: readonly ScopeLibraryItem[];
+  /** "create" (default) posts a version-1 estimate via createEstimateAction.
+   *  "revise" posts a new version of `parentId`'s chain via newVersionAction
+   *  — see `[id]/revise/page.tsx`, the only caller that sets this. */
+  formMode?: "create" | "revise";
+  /** Required when formMode === "revise" — the estimate id being revised. */
+  parentId?: string;
+  /** Preloads every field below from the parent estimate. Only meaningful
+   *  (and only ever passed) alongside formMode === "revise". */
+  initial?: BuilderInitialValues;
 }
 
 /** Line items need a stable React key before they have a DB id — carried
@@ -63,7 +110,13 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProps) {
+export function EstimateBuilder({
+  ratesConfig,
+  scopeItems,
+  formMode = "create",
+  parentId,
+  initial,
+}: EstimateBuilderProps) {
   // No login — identity is the header EstimatorChip's self-declared pick,
   // persisted in localStorage and shared across every route via
   // useEstimator()'s cross-component subscription. Save requires a pick
@@ -72,21 +125,25 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   const { estimator } = useEstimator();
 
   // Client
-  const [clientName, setClientName] = useState("");
-  const [clientType, setClientType] = useState<ClientType | null>(null);
-  const [clientEmail, setClientEmail] = useState("");
-  const [clientPhone, setClientPhone] = useState("");
+  const [clientName, setClientName] = useState(initial?.clientName ?? "");
+  const [clientType, setClientType] = useState<ClientType | null>(initial?.clientType ?? null);
+  const [clientEmail, setClientEmail] = useState(initial?.clientEmail ?? "");
+  const [clientPhone, setClientPhone] = useState(initial?.clientPhone ?? "");
 
   // Job
-  const [jobName, setJobName] = useState("");
-  const [jobAddress, setJobAddress] = useState("");
-  const [city, setCity] = useState("");
-  const [jobType, setJobType] = useState<JobType | null>(null);
-  const [estimateDate, setEstimateDate] = useState(todayIso);
-  const [jobDetails, setJobDetails] = useState("");
+  const [jobName, setJobName] = useState(initial?.jobName ?? "");
+  const [jobAddress, setJobAddress] = useState(initial?.jobAddress ?? "");
+  const [city, setCity] = useState(initial?.city ?? "");
+  const [jobType, setJobType] = useState<JobType | null>(initial?.jobType ?? null);
+  const [estimateDate, setEstimateDate] = useState(initial?.estimateDate ?? todayIso);
+  const [jobDetails, setJobDetails] = useState(initial?.jobDetails ?? "");
 
-  // Scope line items
-  const [lineItems, setLineItems] = useState<LocalLineItem[]>([]);
+  // Scope line items — see BuilderInitialValues' doc comment above for why
+  // assigning a fresh key here (rather than carrying one from the caller)
+  // is what makes the revise flow mount brand-new LineItemCard instances.
+  const [lineItems, setLineItems] = useState<LocalLineItem[]>(() =>
+    (initial?.lineItems ?? []).map((item) => ({ ...item, key: crypto.randomUUID() })),
+  );
   const [scopePickerOpen, setScopePickerOpen] = useState(false);
 
   // Labor, Dumps, Costs, Markup — all six of these hold RAW TEXT, not a
@@ -95,13 +152,15 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   // legal-but-incomplete decimal states like ".25" or "0.", fighting
   // every keystroke of a fractional entry — see that function's doc
   // comment for the full explanation).
-  const [laborMethod, setLaborMethod] = useState<LaborMethod>("total_hours");
-  const [totalJobHoursRaw, setTotalJobHoursRaw] = useState("0");
-  const [daysAtJobRaw, setDaysAtJobRaw] = useState("0");
-  const [numEmployeesRaw, setNumEmployeesRaw] = useState("0");
-  const [dumpCountRaw, setDumpCountRaw] = useState("0");
-  const [jobSpecificCostsRaw, setJobSpecificCostsRaw] = useState("0");
-  const [markupPctRaw, setMarkupPctRaw] = useState(() => String(ratesConfig.defaultMarkupPct));
+  const [laborMethod, setLaborMethod] = useState<LaborMethod>(initial?.laborMethod ?? "total_hours");
+  const [totalJobHoursRaw, setTotalJobHoursRaw] = useState(initial?.totalJobHoursRaw ?? "0");
+  const [daysAtJobRaw, setDaysAtJobRaw] = useState(initial?.daysAtJobRaw ?? "0");
+  const [numEmployeesRaw, setNumEmployeesRaw] = useState(initial?.numEmployeesRaw ?? "0");
+  const [dumpCountRaw, setDumpCountRaw] = useState(initial?.dumpCountRaw ?? "0");
+  const [jobSpecificCostsRaw, setJobSpecificCostsRaw] = useState(initial?.jobSpecificCostsRaw ?? "0");
+  const [markupPctRaw, setMarkupPctRaw] = useState(
+    () => initial?.markupPctRaw ?? String(ratesConfig.defaultMarkupPct),
+  );
 
   // Path B — "record only, no formal proposal". Persisted: draft.isPathB
   // -> estimates.is_path_b (not null default false). The DB column is
@@ -109,8 +168,11 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   // frozen column) — a wrong pick can't be edited in place, only
   // corrected by a new version — so the checkbox shows a one-line warning
   // when checked (see the Path B section below) rather than treating it
-  // as a casually reversible toggle.
-  const [isPathB, setIsPathB] = useState(false);
+  // as a casually reversible toggle. On revise, preloaded from the
+  // parent's current value but stays editable — this is a NEW row, not an
+  // edit of the old one, so a corrected Path B pick is a legitimate
+  // reason to revise in the first place.
+  const [isPathB, setIsPathB] = useState(initial?.isPathB ?? false);
 
   // Sticky bar / save
   const [expanded, setExpanded] = useState(false);
@@ -271,8 +333,16 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
 
     setSaving(true);
     try {
-      const result = await createEstimateAction(draft, estimator);
+      const result =
+        formMode === "revise" && parentId
+          ? await newVersionAction(parentId, draft, estimator)
+          : await createEstimateAction(draft, estimator);
       if (!result.ok) {
+        // On the revise path this also carries the friendly "a newer
+        // version already exists" message when repo.ts detects the
+        // (estimate_number, version) unique-constraint race (see
+        // repo.ts's computeAndCreate + lib/estimates/errors.ts) — no
+        // special-casing needed here, it's just another saveError string.
         setSaveError(result.error);
         setFieldErrors(result.fieldErrors ?? []);
         return;
@@ -286,13 +356,57 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
     }
   }
 
+  /**
+   * Resets every field back to a blank create-mode form, in place. Used
+   * by the "Create another" button on the success screen INSTEAD OF a
+   * `<Link href="/estimates/new">` (Task 11 integration-round minor,
+   * elevated in Task 11b): after Save, the URL never changed — this
+   * component never navigates, it just swaps to the `saved` branch below
+   * — so a Link back to the SAME url (`/estimates/new`) is a no-op
+   * navigation in the App Router (no route change means no remount), and
+   * `saved` would stay populated forever. Resetting state directly makes
+   * "Create another" work regardless of Next's same-URL navigation
+   * behavior. Not used when formMode is "revise" — reviving a chain a second time
+   * needs a fresh parentId, so that screen instead links back to the list.
+   */
+  function resetForm() {
+    setClientName("");
+    setClientType(null);
+    setClientEmail("");
+    setClientPhone("");
+    setJobName("");
+    setJobAddress("");
+    setCity("");
+    setJobType(null);
+    setEstimateDate(todayIso());
+    setJobDetails("");
+    setLineItems([]);
+    setScopePickerOpen(false);
+    setLaborMethod("total_hours");
+    setTotalJobHoursRaw("0");
+    setDaysAtJobRaw("0");
+    setNumEmployeesRaw("0");
+    setDumpCountRaw("0");
+    setJobSpecificCostsRaw("0");
+    setMarkupPctRaw(String(ratesConfig.defaultMarkupPct));
+    setIsPathB(false);
+    setExpanded(false);
+    setSaving(false);
+    setSaveError(null);
+    setFieldErrors([]);
+    setSaved(null);
+  }
+
   if (saved) {
     return (
       <div className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4">
-        <h1 className="text-xl font-semibold">Estimate saved</h1>
+        <h1 className="text-xl font-semibold">
+          {formMode === "revise" ? "Estimate revised" : "Estimate saved"}
+        </h1>
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           Estimate #{saved.estimate.estimate_number} v{saved.estimate.version} for{" "}
           {saved.estimate.client_name ?? "—"}.
+          {formMode === "revise" ? " The previous version is now superseded." : ""}
         </p>
         <div className="rounded-lg border border-zinc-300 p-4 dark:border-zinc-700">
           <p className="text-2xl font-semibold">
@@ -321,12 +435,22 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
           >
             View estimate
           </Link>
-          <Link
-            href="/estimates/new"
-            className="flex h-12 flex-1 items-center justify-center rounded-lg border border-zinc-300 text-sm font-semibold dark:border-zinc-700"
-          >
-            Create another
-          </Link>
+          {formMode === "revise" ? (
+            <Link
+              href="/estimates"
+              className="flex h-12 flex-1 items-center justify-center rounded-lg border border-zinc-300 text-sm font-semibold dark:border-zinc-700"
+            >
+              Back to list
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="flex h-12 flex-1 items-center justify-center rounded-lg border border-zinc-300 text-sm font-semibold dark:border-zinc-700"
+            >
+              Create another
+            </button>
+          )}
         </div>
       </div>
     );
@@ -335,6 +459,9 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   return (
     <div className="flex flex-1 flex-col">
       <div className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-8 p-4 pb-8">
+        <h1 className="text-xl font-semibold">
+          {formMode === "revise" ? "Revise estimate" : "New estimate"}
+        </h1>
         {/* Client */}
         <section className="flex flex-col gap-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">

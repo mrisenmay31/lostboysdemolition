@@ -176,6 +176,7 @@ export interface EstimateSummary {
   total_bid: number;
   quoted_price: number | null;
   created_at: string;
+  is_path_b: boolean;
 }
 
 export interface EstimateMutationAuditRow {
