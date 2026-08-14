@@ -27,7 +27,7 @@ shipped.
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A | 🟢 Live (v7) — Phase A keystone, live E2E verified; v7 = final-review fix wave | 2026-08-13 |
 | `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
-| Phase B slice-2 (`web/` app + DB) | B | 🟢 **Complete on branch** — all 14 build tasks + the mid-session no-login scope change + a final whole-branch review + fix wave done, reviewed, merged onto `phase-b-slice-2` (tip `53e7d64`); **not merged to main**, decision returns to Matt; 4 migrations live | 2026-08-14 |
+| Phase B slice-2 (`web/` app + DB) | B | 🟢 **Complete on branch** — all 14 build tasks + the mid-session no-login scope change + a final whole-branch review + fix wave done, reviewed, merged onto `phase-b-slice-2` (tip `53e7d64`); **not merged to main**, decision returns to Matt; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live | 2026-08-14 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -138,7 +138,7 @@ written now, not just schema). `sync_log` has **24 rows** with `direction='app_t
   more than 10 historical docs could have its live draft missed by the push logic, which would then
   create a duplicate instead of updating in place (or, worse, `PUT` a stale doc id). Fixed to
   auto-paginate at `AUTO_PAGE_SIZE=100` when no explicit limit is given; live-verified GHL honors
-  `limit=100` (200/511 docs on one page).
+  `limit=100` (100 of 511 docs returned per page; auto-pagination sweeps the rest).
 - `/estimates/new` going static post-auth-removal (named above under T11).
 - The override-reason-textarea-unmounts-mid-typing and spurious-`notFound()`-on-refresh bugs (named
   above under T11b) — both **live-caught through real browser interaction**, not unit tests; the SDD
@@ -150,8 +150,10 @@ users):**
 1. **Superseded-version protection is UI-only.** The detail page hides status/push controls once a
    version is superseded, but `updateStatusAction` and `pushEstimateAction` do not themselves
    re-check version status — a stale browser tab left open from before a `revise` can still mutate
-   or push the superseded row. Self-healing (re-pushing the current version overwrites; a wrong
-   status is correctable); a server-side defense-in-depth check is deferred.
+   or push the superseded row. Partially self-healing (re-pushing the current version overwrites
+   the GHL side) but not a status fix — the UI only offers sent/accepted/declined, so restoring a
+   wrongly-set superseded marker needs a direct RPC/SQL call, not a click anywhere in the app; a
+   server-side defense-in-depth check is deferred.
 2. **No concurrency guard on the GHL push.** Two simultaneous first-pushes of the same estimate can
    race `search-before-create` and create duplicate GHL opportunities — `ghl_push_state` has no
    arbitrating constraint. Low likelihood; recovery is deleting the duplicate opportunity in GHL.
@@ -233,7 +235,7 @@ picture.
 
 **Manual setup still owed by Matt (carried; none blocked this session's work):**
 1. **`web/.env.local`** must be hand-created before local `npm run dev`/build (the M5 env-guard throws without it — by design). Needs `NEXT_PUBLIC_SUPABASE_URL=https://eiqqqwajmcpcwhvxxnhx.supabase.co`, `NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_ZmXLIhozN3vMWf-8e13hQQ_59AkdjnY`, and the **service-role key** (server-only). The permission layer blocked agents from writing it.
-2. **Provision the 3 auth users** (Dane/Jackson/Matt) in the Supabase dashboard with `display_name` metadata, then disable public signups. Only 1 pre-existing account exists today. Record their emails in CLAUDE.md once created.
+2. **Provision the 3 auth users** (Dane/Jackson/Matt) in the Supabase dashboard with `display_name` metadata, then disable public signups. Only 1 pre-existing account exists today. Record their emails in CLAUDE.md once created. **(CANCELLED — see the 2026-08-14 (night) entry above; the no-login scope change replaced this with a picker, no auth users needed.)**
 3. GHL estimate scopes: **already present** — no action needed (smoke test confirmed).
 
 **Repo-hygiene note for future migration work:** migration **filenames** carry 14-digit timestamps but the live `schema_migrations` **version** stamps differ (MCP `apply_migration` uses its own wall-clock) — repo-wide, pre-existing. Consequence: a `supabase db push` from the repo would see these as unapplied and re-run `create table` (fails). Don't "fix" by renaming applied files; document only.

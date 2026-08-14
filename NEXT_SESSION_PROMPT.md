@@ -30,7 +30,9 @@ are staged alongside it as `task-N-brief.md` / `task-N-report.md`.
   `customFields`** — settled live this slice, matters to the Phase A functions too.
 - **⚠️ THERE IS NO LOGIN.** Matt's explicit decision, mid-session. Identity is a device-remembered
   "Who's estimating?" picker (Dane/Jackson/Matt) validated server-side against a fixed allowlist;
-  `created_by` is always NULL, `created_by_name` carries the picked name. The deployment ships
+  `created_by` is NULL on every row created under this model (one pre-scope-change row, estimate
+  1416 v1, still carries a real `auth.users` id — see CLAUDE.md), `created_by_name` carries the
+  picked name. The deployment ships
   network-layer **open**. Read CLAUDE.md's "No-login estimate tool" section before touching
   anything auth-shaped in this repo — earlier docs/session artifacts describing a Supabase-Auth
   gate are now wrong.
