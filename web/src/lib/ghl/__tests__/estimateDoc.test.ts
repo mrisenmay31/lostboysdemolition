@@ -64,7 +64,7 @@ describe("allocateAmounts — pure allocation", () => {
     expect(amounts).toHaveLength(3);
   });
 
-  it("sums exactly to docTotal across many uneven weight vectors (property-style sweep)", () => {
+  it("sums exactly to docTotal across many uneven weight vectors (property-style sweep), and no amount is ever negative", () => {
     const cases: Array<[number, number[]]> = [
       [100.01, [1, 1, 1]],
       [2543.51, [10, 3, 300]],
@@ -72,22 +72,69 @@ describe("allocateAmounts — pure allocation", () => {
       [9999.99, [7, 11, 13, 17]],
       [1.01, [1, 2]],
       [50, [1, 1, 1, 1, 1, 1, 1]],
+      // Small/near-zero weight FIRST or in the middle — the case the
+      // original sweep covered.
+      [107, [0.001, 1, 1, 1]],
+      [107, [1, 0.001, 1, 1]],
+      // Small/near-zero weight LAST — the case that slipped through the
+      // original "last weight absorbs the remainder" algorithm and could
+      // land it below zero (review finding, see task-10-report.md).
+      [107, [1, 1, 1, 0.001]],
+      [10000, [...Array(19).fill(1), 0.0001]],
+      [10000, [...Array(19).fill(1), 0]],
     ];
     for (const [docTotal, weights] of cases) {
       const amounts = allocateAmounts(docTotal, weights);
       const sumCents = amounts.reduce((a, b) => a + Math.round(b * 100), 0);
       expect(sumCents).toBe(Math.round(docTotal * 100));
+      expect(amounts.every((a) => a >= 0)).toBe(true);
     }
   });
 
-  it("puts the entire rounding remainder on the LAST weight, not distributed elsewhere", () => {
+  it("REGRESSION: near-zero weight NOT last never goes negative — $107 across [1,1,1,0.001]", () => {
+    const amounts = allocateAmounts(107, [1, 1, 1, 0.001]);
+    expect(amounts.every((a) => a >= 0)).toBe(true);
+    const sum = amounts.reduce((a, b) => a + b, 0);
+    expect(Math.round(sum * 100) / 100).toBe(107);
+  });
+
+  it("REGRESSION: near-zero weight LAST never goes negative — $107 across [1,1,1,0.001] (last slot)", () => {
+    // Under the superseded last-line-absorbs algorithm, the three $1
+    // weights each rounded UP (positive drift), and the entire deficit
+    // landed on this trivial last line, driving it negative
+    // ($35.67 x3 + -$0.01 = $107.00). The largest-remainder method can
+    // never do this: every line's floor is >= 0, and leftover cents are
+    // only ever ADDED.
+    const amounts = allocateAmounts(107, [1, 1, 1, 0.001]);
+    expect(amounts.every((a) => a >= 0)).toBe(true);
+    expect(amounts[3]).toBeGreaterThanOrEqual(0);
+    const sum = amounts.reduce((a, b) => a + b, 0);
+    expect(Math.round(sum * 100) / 100).toBe(107);
+  });
+
+  it("REGRESSION: 19 equal weights + 1 zero-weight LAST across $10000 — the zero line stays exactly $0, never negative", () => {
+    const weights = [...Array(19).fill(1), 0];
+    const amounts = allocateAmounts(10000, weights);
+    expect(amounts.every((a) => a >= 0)).toBe(true);
+    // The zero-weight line's fractional remainder is strictly the smallest
+    // (0), so under largest-remainder it can never win a leftover cent
+    // ahead of the 19 tied-nonzero lines — it lands at exactly $0, not a
+    // fraction of a cent negative.
+    expect(amounts[19]).toBe(0);
+    const sum = amounts.reduce((a, b) => a + b, 0);
+    expect(Math.round(sum * 100) / 100).toBe(10000);
+  });
+
+  it("distributes the rounding remainder via largest-remainder (Hamilton), ties broken by ascending index", () => {
     // Three equal weights splitting $10.00 evenly would be $3.333... each;
-    // rounded that's 3.33/3.33/3.33 = 9.99, one cent short of 10.00 — the
-    // last line must absorb it, landing at 3.34.
+    // floored that's 3.33/3.33/3.33 = $9.99, one cent short of $10.00.
+    // All three fractional remainders tie at exactly the same value, so the
+    // tie-break (ascending index) hands the extra cent to index 0.
     const amounts = allocateAmounts(10, [1, 1, 1]);
-    expect(amounts[0]).toBe(3.33);
+    expect(amounts[0]).toBe(3.34);
     expect(amounts[1]).toBe(3.33);
-    expect(amounts[2]).toBe(3.34);
+    expect(amounts[2]).toBe(3.33);
+    expect(amounts.reduce((a, b) => a + b, 0)).toBeCloseTo(10, 10);
   });
 
   it("equal-split path when all weights are zero", () => {
@@ -96,14 +143,15 @@ describe("allocateAmounts — pure allocation", () => {
     expect(amounts.reduce((a, b) => a + b, 0)).toBe(30);
   });
 
-  it("equal-split path handles a remainder too", () => {
+  it("equal-split path handles a remainder too, via the same ascending-index tie-break", () => {
     const amounts = allocateAmounts(10, [0, 0, 0]);
     const sum = Math.round(amounts.reduce((a, b) => a + b, 0) * 100) / 100;
     expect(sum).toBe(10);
-    // 10 / 3 = 3.333..., two lines at 3.33 and the last absorbing the cent.
-    expect(amounts[0]).toBe(3.33);
+    expect(amounts.every((a) => a >= 0)).toBe(true);
+    // 10 / 3 = 3.333... each; index 0 wins the tied leftover cent.
+    expect(amounts[0]).toBe(3.34);
     expect(amounts[1]).toBe(3.33);
-    expect(amounts[2]).toBe(3.34);
+    expect(amounts[2]).toBe(3.33);
   });
 
   it("returns an empty array for zero weights", () => {
@@ -131,7 +179,7 @@ describe("buildEstimateDocPayload — allocation via full builder", () => {
     expect(Math.round(sum * 100) / 100).toBe(100.01);
   });
 
-  it("last line by sort_order absorbs the remainder", () => {
+  it("ties among equal-weight lines are broken by ascending sort_order (Hamilton tie-break), never negative", () => {
     const estimate = makeEstimate({ quoted_price: 10 });
     // Equal weights (same direct cost) so the split is as even as possible.
     const lineItems: EstimateLineItemForDoc[] = [
@@ -141,13 +189,17 @@ describe("buildEstimateDocPayload — allocation via full builder", () => {
     ];
     const payload = buildEstimateDocPayload(estimate, lineItems, makeContact());
 
-    // sorted order: B(1), C(2), A(3) — A is last, must absorb the remainder
+    // sorted order: B(1), C(2), A(3) — all three tie on fractional
+    // remainder, so B (lowest sort_order / index 0 post-sort) wins the
+    // leftover cent under the largest-remainder tie-break.
     const sorted = payload.items;
     expect(sorted.map((i) => i.name)).toEqual(["B", "C", "A"]);
     const [b, c, a] = sorted.map((i) => i.amount);
-    expect(b).toBe(3.33);
+    expect(b).toBe(3.34);
     expect(c).toBe(3.33);
-    expect(a).toBe(3.34);
+    expect(a).toBe(3.33);
+    expect(sorted.every((i) => i.amount >= 0)).toBe(true);
+    expect(sorted.reduce((sum, i) => sum + i.amount, 0)).toBeCloseTo(10, 10);
   });
 
   it("equal split when all line items have zero direct cost", () => {
@@ -159,6 +211,30 @@ describe("buildEstimateDocPayload — allocation via full builder", () => {
     ];
     const payload = buildEstimateDocPayload(estimate, lineItems, makeContact());
     expect(payload.items.map((i) => i.amount)).toEqual([10, 10, 10]);
+  });
+
+  it("REGRESSION: a zero-direct-cost line sorted LAST, with nonzero-weight lines ahead of it, never goes negative", () => {
+    // The exact shape of the review finding: two priced lines and one
+    // $0-direct-cost line pinned to the highest sort_order. Under the
+    // superseded last-line-absorbs algorithm this $0 line would have
+    // absorbed the OTHER lines' positive rounding drift and gone negative.
+    const estimate = makeEstimate({ quoted_price: 107, labor_rate: 26, dump_rate: 300 });
+    const lineItems: EstimateLineItemForDoc[] = [
+      { name: "Kitchen Demo", sort_order: 1, labor_hours: 1, dump_count: 0, materials_cost: 0 },
+      { name: "Bathroom Demo", sort_order: 2, labor_hours: 1, dump_count: 0, materials_cost: 0 },
+      { name: "Haul Away (real $0 line — see CLAUDE.md)", sort_order: 3, labor_hours: 0, dump_count: 0, materials_cost: 0 },
+    ];
+    const payload = buildEstimateDocPayload(estimate, lineItems, makeContact());
+
+    expect(payload.items.map((i) => i.name)).toEqual([
+      "Kitchen Demo",
+      "Bathroom Demo",
+      "Haul Away (real $0 line — see CLAUDE.md)",
+    ]);
+    expect(payload.items.every((i) => i.amount >= 0)).toBe(true);
+    expect(payload.items[2].amount).toBe(0);
+    const sum = payload.items.reduce((s, i) => s + i.amount, 0);
+    expect(Math.round(sum * 100) / 100).toBe(107);
   });
 
   it("falls back to a single 'Demolition Services' line when there are no line items", () => {
@@ -187,6 +263,22 @@ describe("buildEstimateDocPayload — allocation via full builder", () => {
     const estimate = makeEstimate({ quoted_price: null, total_bid: 2543.51 });
     const payload = buildEstimateDocPayload(estimate, [], makeContact());
     expect(payload.items[0].amount).toBe(2543.51);
+  });
+
+  it("throws a clear, estimate-id-naming error when quoted_price AND total_bid are both missing (review finding 2)", () => {
+    // total_bid is typed as `number` (never nullable) on EstimateForDoc, but
+    // this is a structural interface over data from a not-yet-merged data
+    // layer — a runtime null/undefined is exactly the kind of bad input the
+    // brief calls out as needing a backstop, not a silent NaN amount.
+    const estimate = makeEstimate({ id: "estimate-uuid-guard", quoted_price: null }) as EstimateForDoc;
+    (estimate as { total_bid: number | null }).total_bid = null;
+    expect(() => buildEstimateDocPayload(estimate, [], makeContact())).toThrow(/estimate-uuid-guard/);
+  });
+
+  it("throws when total_bid is NaN (not just null/undefined)", () => {
+    const estimate = makeEstimate({ id: "estimate-uuid-nan", quoted_price: null });
+    (estimate as { total_bid: number }).total_bid = NaN;
+    expect(() => buildEstimateDocPayload(estimate, [], makeContact())).toThrow(/estimate-uuid-nan/);
   });
 
   it("treats quoted_price of 0 as an explicit override, not 'missing'", () => {
