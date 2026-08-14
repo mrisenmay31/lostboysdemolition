@@ -195,6 +195,7 @@ Slack message; that was abandoned as unreliable and is typed by hand today.
 ├── SYSTEM_AUDIT_2026-07-30.md   # SYSTEMS ground truth — §2 is wrong, see discovery §8
 ├── BUILD_LOG.md                 # Deploy + session history — append an entry every session
 ├── NEXT_SESSION_PROMPT.md       # Ephemeral copy-paste handoff; regenerate each session
+├── deno.json                    # Repo-root `deno task test` — runs the whole `_shared` suite; excludes web/
 ├── docs/
 │   └── superpowers/
 │       └── plans/                    # Implementation plans + frozen session ledgers
@@ -246,12 +247,14 @@ deployed function. True half-up cent rounding (`roundToCent`) and `requireRates`
 unit tests) and `pricing_golden_test.ts` (2 tests, backed by `fixtures/estimates-golden-321.json`)
 prove it reproduces all 321 live Airtable estimates to the cent — 309 exact, 11 legacy two-sided
 pinned deltas, 1 penny-tolerance — under the corrected rounding, i.e. the rounding fix moved no
-quoted price. Run the whole `_shared` suite with `deno task test` (canonical, via the repo-root
-`deno.json` task added in Phase B slice-2; the older `deno test --allow-all
-supabase/functions/_shared/` form still works). (18/18 passing as of 2026-08-14, including
-`job_test.ts`). The engine currently snapshots
-`DEFAULT_RATES`; reading rates from `pricing_variables` at runtime arrives with the estimate
-builder UI, the next Phase B slice.
+quoted price. **Run the whole `_shared` suite with `deno task test`** — the canonical form, via the
+repo-root `deno.json` task (the older `deno test --allow-all supabase/functions/_shared/` form
+still works but `deno task test` is what future sessions should reach for). 18/18 passing as of
+2026-08-14, including `job_test.ts`. Through the end of Phase B slice 2, the engine changed by
+exactly one word — a `requireRates` export added for the web app's rates loader to import — so the
+golden gate held throughout. The engine still snapshots `DEFAULT_RATES` internally (the golden test
+depends on that); the **web app** reads rates from `pricing_variables` live at request time via
+`loadRatesConfig()` (`web/src/lib/rates.ts`), never falling back to `DEFAULT_RATES`.
 
 Legacy function version numbers in the table below may read higher than last documented here —
 the Supabase CLI's deploy tooling bumps version counters on unrelated already-deployed functions
@@ -281,9 +284,12 @@ line items: one "Demolition Services" line at Total Bid.
 the first):**
 - `action_taken` must be one of `'created'`, `'updated'`, `'skipped'`, `'error'`.
 - `direction` must be one of `'ghl_to_airtable'`, `'airtable_to_ghl'`, `'ghl_to_supabase'`,
-  `'supabase_to_slack'` — the latter two were added by migration `phase_a_audit_write_fixups` for
-  `ghl-job-webhook` and `crew-night-before`; the constraint originally allowed only the two
-  Airtable directions and rejected Phase A's writes with a live 400 until widened.
+  `'supabase_to_slack'`, `'app_to_ghl'` — the middle two were added by migration
+  `phase_a_audit_write_fixups` for `ghl-job-webhook` and `crew-night-before`; the constraint
+  originally allowed only the two Airtable directions and rejected Phase A's writes with a live
+  400 until widened. `app_to_ghl` was added by migration `20260814220000_phase_b2_ghl_push_state`
+  for the estimate builder's GHL push (Phase B slice 2, T12) — **live and in use** (24 rows as of
+  slice-2 close, one per push target attempt).
 - `match_method` and `status` also carry check constraints — these predate the repo migration set
   (live-verified 2026-08-13); `job_events.status` check allows `success`|`error`|`skipped`
   (live-verified).
@@ -343,6 +349,36 @@ retriggers.
 `invoice.sent` and `invoice.paid`. `STRIPE_SECRET_KEY` is currently a **test** key — confirm the
 Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA Integrity's).
 
+### GHL API facts learned building the estimate builder's push (Phase B slice 2)
+
+These were live-proven during Task 9/10/12 and matter beyond the web app — anything that PUTs a
+GHL opportunity (including the Phase A `airtable-job-created`/`ghl-job-webhook` functions) is
+affected by the first one:
+
+- **`PUT /opportunities/{id}` MERGES `customFields`, it does not replace the set.** Retired as an
+  open unknown (CV-2) by live proof during T12: pushing a subset of fields left every other field
+  (including ones Phase A wrote — Crew, dates) untouched. This was previously an assumption
+  ("Phase A implies merge"), not a proven fact.
+- **GHL estimate-doc `meta` keys come back CAMELCASED** (`lbdEstimateId`, not `lbd_estimate_id`)
+  even though the push writes them snake_case-adjacent — read-back code must match on the
+  camelCase form or it will silently treat every doc as new and duplicate drafts.
+- **Estimate-doc `name` is capped at 40 characters** and truncates lossily — the full job name
+  belongs in the line-item description or an opportunity custom field, not relied on in the doc
+  title.
+- **`GET /invoices/estimate/list` defaults to `limit=10`.** `listEstimateDocs()` in
+  `web/src/lib/ghl/client.ts` now auto-paginates at `AUTO_PAGE_SIZE=100` when no explicit `limit`
+  is passed (live-verified: GHL honors `limit=100`, 200/511 docs returned per page) — the earlier
+  10-row default meant a contact with more than 10 historical docs could silently miss its current
+  draft and have push logic overwrite/duplicate it. Explicit-`limit` callers are unaffected.
+- **`searchContactByEmail` was broken against the live API** (`GET /contacts/?email=` now 422s —
+  the endpoint contract changed since `airtable-client-sync` was written against it). Fixed in
+  `web/src/lib/ghl/client.ts` (T9f, commit range `a01a178..0579169`) to use
+  `POST /contacts/search` with an `eq` filter, live-verified. **The same broken shape is still live
+  in `airtable-client-sync` v19's `searchGhlByEmail()`** — it never checks `res.ok` before
+  `res.json()`, so the search leg is dead code today; the function survives only because the
+  GHL-side duplicate-contact 400 exposes `meta.contactId` as a fallback match. Needs its own
+  edge-function fix task (not done this session — see BUILD_LOG).
+
 ---
 
 ## Supabase Tables
@@ -356,12 +392,12 @@ Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA I
 | `jobs_legacy_backup` | 7 | Archived copy of the pre-Phase-A `jobs` rows (May-2026 test mirrors), created before `jobs` was reset. RLS enabled, no policies. |
 | `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
 | `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding (created by migration 002) |
-| `estimates` | 0 | **Phase B slice-1, LIVE 2026-08-14** (migrations `phase_b_estimates_schema` + `phase_b_estimates_fixups` + `phase_b_estimates_fixups2`). Canonical versioned estimate header — inputs, rate snapshot, and `computeEstimate()` outputs (`labor_cost`, `dump_fees`, `total_direct`, `overhead`, `profit`, `cc_fee`, `total_bid`, `true_margin_pct`), plus `quoted_price`/`quote_override_reason` for when Dane discounts off the calculated number. `dump_count` is `numeric(6,2)` (widened from `numeric(5,1)` by `fixups2` so real fractional loads like 0.25/0.35/1.25 store exactly instead of rounding). `estimate_number` (`estimate_number_seq`, starting 1400; 1001–1321 reserved for the deferred Airtable backfill) + `version` are unique together; `supersedes_estimate_id` chains corrections, and a `version_chain` check constraint (added by `fixups2`) enforces the writer contract — any row with `version > 1` must set `supersedes_estimate_id` to the parent row's id (and must supply the parent's `estimate_number` explicitly, since the `nextval` default is only correct for new version-1 rows). **Immutable by trigger** (`enforce_estimate_immutability`, `search_path` pinned): after insert, only `status`, `quoted_price`, `quote_override_reason`, and `job_number` may change — any other column edit raises; a correction is a new version row, not an update. **DELETE is also blocked** (`enforce_estimate_no_delete`, added by the fixups migration) — there is no delete path, by design. RLS enabled, no policies. **Phase B slice-2** added `created_by uuid → auth.users` + `created_by_name text` (both immutable, in the guard list) and the write path: all inserts/mutations go through service-role-only RPCs — `create_estimate_with_items(p_estimate jsonb, p_line_items jsonb)` (one transaction, honors the writer contract, flips parent to superseded), `update_estimate_status`, `update_estimate_quote` (insert-path override-reason enforced by the `quote_override_reason_required` CHECK from the fixups migration), `update_estimate_job_number` — each takes `p_actor`/`p_actor_name` feeding `estimate_mutations_audit`. **Live test rows:** `estimate_number 1414` (v1+v2, `job_name='TEST — void, do not use'`, `declined`); 1400–1415 all burned by dev/rollback/negative-test — first real estimate ≥ 1416. |
-| `estimate_line_items` | 0 | Child rows of `estimates` (FK `on delete cascade`, though the parent can't be deleted). Snapshots a Scope Library item's name/hours/dump/materials onto the estimate at creation time. **Fully immutable by trigger** (`enforce_estimate_line_item_immutability`, added by the fixups migration) — UPDATE and DELETE both raise unconditionally; a correction means a new estimate version with new line item rows. RLS enabled, no policies. |
+| `estimates` | 16 | **Phase B slice-1 schema, LIVE 2026-08-14; slice-2 write path + UI LIVE same day.** Canonical versioned estimate header — inputs, rate snapshot, and `computeEstimate()` outputs (`labor_cost`, `dump_fees`, `total_direct`, `overhead`, `profit`, `cc_fee`, `total_bid`, `true_margin_pct`), plus `quoted_price`/`quote_override_reason` for when Dane discounts off the calculated number. `dump_count` is `numeric(6,2)` (widened from `numeric(5,1)` by `fixups2` so real fractional loads like 0.25/0.35/1.25 store exactly instead of rounding). `estimate_number` (`estimate_number_seq`, starting 1400; 1001–1321 reserved for the deferred Airtable backfill) + `version` are unique together; `supersedes_estimate_id` chains corrections, and a `version_chain` check constraint (added by `fixups2`) enforces the writer contract — any row with `version > 1` must set `supersedes_estimate_id` to the parent row's id (and must supply the parent's `estimate_number` explicitly, since the `nextval` default is only correct for new version-1 rows). **Immutable by trigger** (`enforce_estimate_immutability`, `search_path` pinned): after insert, only `status`, `quoted_price`, `quote_override_reason`, `job_number`, and (as of slice-2's `phase_b2_path_b_flag` migration) `is_path_b`'s *insert value only* — see next sentence — may be touched by the guard's whitelist; any other column edit raises. **`is_path_b` is actually immutable in practice**: it's set once at insert (`coalesce(nullif(p_estimate->>'is_path_b',''),'false')::boolean`) and never appears in any UPDATE path — a mis-set flag needs a new version row, same as any other correction. **DELETE is also blocked** (`enforce_estimate_no_delete`, added by the fixups migration) — there is no delete path, by design. RLS enabled, no policies. **Phase B slice-2** added `created_by uuid → auth.users` + `created_by_name text` (both immutable, in the guard list) and the write path: all inserts/mutations go through service-role-only RPCs — `create_estimate_with_items(p_estimate jsonb, p_line_items jsonb)` (one transaction, honors the writer contract, flips parent to superseded), `update_estimate_status`, `update_estimate_quote` (insert-path override-reason enforced by the `quote_override_reason_required` CHECK from the fixups migration), `update_estimate_job_number` — each takes `p_actor`/`p_actor_name` feeding `estimate_mutations_audit`. **No login gates these RPCs or the server actions in front of them** — see "No-login estimate tool" below; `created_by` is always `NULL`, `created_by_name` carries the self-declared picker name. (The `created_by → auth.users` FK is `ON DELETE NO ACTION`, which would normally block deleting an auth user once they'd saved an estimate — moot under the no-login model, since no row ever populates `created_by`.) **Live rows (16, all TEST-labeled, all `declined` or `superseded`):** `estimate_number` 1414 (v1+v2, slice-2 T3 verification), 1416 (T11 first-real-create smoke), 1417–1420 (T12 E2E), 1421–1423 (T12 fix-round E2E), 1424 (v1 `is_path_b=true` smoke, superseded by v2), 1425 (v1 override/revise smoke, superseded by v2) — **first real estimate will be ≥ 1426.** 1400–1415 were burned earlier by dev rollbacks and negative-CHECK tests. |
+| `estimate_line_items` | — | Child rows of `estimates` (FK `on delete cascade`, though the parent can't be deleted). Snapshots a Scope Library item's name/hours/dump/materials onto the estimate at creation time. **Fully immutable by trigger** (`enforce_estimate_line_item_immutability`, added by the fixups migration) — UPDATE and DELETE both raise unconditionally; a correction means a new estimate version with new line item rows. RLS enabled, no policies. |
 | `scope_library` | 19 | Controlled vocabulary of biddable scope items (seeded 2026-08-14 from live Airtable data, `airtable_record_id` preserved for provenance). Default labor hours/dump count per item; `default_materials_cost` left NULL for Phase G to seed from actuals. Mutable — not versioned like estimates. RLS enabled, no policies. |
-| `pricing_variables` | 6 | Key/value rate table (seeded 2026-08-14): `labor_rate_per_hour` 26, `overhead_rate_per_hour` 23, `dump_rate_per_load` 300, `cc_fee_rate` 0.0350, `default_markup_pct` 25, `markup_floor_pct` 15 — the corrected 3.5% CC fee, not the stale Airtable 3% row. **Now read at runtime** by the web app's `loadRatesConfig()` (`web/src/lib/rates.ts`, Phase B slice-2) which throws if any key is missing and never falls back to `DEFAULT_RATES`. The Deno engine still defaults to `DEFAULT_RATES` in code so the golden test is untouched. RLS enabled, no policies. |
-| `estimate_mutations_audit` | 0 | **Phase B slice-2** (migration `20260814210000_phase_b2_rpcs_audit`). Append-only audit of the four mutable `estimates` columns (`status`, `quoted_price`, `quote_override_reason`, `job_number`) — old/new pairs + `actor_id`/`actor_name`/`changed_at`. Written by an AFTER-UPDATE trigger that reads `current_setting('app.actor_id'/'app.actor_name', true)`, which the mutation RPCs set transaction-local (no `auth.uid()` on service-role connections). Itself immutable (UPDATE/DELETE guarded). RLS enabled, no policies. This is the "discount by estimator" dataset. |
-| `ghl_push_state` | 0 | **Phase B slice-2** (migration `20260814220000_phase_b2_ghl_push_state`). One row per estimate version (PK `estimate_id` → estimates): `ghl_contact_id`, `ghl_opportunity_id`, `ghl_estimate_id`, `ghl_estimate_number`, `fields_pushed_at`, `doc_pushed_at`, `last_error`, `attempts`, `updated_at`. Mutable sync-bookkeeping for the GHL push (kept OFF the immutable `estimates` table by design). App sets `updated_at` on upsert (no trigger). RLS enabled, no policies. **Not yet written** — T12 (push orchestration) wires it. |
+| `pricing_variables` | 6 | Key/value rate table (seeded 2026-08-14): `labor_rate_per_hour` 26, `overhead_rate_per_hour` 23, `dump_rate_per_load` 300, `cc_fee_rate` 0.0350, `default_markup_pct` 25, `markup_floor_pct` 15 — the corrected 3.5% CC fee, not the stale Airtable 3% row. **Read at runtime** by the web app's `loadRatesConfig()` (`web/src/lib/rates.ts`, Phase B slice-2) which throws if any key is missing and never falls back to `DEFAULT_RATES`. The Deno engine still defaults to `DEFAULT_RATES` in code so the golden test is untouched. RLS enabled, no policies. |
+| `estimate_mutations_audit` | 27 | **Phase B slice-2** (migration `20260814210000_phase_b2_rpcs_audit`), **live and populated.** Append-only audit of the four mutable `estimates` columns (`status`, `quoted_price`, `quote_override_reason`, `job_number`) — old/new pairs + `actor_id`/`actor_name`/`changed_at`. Written by an AFTER-UPDATE trigger that reads `current_setting('app.actor_id'/'app.actor_name', true)`, which the mutation RPCs set transaction-local (`actor_id` is always NULL under the no-login picker; `actor_name` carries the picked name). Itself immutable (UPDATE/DELETE guarded). RLS enabled, no policies. This is the "discount by estimator" dataset. |
+| `ghl_push_state` | 10 | **Phase B slice-2** (migration `20260814220000_phase_b2_ghl_push_state`), **now written** by T12's push orchestration (`web/src/lib/ghl/push.ts`). One row per estimate version (PK `estimate_id` → estimates): `ghl_contact_id`, `ghl_opportunity_id`, `ghl_estimate_id`, `ghl_estimate_number`, `fields_pushed_at`, `doc_pushed_at`, `last_error`, `attempts`, `updated_at`. Mutable sync-bookkeeping for the GHL push (kept OFF the immutable `estimates` table by design). App sets `updated_at` on upsert (no trigger). RLS enabled, no policies. **Known limitation:** no arbitrating constraint against two simultaneous first-pushes of the same estimate — a push race can create duplicate GHL opportunities (search-before-create is not atomic); low likelihood at 3 users, recovery is deleting the duplicate opportunity in GHL. |
 
 JOB-1102 (2026-08-13) and JOB-1104 (2026-08-14) were minted from real GHL opportunities during
 live E2E verification; both are `status_v2='cancelled'`, so no night-before digest will fire for
@@ -538,7 +574,7 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | Phase | Status |
 |---|---|
 | **A — The job record (keystone)** | 🟢 **Substantially complete 2026-08-13** — job record + GHL workflows + calendar/Slack live; BILL leg gated; night-before digest live. See `BUILD_LOG.md`. |
-| **B — Estimate builder** | 🟡 **Slice 1 MERGED to main; slice 2 IN PROGRESS (10/14 tasks) on branch `phase-b-slice-2`, 2026-08-14.** Slice 1 = pricing engine + schema + seeds (golden-verified to the cent). Slice 2 (this branch, tip `123b74a`, not merged to main): first Next.js app in `web/` — scaffold+auth+rates loader+GHL client+estimate-doc builder+data layer done and reviewed; 3 more DB migrations live (estimator columns, write RPCs+audit, ghl_push_state). **Remaining: T11 builder page, T11b list/detail, T12 GHL push orchestration, T13 Vercel deploy.** See BUILD_LOG 2026-08-14 (evening) and the SDD ledger. Must reproduce today's prices to the cent (golden gate held). |
+| **B — Estimate builder** | 🟢 **Slice 1 MERGED to main. Slice 2 COMPLETE on branch `phase-b-slice-2` (tip `53e7d64`), 2026-08-14 — all 14 build tasks + a mid-session no-login scope change + a final whole-branch review + fix wave done, reviewed, and merged onto the branch. Not yet merged to main — that decision returns to Matt.** Slice 1 = pricing engine + schema + seeds (golden-verified to the cent). Slice 2 shipped the first Next.js app in `web/`: a mobile-first estimate builder (`/estimates/new`, live client-side recalc, quick/itemized modes, Path B toggle), a list + detail + revise flow with lifecycle actions (sent/accepted/declined, quote override with required reason, version chains, audit history), and GHL push (per-target idempotent via `ghl_push_state`, opportunity fields + draft estimate doc). **There is no login** — see "No-login estimate tool" below. Vercel deploy: see BUILD_LOG. Golden gate held throughout (engine changed by one word). |
 | **C — Expenses + dump counts (BILL)** | Not started. One transaction = one dump load, so this delivers cost *and* count. |
 | **D — Time tracking** | 🔴 **Blocked** on the open decision. |
 | **E — Invoicing** | Not started. Direct Stripe, `stripe-webhook`, AR digest, Synder→QBO. |
@@ -547,8 +583,49 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
 | **Backlog (BL-1/2/3)** | ⚪ Captured 2026-07-31, **not scheduled.** Equipment maintenance, tool inventory, crew-level P&L + foreman incentive comp. See `BUILD_PLAN.md` → "Backlog — captured, not scheduled". |
 
-Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening. The
-The Next.js/Vercel app **is now started** (Phase B slice-2, branch `phase-b-slice-2`, not yet merged to main): `web/` holds a Next 16 App Router + Tailwind 4 + vitest 4 app with its own `package.json` (the root `package.json` still declares only `dotenv` and is untouched). It imports the golden-tested `_shared/pricing.ts` via the re-export shim `web/src/lib/pricing.ts` (never forked); needs `supabase/functions/_shared/package.json {"type":"module"}` for Turbopack. Supabase Auth (3 users, gated `(app)` group), a `pricing_variables` rates loader, a GHL client + estimate-doc builder, and the estimates data layer (validate/map/repo + server actions) are done. Vercel project not yet created (T13); `web/.env.local` must be hand-created before local dev (env-guard throws without it — vars in BUILD_LOG). Web tests: `cd web && npx vitest run` (139/139 at pause).
+Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening.
+
+The Next.js/Vercel app **is now built** (Phase B slice-2, branch `phase-b-slice-2`, not yet merged
+to main): `web/` holds a Next 16 App Router + Tailwind 4 + vitest 4 app with its own `package.json`
+(the root `package.json` still declares only `dotenv` and is untouched). It imports the
+golden-tested `_shared/pricing.ts` via the re-export shim `web/src/lib/pricing.ts` (never forked);
+needs `supabase/functions/_shared/package.json {"type":"module"}` for Turbopack. A `pricing_variables`
+rates loader, a GHL client + estimate-doc builder + push orchestration, and the estimates data layer
+(validate/map/repo + server actions) are done, live-verified, and reviewed. `web/.env.local` must be
+hand-created before local dev (env-guard throws without it — vars in BUILD_LOG). Web tests: `cd web
+&& npx vitest run` → **261/261** at slice-2 close. `deno task test` → 18/18 (golden 321 gate intact).
+
+**No-login estimate tool (⚠️ corrected 2026-08-14, mid-session — this is the single most important
+correction in this doc pass).** Earlier drafts of this file, and BUILD_LOG entries written before
+the change, describe the web app as gated behind Supabase Auth with 3 provisioned users. **That is
+false as of the merged branch.** Matt decided mid-session (plan-mode approved:
+`docs/superpowers/plans/2026-08-14-no-login-estimator-picker.md`) that the estimate tool ships with
+**no login at all** — the full Supabase Auth stack built in Task 6 (middleware, `/login`,
+`requireUser()`, the SSR session client) was deleted outright. Identity is now a device-remembered
+"Who's estimating?" picker (Dane / Jackson / Matt) rendered as a header chip
+(`web/src/app/(app)/EstimatorChip.tsx`, `useEstimator()`); the picked name is passed as a plain
+argument into each server action and re-validated server-side against a fixed 3-name allowlist
+(`web/src/lib/estimator.ts`). `estimates.created_by` is **always NULL** under this model — there is
+no `auth.users` row to point at — and `created_by_name` carries the picker's name as the durable
+attribution record (this is what feeds `estimate_mutations_audit`, the future "discounts by
+estimator" dataset). **The deployment ships network-layer OPEN**: anyone with the URL can use it;
+protection (if wanted) was deliberately deferred past T13, not solved by it — revisit before this
+tool handles anything more sensitive than internal estimate drafts. **Manual Setup #2 (provision 3
+Supabase Auth users) is CANCELLED** — do not do it, and do not expect `auth.users` to gain rows from
+this app. `NEXT_PUBLIC_SUPABASE_ANON_KEY` is still set in env but is now unused by the app (harmless
+to leave). The T6 auth work is not wasted — it's intact in git history (`git log --all`, commits
+through `363f511`/merged range `34eb9b7..0d3470b`) as a previously-reviewed, working pattern if
+login is ever reintroduced.
+
+**Two known limitations, invisible from reading any single file, flagged by the final whole-branch
+review and accepted as low-risk at 3 users (not fixed this session):**
+1. **Superseded-version protection is UI-only.** The estimate detail page hides status/push controls
+   once a version is superseded, but the server actions (`updateStatusAction`, `pushEstimateAction`)
+   do not re-check version status themselves — a stale browser tab left open from before a `revise`
+   can still mutate or push the now-superseded row. Self-healing in practice (re-pushing the latest
+   version overwrites; a wrong status is correctable) — a defense-in-depth server-side check is
+   deferred, not forgotten.
+2. **No concurrency guard on the GHL push** — see the `ghl_push_state` row above.
 
 ### Superseded 0–9 numbering (provenance only)
 
