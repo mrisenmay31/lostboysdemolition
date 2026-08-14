@@ -37,6 +37,14 @@ yarn-error.log*
 # vercel
 .vercel
 
+# next.js regenerates these agent-instruction files on every `next dev` run
+# (see node_modules/next/dist/server/lib/generate-agent-files.js). Task 5
+# deliberately kept them out of the committed tree — they'd collide with
+# this repo's own CLAUDE.md convention (a nested web/CLAUDE.md gets loaded
+# alongside the root one, which is confusing, not additive).
+/AGENTS.md
+/CLAUDE.md
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
