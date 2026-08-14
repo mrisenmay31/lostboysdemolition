@@ -17,10 +17,10 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
  * short-lived and per-request, never a session-bearing client — it must
  * never write to cookies or attempt a token refresh loop.
  *
- * Callers MUST call `requireUser()` (web/src/lib/auth.ts) before
- * constructing this client — the service-role key bypasses RLS entirely,
- * so gating on a verified session is the only access control in front of
- * every table.
+ * There is no login in this tool — the service-role key bypasses RLS
+ * entirely, and the only access control in front of every table is that
+ * the estimates server actions validate the picker-declared estimator
+ * name against the fixed allowlist before ever touching this client.
  */
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
