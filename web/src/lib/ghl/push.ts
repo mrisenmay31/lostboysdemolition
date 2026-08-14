@@ -171,6 +171,18 @@ async function loadJobScopeOptions(): Promise<string[]> {
 // email already exists reliably returns 400 with `meta.contactId`. So
 // resolveContact always attempts create-or-reuse via createContact alone;
 // it never calls the broken search. See task-12-report.md.
+//
+// UPDATE (task T9f, 2026-08-14): searchContactByEmail is now REPAIRED
+// (POST /contacts/search with a structured eq filter, live-verified) —
+// but resolveContact deliberately still doesn't call it. createContact's
+// dup-reuse already covers both branches (new contact / existing contact)
+// in one round trip with GHL's own dedup as the source of truth; adding a
+// search-first step would cost an extra request and reintroduce exactly
+// the risk this workaround exists to avoid — a freshly-created contact
+// that hasn't hit the search index yet reads back as "not found" (see
+// the index-lag note above), so a search-then-create here could still
+// race a create started moments earlier by a concurrent push. See
+// task-T9f-report.md.
 
 async function resolveContact(estimate: EstimateRow): Promise<string> {
   if (!estimate.client_email) {

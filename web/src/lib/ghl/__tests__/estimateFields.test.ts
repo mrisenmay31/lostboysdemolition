@@ -3,6 +3,7 @@ import {
   AIRTABLE_JOB_ID_FIELD_ID,
   ESTIMATE_FIELD_IDS,
   JOB_INFO_FIELD_IDS,
+  buildCustomFieldsPayload,
   buildEstimateCustomFields,
   buildJobScopeSelection,
   buildScopeNotes,
@@ -264,6 +265,39 @@ describe("buildScopeNotes", () => {
 
     const notesWith = buildScopeNotes(baseInput({ docNumber: "EST-1234" }));
     expect(notesWith).toContain("GHL Doc #: EST-1234");
+  });
+});
+
+// ── buildCustomFieldsPayload (moved here from client.test.ts by task T9f —
+//    see estimateFields.ts's module header) ───────────────────────────────
+
+describe("buildCustomFieldsPayload — omit-empty rules", () => {
+  it("omits null, undefined, empty string, and empty array values", () => {
+    const result = buildCustomFieldsPayload([
+      ["field-null", null],
+      ["field-undefined", undefined],
+      ["field-empty-string", ""],
+      ["field-empty-array", []],
+      ["field-zero", 0],
+      ["field-false", false],
+      ["field-string", "value"],
+      ["field-number", 42],
+      ["field-array", ["a", "b"]],
+    ]);
+
+    expect(result).toEqual([
+      { id: "field-zero", field_value: 0 },
+      { id: "field-false", field_value: false },
+      { id: "field-string", field_value: "value" },
+      { id: "field-number", field_value: 42 },
+      { id: "field-array", field_value: ["a", "b"] },
+    ]);
+  });
+
+  it("sends monetary values as JSON numbers, not strings", () => {
+    const result = buildCustomFieldsPayload([["labor-cost", 1234.56]]);
+    expect(result[0].field_value).toBe(1234.56);
+    expect(typeof result[0].field_value).toBe("number");
   });
 });
 

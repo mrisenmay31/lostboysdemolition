@@ -1,9 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// vitest runs in a plain Node environment (no "react-server" export
+// condition), so the real server-only package throws on import outside a
+// Server Component. Stub it so client.ts's `import "server-only"` is inert
+// under test — same pattern used by log.test.ts/rates.test.ts.
+vi.mock("server-only", () => ({}));
+
 import {
   __resetCustomFieldDefsCacheForTests,
   __resetPipelineCacheForTests,
   GhlApiError,
-  buildCustomFieldsPayload,
   createContact,
   extractContactId,
   extractOpportunityId,
@@ -11,6 +17,7 @@ import {
   ghlFetch,
   getCustomFieldValue,
   resolvePipeline,
+  searchContactByEmail,
   shouldRetry,
 } from "@/lib/ghl/client";
 
@@ -190,6 +197,38 @@ describe("createContact — duplicate-400 handling", () => {
   });
 });
 
+describe("searchContactByEmail — POST /contacts/search (task T9f fix)", () => {
+  it("POSTs a structured eq filter on email, not the broken GET ?email= shape", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { contacts: [{ id: "contact-1" }], total: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchContactByEmail("jorge@example.com");
+
+    expect(result).toEqual({ id: "contact-1" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://services.leadconnectorhq.com/contacts/search");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string);
+    expect(body.filters).toEqual([{ field: "email", operator: "eq", value: "jorge@example.com" }]);
+    expect(body.locationId).toBe("test-location-id");
+  });
+
+  it("returns null when contacts is empty (live-verified shape for no match)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { contacts: [], total: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await searchContactByEmail("nobody@example.com")).toBeNull();
+  });
+
+  it("returns null when contacts is missing from the response entirely", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { total: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await searchContactByEmail("nobody@example.com")).toBeNull();
+  });
+});
+
 describe("defensive id extraction", () => {
   it("extractContactId prefers contact.id, falls back to top-level id", () => {
     expect(extractContactId({ contact: { id: "a" } })).toBe("a");
@@ -203,36 +242,6 @@ describe("defensive id extraction", () => {
     expect(extractOpportunityId({ id: "opp-b" })).toBe("opp-b");
     expect(extractOpportunityId({})).toBeNull();
     expect(extractOpportunityId(undefined)).toBeNull();
-  });
-});
-
-describe("buildCustomFieldsPayload — omit-empty rules", () => {
-  it("omits null, undefined, empty string, and empty array values", () => {
-    const result = buildCustomFieldsPayload([
-      ["field-null", null],
-      ["field-undefined", undefined],
-      ["field-empty-string", ""],
-      ["field-empty-array", []],
-      ["field-zero", 0],
-      ["field-false", false],
-      ["field-string", "value"],
-      ["field-number", 42],
-      ["field-array", ["a", "b"]],
-    ]);
-
-    expect(result).toEqual([
-      { id: "field-zero", field_value: 0 },
-      { id: "field-false", field_value: false },
-      { id: "field-string", field_value: "value" },
-      { id: "field-number", field_value: 42 },
-      { id: "field-array", field_value: ["a", "b"] },
-    ]);
-  });
-
-  it("sends monetary values as JSON numbers, not strings", () => {
-    const result = buildCustomFieldsPayload([["labor-cost", 1234.56]]);
-    expect(result[0].field_value).toBe(1234.56);
-    expect(typeof result[0].field_value).toBe("number");
   });
 });
 

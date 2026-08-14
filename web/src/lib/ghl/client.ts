@@ -1,3 +1,5 @@
+import "server-only";
+
 // ============================================================
 // Lost Boys Demolition — web app — GHL API client
 //
@@ -10,19 +12,23 @@
 //
 // Env vars (GHL_API_KEY, GHL_LOCATION_ID) are read lazily, inside
 // functions — never at module top level — so this module has zero
-// side effects at import time and stays safely importable from any
-// server-only context without requiring secrets to exist at build time.
+// side effects at import time beyond the `server-only` guard below.
 //
-// NOTE: `server-only` is intentionally NOT imported here. The package
-// isn't installed in this worktree yet (a parallel lane installs it);
-// the controller notes a later task wires the guard in when lanes merge.
-// Callers must not import this module from client components until then.
+// `server-only` IS imported here (task T9f, 2026-08-14) — the parallel-lane
+// package.json contention that deferred it during Task 9 is long resolved.
+// This throws a build-time error if any client component tries to import
+// this module, same guard as push.ts/log.ts; vitest stubs the package (see
+// client.test.ts's `vi.mock("server-only", ...)`, same pattern as
+// log.test.ts). One consequence: estimateFields.ts declares itself pure/
+// server-only-free but imported this module's buildCustomFieldsPayload, so
+// that one pure helper moved to estimateFields.ts (its only caller) to
+// keep that module transitively guard-free — see estimateFields.ts's
+// header. Everything else here is unchanged.
 // ============================================================
 
 import type {
   GhlCustomFieldDef,
   GhlCustomFieldRead,
-  GhlCustomFieldWrite,
   GhlContact,
   GhlOpportunity,
   ListEstimateDocsParams,
@@ -208,21 +214,6 @@ export function getCustomFieldValue(
   return match.field_value ?? match.fieldValue ?? match.value ?? undefined;
 }
 
-/** Builds a GHL custom-fields write payload from [fieldId, value] pairs,
- *  omitting any entry whose value is null, undefined, an empty string, or
- *  a zero-length array — same omit-empty rule as
- *  airtable-job-created/index.ts's buildCustomFields()/push(). Numbers are
- *  passed through as JSON numbers, unchanged. */
-export function buildCustomFieldsPayload(entries: Array<[string, unknown]>): GhlCustomFieldWrite[] {
-  const out: GhlCustomFieldWrite[] = [];
-  for (const [id, value] of entries) {
-    if (value === undefined || value === null || value === "") continue;
-    if (Array.isArray(value) && value.length === 0) continue;
-    out.push({ id, field_value: value });
-  }
-  return out;
-}
-
 // ── Contacts ───────────────────────────────────────────────────────────────
 
 export function extractContactId(data: unknown): string | null {
@@ -230,11 +221,34 @@ export function extractContactId(data: unknown): string | null {
   return d?.contact?.id ?? d?.id ?? null;
 }
 
-/** GET /contacts/?locationId=...&email=... — returns the first matching
- *  contact, or null if none exists. */
+/** POST /contacts/search — returns the first matching contact, or null if
+ *  none exists.
+ *
+ *  FIXED 2026-08-14 (task T9f). The original implementation called
+ *  `GET /contacts/?locationId=...&email=...`, which the live GHL API
+ *  rejects with a 422 (`"property email should not exist"`) — that query
+ *  shape is no longer accepted (first found during Task 12's live E2E; see
+ *  push.ts's resolveContact comment for the workaround that shipped
+ *  instead of blocking on this file). Live-probed three replacement
+ *  shapes against the real API (2026-08-14): `GET /contacts/?locationId&
+ *  query=` returns 200 with a correct result but does a general-purpose
+ *  text search, not an email-scoped one; `GET /contacts/lookup?email=`
+ *  400s outright; `POST /contacts/search` with a structured
+ *  `filters: [{ field: "email", operator: "eq", value }]` returns 200 with
+ *  an exact, email-scoped match (empty `contacts: []` for a nonexistent
+ *  email, one result for a real one) — this is GHL's documented
+ *  contacts-search endpoint and the only one of the three that can't
+ *  return a false-positive substring match, so it's the shape used here. */
 export async function searchContactByEmail(email: string): Promise<GhlContact | null> {
-  const qs = new URLSearchParams({ locationId: getLocationId(), email });
-  const { data } = await ghlFetch(`/contacts/?${qs.toString()}`);
+  const { data } = await ghlFetch("/contacts/search", {
+    method: "POST",
+    body: JSON.stringify({
+      locationId: getLocationId(),
+      filters: [{ field: "email", operator: "eq", value: email }],
+      page: 1,
+      pageLimit: 10,
+    }),
+  });
   const contacts = (data as { contacts?: GhlContact[] } | null)?.contacts ?? [];
   return contacts[0] ?? null;
 }
