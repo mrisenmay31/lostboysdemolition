@@ -1,5 +1,20 @@
 # Phase B (Slice 2): Estimate Builder UI + GHL Push — Implementation Plan
 
+> ⚠️ **PARTIALLY SUPERSEDED — read this first.** Everything below describes the plan *as approved
+> at the start of the session*. Mid-session, Matt scrapped the login entirely. The authoritative
+> successor is `docs/superpowers/plans/2026-08-14-no-login-estimator-picker.md`, and what actually
+> shipped is described in `CLAUDE.md` → "No-login estimate tool".
+>
+> Specifically wrong below: **Task 6** (the Supabase Auth login gate) was built and then **deleted
+> outright** — no middleware, no `/login`, no `requireUser()`, no SSR session client. The
+> Architecture line's "behind Supabase Auth (3 users)" and the Tech Stack's `@supabase/ssr 0.12.x`
+> are both dead; `@supabase/ssr` is not a dependency of the shipped app. **Manual Setup #2**
+> (provision 3 Supabase Auth users) is **CANCELLED** — do not do it. Identity is a device-remembered
+> name picker re-validated server-side against a 3-name allowlist; `estimates.created_by` is NULL on
+> every row created under that model.
+>
+> Kept unedited below the line as the historical record of what was planned. Do not implement from it.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the first Next.js/Vercel app — a mobile-first estimate builder that computes with the golden-tested pricing engine, writes immutable versioned estimate rows, and pushes both opportunity headline fields and a draft customer-facing GHL estimate document, killing the daily Fillout→GHL rekeying.

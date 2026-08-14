@@ -1,5 +1,20 @@
 # Airtable Scripting Automations
 
+> ⚠️ **Mirror copy, accurate as of 2026-07-30 — and on the retirement path.**
+>
+> These files are a **snapshot**, not the source of truth. The live automations run inside the
+> Airtable UI; drift between the base and this directory is **undetectable from the repo**, and
+> nobody has re-verified them against the live base since 2026-07-30. Editing a file here changes
+> nothing live.
+>
+> The path they serve — Fillout → the Jobs table's `Line Item 1/2/3` slots → Invoice Line Items →
+> `airtable-job-completed` → Stripe — is what Phase B (estimate builder, shipped 2026-08-14) and
+> Phase E (direct Stripe invoicing) replace. Airtable, Fillout, and these automations are all
+> listed as "being retired" in `CLAUDE.md`.
+>
+> **Do not delete this directory while `airtable-job-completed` is still the invoicing path.** It
+> is the only record of how invoice line items get built today.
+
 These scripts run **inside the Airtable UI**, not in this repo. They are stored here for
 version control and review only — editing a file here does not change the live automation.
 
