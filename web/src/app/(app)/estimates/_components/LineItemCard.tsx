@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { fieldInputClass } from "./Field";
+import { DecimalInputHint, fieldInputClass } from "./Field";
 import { parseNonNegativeDecimal } from "@/lib/estimates/builderLogic";
 import type { LineItemDraft } from "@/lib/estimates/types";
 
@@ -70,6 +70,7 @@ export function LineItemCard({ item, onChange, onRemove }: LineItemCardProps) {
             onChange={(e) => handleLaborHoursChange(e.target.value)}
             className={fieldInputClass}
           />
+          <DecimalInputHint raw={laborHoursRaw} />
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
           Dumps
@@ -80,6 +81,7 @@ export function LineItemCard({ item, onChange, onRemove }: LineItemCardProps) {
             onChange={(e) => handleDumpCountChange(e.target.value)}
             className={fieldInputClass}
           />
+          <DecimalInputHint raw={dumpCountRaw} />
         </label>
         <label className="flex flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
           Materials $
@@ -90,6 +92,7 @@ export function LineItemCard({ item, onChange, onRemove }: LineItemCardProps) {
             onChange={(e) => handleMaterialsCostChange(e.target.value)}
             className={fieldInputClass}
           />
+          <DecimalInputHint raw={materialsCostRaw} />
         </label>
       </div>
 

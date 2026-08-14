@@ -19,7 +19,14 @@ import {
   type ScopeLibraryItem,
 } from "@/lib/estimates/builderLogic";
 import { createEstimateAction } from "../actions";
-import { Field, fieldInputClass, fieldTextareaClass, readOnlyValueClass } from "./Field";
+import { useEstimator } from "@/app/(app)/EstimatorChip";
+import {
+  DecimalInputHint,
+  Field,
+  fieldInputClass,
+  fieldTextareaClass,
+  readOnlyValueClass,
+} from "./Field";
 import { SegmentedControl, type SegmentedOption } from "./SegmentedControl";
 import { PresetChips } from "./PresetChips";
 import { ScopePickerSheet } from "./ScopePickerSheet";
@@ -57,6 +64,13 @@ function todayIso(): string {
 }
 
 export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProps) {
+  // No login — identity is the header EstimatorChip's self-declared pick,
+  // persisted in localStorage and shared across every route via
+  // useEstimator()'s cross-component subscription. Save requires a pick
+  // (see handleSave); actions.ts independently re-validates the name
+  // against the fixed 3-person allowlist server-side regardless.
+  const { estimator } = useEstimator();
+
   // Client
   const [clientName, setClientName] = useState("");
   const [clientType, setClientType] = useState<ClientType | null>(null);
@@ -89,13 +103,13 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
   const [jobSpecificCostsRaw, setJobSpecificCostsRaw] = useState("0");
   const [markupPctRaw, setMarkupPctRaw] = useState(() => String(ratesConfig.defaultMarkupPct));
 
-  // Path B — "record only, no formal proposal". Held as pure client form
-  // state for now, named to match the approved contract from
-  // docs/superpowers/plans/2026-08-14-no-login-estimator-picker.md (an
-  // `is_path_b` estimates column + draft field are landing in a separate
-  // lane). NOT yet included in the submitted draft payload — wiring that
-  // is a follow-up integration step once the column exists; sending it
-  // today would just be silently stripped by the draft schema.
+  // Path B — "record only, no formal proposal". Persisted: draft.isPathB
+  // -> estimates.is_path_b (not null default false). The DB column is
+  // IMMUTABLE once saved (trigger-enforced, same guard as every other
+  // frozen column) — a wrong pick can't be edited in place, only
+  // corrected by a new version — so the checkbox shows a one-line warning
+  // when checked (see the Path B section below) rather than treating it
+  // as a casually reversible toggle.
   const [isPathB, setIsPathB] = useState(false);
 
   // Sticky bar / save
@@ -211,6 +225,10 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
     setFieldErrors([]);
     setSaved(null);
 
+    if (!estimator) {
+      setSaveError("Pick who's estimating — tap a name up top.");
+      return;
+    }
     if (!clientName.trim()) {
       setSaveError("Client name is required.");
       return;
@@ -244,6 +262,7 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
       dumpCount: effectiveDumpCount,
       jobSpecificCosts,
       markupPct,
+      isPathB,
       // sort_order is derived fresh from final array order here, not
       // carried from add-time (Task 11 review Finding 3 — see
       // assignSortOrders' doc comment).
@@ -252,13 +271,7 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
 
     setSaving(true);
     try {
-      // Identity is deliberately not wired yet — the approved contract
-      // (docs/superpowers/plans/2026-08-14-no-login-estimator-picker.md)
-      // is `createEstimateAction(draft, estimatorName: string)`; this call
-      // becomes a one-line change (`createEstimateAction(draft, estimator)`)
-      // once that lane merges and this file switches to its
-      // `useEstimator()` hook.
-      const result = await createEstimateAction(draft);
+      const result = await createEstimateAction(draft, estimator);
       if (!result.ok) {
         setSaveError(result.error);
         setFieldErrors(result.fieldErrors ?? []);
@@ -487,14 +500,17 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
                   {lineItemSums.laborHours.toFixed(2)} hrs
                 </div>
               ) : (
-                <input
-                  id="totalJobHours"
-                  type="text"
-                  inputMode="decimal"
-                  value={totalJobHoursRaw}
-                  onChange={(e) => setTotalJobHoursRaw(e.target.value)}
-                  className={fieldInputClass}
-                />
+                <>
+                  <input
+                    id="totalJobHours"
+                    type="text"
+                    inputMode="decimal"
+                    value={totalJobHoursRaw}
+                    onChange={(e) => setTotalJobHoursRaw(e.target.value)}
+                    className={fieldInputClass}
+                  />
+                  <DecimalInputHint raw={totalJobHoursRaw} />
+                </>
               )}
             </Field>
           ) : (
@@ -508,6 +524,7 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
                   onChange={(e) => setDaysAtJobRaw(e.target.value)}
                   className={fieldInputClass}
                 />
+                <DecimalInputHint raw={daysAtJobRaw} />
               </Field>
               <Field label="Number of employees" htmlFor="numEmployees">
                 <input
@@ -518,6 +535,7 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
                   onChange={(e) => setNumEmployeesRaw(e.target.value)}
                   className={fieldInputClass}
                 />
+                <DecimalInputHint raw={numEmployeesRaw} />
               </Field>
             </>
           )}
@@ -538,14 +556,17 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
                 {lineItemSums.dumpCount.toFixed(2)}
               </div>
             ) : (
-              <input
-                id="dumpCount"
-                type="text"
-                inputMode="decimal"
-                value={dumpCountRaw}
-                onChange={(e) => setDumpCountRaw(e.target.value)}
-                className={fieldInputClass}
-              />
+              <>
+                <input
+                  id="dumpCount"
+                  type="text"
+                  inputMode="decimal"
+                  value={dumpCountRaw}
+                  onChange={(e) => setDumpCountRaw(e.target.value)}
+                  className={fieldInputClass}
+                />
+                <DecimalInputHint raw={dumpCountRaw} />
+              </>
             )}
           </Field>
         </section>
@@ -573,6 +594,7 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
               onChange={(e) => setJobSpecificCostsRaw(e.target.value)}
               className={fieldInputClass}
             />
+            <DecimalInputHint raw={jobSpecificCostsRaw} />
           </Field>
         </section>
 
@@ -606,6 +628,12 @@ export function EstimateBuilder({ ratesConfig, scopeItems }: EstimateBuilderProp
             For trusted-contractor jobs invoiced at completion. This estimate still becomes the
             job&apos;s variance baseline.
           </p>
+          {isPathB ? (
+            <p className="rounded-lg bg-amber-100 px-3 py-2 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+              Record-only — no proposal doc will be pushed. Can&apos;t be changed after save (a
+              correction needs a new version).
+            </p>
+          ) : null}
         </section>
 
         {fieldErrors.length > 0 ? (

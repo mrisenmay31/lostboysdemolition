@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assignSortOrders,
   deriveMode,
+  isInvalidDecimalInput,
   parseNonNegativeDecimal,
   sumLineItems,
 } from "@/lib/estimates/builderLogic";
@@ -104,6 +105,40 @@ describe("parseNonNegativeDecimal — Task 11 review Finding 1", () => {
 
   it("leading zeros still parse to the plain numeric value", () => {
     expect(parseNonNegativeDecimal("007")).toBe(7);
+  });
+
+  it("strips thousands-separator commas (integration round polish)", () => {
+    expect(parseNonNegativeDecimal("1,200")).toBe(1200);
+    expect(parseNonNegativeDecimal("12,345.67")).toBe(12345.67);
+  });
+
+  it("strips internal whitespace alongside commas", () => {
+    expect(parseNonNegativeDecimal("1, 200")).toBe(1200);
+    expect(parseNonNegativeDecimal("1 200")).toBe(1200);
+  });
+});
+
+describe("isInvalidDecimalInput — integration round polish", () => {
+  it("empty/whitespace-only is not flagged invalid (it's just unset, treated as 0)", () => {
+    expect(isInvalidDecimalInput("")).toBe(false);
+    expect(isInvalidDecimalInput("   ")).toBe(false);
+  });
+
+  it("flags non-numeric garbage as invalid", () => {
+    expect(isInvalidDecimalInput("abc")).toBe(true);
+    expect(isInvalidDecimalInput("1.2.3")).toBe(true);
+  });
+
+  it("does not flag anything parseNonNegativeDecimal can actually parse", () => {
+    expect(isInvalidDecimalInput("5")).toBe(false);
+    expect(isInvalidDecimalInput(".25")).toBe(false);
+    expect(isInvalidDecimalInput("1.")).toBe(false);
+    expect(isInvalidDecimalInput("1,200")).toBe(false);
+    expect(isInvalidDecimalInput("1, 200")).toBe(false);
+  });
+
+  it("a negative number is parseable, so NOT flagged invalid (it's a sign/clamp concern, not a parse failure)", () => {
+    expect(isInvalidDecimalInput("-5")).toBe(false);
   });
 });
 

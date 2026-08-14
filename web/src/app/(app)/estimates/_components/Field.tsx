@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { isInvalidDecimalInput } from "@/lib/estimates/builderLogic";
 
 /**
  * Generic labeled field wrapper — label + child input/control + optional
@@ -45,3 +46,20 @@ export const fieldTextareaClass =
  *  an editable input with a sum derived from scope line items. */
 export const readOnlyValueClass =
   "flex h-12 w-full items-center rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-3 text-base text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900/40 dark:text-zinc-300";
+
+/**
+ * Small inline "not a number" hint for a raw-text decimal field (Task 11
+ * integration round polish). Purely informational — parseNonNegativeDecimal
+ * already treats unparseable input as 0 for computation/submission, so this
+ * never blocks anything; it only tells the estimator their last keystroke
+ * didn't register as a number. Renders nothing when the raw text is blank
+ * or does parse.
+ */
+export function DecimalInputHint({ raw }: { raw: string }) {
+  if (!isInvalidDecimalInput(raw)) return null;
+  return (
+    <p className="text-xs text-amber-700 dark:text-amber-400">
+      Not a number — currently treated as 0.
+    </p>
+  );
+}

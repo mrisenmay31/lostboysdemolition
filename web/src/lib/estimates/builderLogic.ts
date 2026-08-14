@@ -56,6 +56,17 @@ export function sumLineItems(lineItems: readonly LineItemDraft[]): LineItemSums 
 }
 
 /**
+ * Strips everything parseNonNegativeDecimal/isInvalidDecimalInput treat as
+ * pure formatting rather than part of the number: surrounding whitespace,
+ * thousands-separator commas, and any internal whitespace (so "1, 200" and
+ * "1,200" behave identically). Shared by both functions below so their
+ * notion of "cleaned up" can never drift apart.
+ */
+function cleanDecimalInput(raw: string): string {
+  return raw.trim().replace(/[,\s]/g, "");
+}
+
+/**
  * Parses a raw decimal-input string into a finite, non-negative number for
  * computation. THE RAW STRING ITSELF stays the source of truth for what's
  * DISPLAYED in the input — this function only derives a number from it for
@@ -76,13 +87,34 @@ export function sumLineItems(lineItems: readonly LineItemDraft[]): LineItemSums 
  * (via a `type="text" inputMode="decimal"` field, which the browser never
  * sanitizes) and call this function only to derive the number used for
  * math — so displayed text and computed value can never fight each other.
+ *
+ * Also tolerates thousands-separator commas ("1,200" -> 1200) and any
+ * internal whitespace, via cleanDecimalInput — a free-text field takes
+ * whatever an estimator's thumbs produce, and both are common ways people
+ * type a job-specific-costs figure.
  */
 export function parseNonNegativeDecimal(raw: string): number {
-  const trimmed = raw.trim();
-  if (trimmed === "") return 0;
-  const parsed = Number(trimmed);
+  const cleaned = cleanDecimalInput(raw);
+  if (cleaned === "") return 0;
+  const parsed = Number(cleaned);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, parsed);
+}
+
+/**
+ * True when `raw` is non-blank but still doesn't parse to a finite number
+ * even after the same comma/whitespace cleanup `parseNonNegativeDecimal`
+ * applies — e.g. "abc" or "1.2.3". Purely informational: it does NOT gate
+ * anything (parseNonNegativeDecimal still treats unparseable input as `0`
+ * for computation/submission, so a bad keystroke never blocks the live
+ * preview or Save) — callers use this only to show a small inline "not a
+ * number" hint next to the field, so mistyping doesn't fail silently.
+ */
+export function isInvalidDecimalInput(raw: string): boolean {
+  if (raw.trim() === "") return false;
+  const cleaned = cleanDecimalInput(raw);
+  if (cleaned === "") return false;
+  return !Number.isFinite(Number(cleaned));
 }
 
 /**

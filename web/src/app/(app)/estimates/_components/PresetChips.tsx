@@ -1,6 +1,7 @@
 "use client";
 
 import { parseNonNegativeDecimal } from "@/lib/estimates/builderLogic";
+import { DecimalInputHint } from "./Field";
 
 interface PresetChipsProps {
   /** Raw text of the free-entry field — the display source of truth. See
@@ -53,6 +54,7 @@ export function PresetChips({ rawValue, onRawChange, presets, suffix = "%", inpu
         onChange={(e) => onRawChange(e.target.value)}
         className="h-12 w-28 rounded-lg border border-zinc-300 px-3 text-base outline-none focus:border-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:focus:border-zinc-100"
       />
+      <DecimalInputHint raw={rawValue} />
     </div>
   );
 }
