@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeNext } from "@/lib/safe-next";
 
 export interface SignInState {
   error?: string;
@@ -19,7 +20,7 @@ export async function signIn(
 ): Promise<SignInState> {
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/");
+  const next = safeNext(formData.get("next"));
 
   if (!email || !password) {
     return { error: "Enter both email and password." };
@@ -35,15 +36,23 @@ export async function signIn(
     return { error: "Incorrect email or password." };
   }
 
-  redirect(next.startsWith("/") ? next : "/");
+  redirect(next);
 }
 
 /**
  * Signs out the current session and returns to /login. Called from the
  * (app) shell's nav — see web/src/app/(app)/layout.tsx.
+ *
+ * Scope is deliberately the default ("global" — revokes every session for
+ * this user, on every device). That's the right call for a 3-user internal
+ * tool: nobody expects "sign out" here to mean "sign out of just this
+ * device," and there's no multi-device use case this would break.
  */
 export async function signOut(): Promise<void> {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  const { error } = await supabase.auth.signOut();
+  if (error) {
+    console.error("signOut: supabase.auth.signOut() failed:", error.message);
+  }
   redirect("/login");
 }

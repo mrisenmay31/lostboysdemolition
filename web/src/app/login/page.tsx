@@ -1,11 +1,13 @@
 import { LoginForm } from "./LoginForm";
+import { safeNext } from "@/lib/safe-next";
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string | string[] }>;
 }) {
-  const { next } = await searchParams;
+  const { next: rawNext } = await searchParams;
+  const next = safeNext(rawNext);
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center bg-zinc-50 px-6 py-16 dark:bg-black">
@@ -17,7 +19,7 @@ export default async function LoginPage({
           Sign in to continue
         </p>
       </div>
-      <LoginForm next={next && next.startsWith("/") ? next : "/"} />
+      <LoginForm next={next} />
     </div>
   );
 }

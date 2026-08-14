@@ -24,28 +24,34 @@ function isPublicPath(pathname: string) {
  * "logged out on refresh" bugs.
  */
 export async function middleware(request: NextRequest) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error(
+      "middleware: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must both be set " +
+        "(check web/.env.local — see task-6-report.md if it doesn't exist yet).",
+    );
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({ request });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
-        },
+  const supabase = createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) =>
+          request.cookies.set(name, value),
+        );
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options),
+        );
       },
     },
-  );
+  });
 
   const {
     data: { user },
@@ -57,13 +63,25 @@ export async function middleware(request: NextRequest) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+    const res = NextResponse.redirect(loginUrl);
+    // Copy supabaseResponse's cookies onto this redirect — getUser() may
+    // have just CLEARED a dead/invalid session cookie, and a fresh
+    // NextResponse.redirect() built from scratch would discard that
+    // clearing write, leaving the dead cookie on the browser.
+    supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c));
+    return res;
   }
 
   if (user && pathname === "/login") {
     const homeUrl = request.nextUrl.clone();
     homeUrl.pathname = "/";
-    return NextResponse.redirect(homeUrl);
+    homeUrl.searchParams.delete("next"); // don't launder the param one hop further
+    const res = NextResponse.redirect(homeUrl);
+    // Same reasoning: getUser() may have just rotated the refresh token.
+    // Without this copy, the browser keeps the dead old token and the next
+    // request silently signs the user back out.
+    supabaseResponse.cookies.getAll().forEach((c) => res.cookies.set(c));
+    return res;
   }
 
   return supabaseResponse;
