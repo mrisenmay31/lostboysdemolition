@@ -239,6 +239,18 @@ All self-contained Deno/TypeScript. The 5 Airtable-era functions keep helpers in
 `sync_log`/`job_events` writers that check and log `supabase-js` errors). Supabase project:
 `eiqqqwajmcpcwhvxxnhx`.
 
+**`_shared/pricing.ts`** (added 2026-08-14, Phase B slice-1) is the estimating engine — an exact
+TypeScript port of the live Fillout calculator chain (`computeEstimate()`), not yet wired into any
+deployed function. True half-up cent rounding (`roundToCent`) and `requireRates` input validation
+(all rates finite ≥ 0, `ccFeeRate < 1`) were added by the Task 1 review fix. `pricing_test.ts` (12
+unit tests) and `pricing_golden_test.ts` (2 tests, backed by `fixtures/estimates-golden-321.json`)
+prove it reproduces all 321 live Airtable estimates to the cent — 309 exact, 11 legacy two-sided
+pinned deltas, 1 penny-tolerance — under the corrected rounding, i.e. the rounding fix moved no
+quoted price. Run the whole `_shared` suite with `deno test --allow-all supabase/functions/_shared/`
+(18/18 passing as of 2026-08-14, including `job_test.ts`). The engine currently snapshots
+`DEFAULT_RATES`; reading rates from `pricing_variables` at runtime arrives with the estimate
+builder UI, the next Phase B slice.
+
 Legacy function version numbers in the table below may read higher than last documented here —
 the Supabase CLI's deploy tooling bumps version counters on unrelated already-deployed functions
 as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic, not a redeploy.
@@ -342,6 +354,10 @@ Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA I
 | `jobs_legacy_backup` | 7 | Archived copy of the pre-Phase-A `jobs` rows (May-2026 test mirrors), created before `jobs` was reset. RLS enabled, no policies. |
 | `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
 | `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding (created by migration 002) |
+| `estimates` | 0 | **Phase B slice-1, LIVE 2026-08-14** (migrations `phase_b_estimates_schema` + `phase_b_estimates_fixups`). Canonical versioned estimate header — inputs, rate snapshot, and `computeEstimate()` outputs (`labor_cost`, `dump_fees`, `total_direct`, `overhead`, `profit`, `cc_fee`, `total_bid`, `true_margin_pct`), plus `quoted_price`/`quote_override_reason` for when Dane discounts off the calculated number. `estimate_number` (`estimate_number_seq`, starting 1400; 1001–1321 reserved for the deferred Airtable backfill) + `version` are unique together; `supersedes_estimate_id` chains corrections. **Immutable by trigger** (`enforce_estimate_immutability`, `search_path` pinned): after insert, only `status`, `quoted_price`, `quote_override_reason`, and `job_number` may change — any other column edit raises; a correction is a new version row, not an update. **DELETE is also blocked** (`enforce_estimate_no_delete`, added by the fixups migration) — there is no delete path, by design. RLS enabled, no policies. |
+| `estimate_line_items` | 0 | Child rows of `estimates` (FK `on delete cascade`, though the parent can't be deleted). Snapshots a Scope Library item's name/hours/dump/materials onto the estimate at creation time. **Fully immutable by trigger** (`enforce_estimate_line_item_immutability`, added by the fixups migration) — UPDATE and DELETE both raise unconditionally; a correction means a new estimate version with new line item rows. RLS enabled, no policies. |
+| `scope_library` | 19 | Controlled vocabulary of biddable scope items (seeded 2026-08-14 from live Airtable data, `airtable_record_id` preserved for provenance). Default labor hours/dump count per item; `default_materials_cost` left NULL for Phase G to seed from actuals. Mutable — not versioned like estimates. RLS enabled, no policies. |
+| `pricing_variables` | 6 | Key/value rate table (seeded 2026-08-14): `labor_rate_per_hour` 26, `overhead_rate_per_hour` 23, `dump_rate_per_load` 300, `cc_fee_rate` 0.0350, `default_markup_pct` 25, `markup_floor_pct` 15 — the corrected 3.5% CC fee, not the stale Airtable 3% row. Not yet read at runtime; the engine still snapshots `DEFAULT_RATES` in code (see Edge Functions). RLS enabled, no policies. |
 
 JOB-1102 (2026-08-13) and JOB-1104 (2026-08-14) were minted from real GHL opportunities during
 live E2E verification; both are `status_v2='cancelled'`, so no night-before digest will fire for

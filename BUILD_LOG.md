@@ -37,6 +37,63 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-14 — Phase B slice-1 COMPLETE: golden master, seeds, full verification (Tasks 2, 4, 5)
+
+**Status:** 🟢 Complete · **Branch:** `phase-b-slice-1` (all 5 tasks shipped, reviewed, live-verified;
+not yet merged) · No new edge function deployed this slice — schema + engine only.
+
+Closes out the mid-flight state left by the entry directly below. Tasks 1 and 3 (engine, schema)
+were already shipped and reviewed; this entry covers Tasks 2, 4, and the Task 5 close-out pass.
+
+- **Task 2 `41e15dc` — golden master.** `pricing_golden_test.ts` +
+  `fixtures/estimates-golden-321.json`: all 321 live Airtable estimates reproduce to the cent —
+  309 exact, 11 legacy-diff (two-sided pinned deltas against the known 2026-03-19 hand-keyed
+  backfill), 1 penny-tolerance (est 1075) — **under the Task-1-review's corrected half-up
+  rounding**, proving the rounding fix moved no quoted price. Full `_shared` suite 18/18.
+- **Task 4 `093773c` — seeds.** Migration `20260814_phase_b_seeds.sql` applied live: 19
+  `scope_library` rows (with `airtable_record_id` provenance) and 6 `pricing_variables`
+  (`labor_rate_per_hour` 26, `overhead_rate_per_hour` 23, `dump_rate_per_load` 300, `cc_fee_rate`
+  0.0350, `default_markup_pct` 25, `markup_floor_pct` 15 — the corrected 3.5% CC fee, not the
+  stale Airtable 3% row). `default_materials_cost` left NULL for Phase G.
+- **Task 5 (this session) — full verification + docs.** All green, no regressions found:
+  - `deno test --allow-all supabase/functions/_shared/` → **18/18 passed** (4 `job_test.ts` + 2
+    `pricing_golden_test.ts`, incl. the `exact = 309` count assertion, + 12 `pricing_test.ts`).
+  - `deno check` on `pricing.ts`, `pricing_test.ts`, `pricing_golden_test.ts` → clean.
+  - `get_advisors` (security + performance, project `eiqqqwajmcpcwhvxxnhx`): no new criticals
+    attributable to the four new tables. Only `rls_enabled_no_policy` (INFO, accepted house
+    posture) and two `unindexed_foreign_keys` INFO notices
+    (`estimate_line_items_scope_library_id_fkey`, `estimates_supersedes_estimate_id_fkey`) —
+    informational, not blocking. Confirmed `enforce_estimate_immutability` does **not** appear in
+    the `function_search_path_mutable` warning list — the Task 3 review's `search_path = public`
+    pin is holding live.
+  - Live DB: `estimates`, `estimate_line_items`, `scope_library`, `pricing_variables` all RLS
+    enabled, 0 policies. `scope_library` = 19 rows, `pricing_variables` = 6 rows,
+    `cc_fee_rate = 0.0350`. Ran a live trigger test inside an explicit `BEGIN…ROLLBACK` (so no
+    permanent row was left): inserted one draft estimate, confirmed an UPDATE to `total_bid`
+    (a computed column) raised `estimates are immutable — write a new version row instead`, then
+    confirmed an UPDATE to `status` succeeded — both as designed — then rolled back. `estimates`
+    row count confirmed back to 0 after. Side effect: `estimate_number_seq` advanced to **1410**
+    from the test insert (sequences don't roll back) — harmless per the existing documented
+    behavior, just means the first real estimate will now be ≥1411, not ≥1402.
+  - `list_migrations` shows `phase_b_estimates_schema`, `phase_b_estimates_fixups`, and
+    `phase_b_seeds` all applied; all three SQL files are committed in this branch (parity rule
+    holds).
+  - `CLAUDE.md` updated: Supabase Tables section gained rows for the four new tables (immutability
+    rule stated for `estimates`/`estimate_line_items`, DELETE-blocked noted); Edge Functions
+    section gained a paragraph on `_shared/pricing.ts` (not yet wired into any deployed function —
+    that's the next Phase B slice).
+
+**Deferred, recorded so nothing is lost (per the Task 5 brief):** historical import of the 321
+Airtable estimates as `status='historical'` rows (numbers 1001–1321, needs a fuller Airtable pull
+for client fields not in the golden fixture); the estimate builder UI (first Next.js/Vercel app
+code) and GHL push (line items + headline numbers) — the next two Phase B plans; reading rates
+from `pricing_variables` at runtime instead of the code-level `DEFAULT_RATES` snapshot; leaving the
+Airtable `Pricing Variables` 3% row uncorrected (read by nothing, parallel-running rule).
+
+**What the next session needs:** Phase B slice-1 is functionally and doc-complete on
+`phase-b-slice-1` but **not yet merged** — next step is a `finishing-a-development-branch` decision
+(merge to `main` vs. PR). No defects found. No new edge function to deploy.
+
 ### 2026-08-14 — Phase A verification CLOSED, ghl-contact-sync fixed, Phase B slice-1 planned + 2/5 tasks built
 
 **Session shape:** three approved goals run in parallel lanes — harden what's live, verify
