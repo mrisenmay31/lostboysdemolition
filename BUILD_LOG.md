@@ -19,7 +19,7 @@ shipped.
 | Function / Component | Stage | Status | Last touched |
 |---|---|---|---|
 | `airtable-client-sync` | — | 🟢 Live (v19) | 2026-07-30 |
-| `ghl-contact-sync` | — | 🟢 Live (v20) | 2026-07-30 |
+| `ghl-contact-sync` | — | 🟢 Live (v27+) — tags crash FIXED 2026-08-14, live-verified | 2026-08-14 |
 | `airtable-job-created` | 3 | 🟡 In Progress (v21) — **GHL UI verification still pending since 2026-05-15** | 2026-07-30 |
 | `airtable-job-scheduled` | 6 | 🟢 Live (v16) — verified end to end | 2026-05-15 |
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
@@ -36,6 +36,61 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-14 — Phase A verification CLOSED, ghl-contact-sync fixed, Phase B slice-1 planned + 2/5 tasks built
+
+**Session shape:** three approved goals run in parallel lanes — harden what's live, verify
+workflow 2, plan Phase B — then Phase B execution began (subagent-driven) and was deliberately
+closed mid-flight at Matt's request. Branch **`phase-b-slice-1`** carries the in-progress work.
+
+**1. `ghl-contact-sync` tags crash — FIXED and live-verified (commit `65cae85`, deployed as
+version counter 27).** GHL workflow webhooks send `tags` as a comma-separated *string*; `tags.map()`
+threw OUTSIDE the try block, so the function 500'd with **no `sync_log` row** — invisible. Fix:
+normalize tags (array/string/other), move payload extraction inside the try. Adversarial review
+verdict SHIP with a bigger finding: **all 590 logged payloads carried string tags (empty until
+2026-08-13), so contacts with tags had NEVER synced client type through this function.** Damage
+window: 5 crashes 2026-08-13 21:53–22:44 UTC (backoff pattern, likely one event). Live-verified
+same session: Matt edited Test Client's phone → 3 `contact_updated` webhooks with
+`tags:"contractor"` → all succeeded. Deploy-version counters on other functions bumped
+cosmetically (known CLI behavior).
+
+**2. Workflow 2 (job_scheduled) — VERIFIED through the real GHL workflow. Phase A verification
+is now COMPLETE.** Matt created a test opportunity, set Crew 1 + start 2026-08-20, dragged
+Quote Accepted → minted **JOB-1104**; dragged Job Scheduled → both calendars + Slack (to
+`#ops-test` `C0BPPG8997Z` via temporarily repointed `SLACK_CREW1_CHANNEL`, restored after,
+digest-confirmed) + BILL skipped by design. **Epoch-ms date risk resolved: GHL DATE custom fields
+arrive ISO-parseable through the real workflow.** Re-drag proved idempotency AND that GHL allows
+workflow re-entry (matters for reschedules). Bonus: Matt's first attempt hit Job Scheduled before
+Quote Accepted and the loud no-job-record error guard fired exactly as designed. JOB-1104
+cancelled at session end. **Manual cleanup still owed: 4 test calendar events** (JOB-1102 Aug 17
+×2, JOB-1104 Aug 20 ×2, main + Crew 1 calendars — Matt's connected Google account can't delete
+them; reader-only on a non-jobs calendar).
+
+**3. Phase B research + plan (commit `0196449`).** Live Airtable pull: **321 estimates** (not
+296). **All 265 live-Fillout records match the DISCOVERY §1 chain to the cent at 3.5% CC; 0/321
+match at 3% — the 3% Pricing Variables row was NEVER live.** 12 revenue mismatches: 11 from the
+2026-03-19 hand-keyed bulk backfill + 1 penny artifact (est 1075). Estimates have NO linked
+records and NO line items; days×employees method used 1/321 times; dump counts can be fractional
+(0.5); Dane's manual discounts exist only in prose (est 1108: $41,038 calc → $39,000 quoted).
+Research: `docs/superpowers/plans/2026-08-14-phase-b-estimates-research.md`. Plan (approved by
+Matt, engine+schema slice): `docs/superpowers/plans/2026-08-14-phase-b-pricing-engine-and-schema.md`.
+Golden fixture committed: `supabase/functions/_shared/fixtures/estimates-golden-321.json`.
+**BL-4 added to BUILD_PLAN.md**: Matt's crew-Slack message format, scheduled for end of Phase B.
+
+**4. Phase B slice-1 execution STARTED (subagent-driven, branch `phase-b-slice-1`) — closed
+mid-flight.** Tasks 1+3 ran as concurrent lanes (disjoint files, Matt's directive):
+- Task 1 `cd39fca`: `_shared/pricing.ts` + tests — engine ported, 9/9 tests, deno check clean.
+- Task 3 `e6ec4df`: `supabase/migrations/20260814_phase_b_estimates_schema.sql` — **APPLIED TO
+  LIVE** (`phase_b_estimates_schema`) and live-verified: `estimates` (immutable via trigger,
+  seq starts 1400), `estimate_line_items`, `scope_library`, `pricing_variables`; RLS on, 0
+  policies. Repo file == applied SQL (parity holds).
+- ⚠️ **Neither task has had its Opus review yet.** Tasks 2 (golden master), 4 (seeds), 5
+  (verification/docs) not started; briefs staged. Resume state + rulings (concurrency, live-apply
+  pre-merge, models) in `.superpowers/sdd/2026-08-14-phase-b-pricing-engine-and-schema/progress.md`
+  — **read that ledger before touching Phase B.**
+
+**Defects found, not fixed:** none new. Standing: `receive-airtable-webhook` retirement queued;
+`push-to-airtable` latent bug; `airtable-job-created` v21 GHL-UI verification (moot-adjacent).
 
 ### 2026-08-13 — Phase A build: job record keystone SHIPPED — GHL→Postgres→Calendar/Slack live
 **Status:** 🟢 Complete · **Deploys:** `ghl-job-webhook` (new, v7 after fix wave) · `crew-night-before` (new, v4) ·
