@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/auth";
+import { isEstimatorName } from "@/lib/estimator";
 import {
   EstimateValidationError,
   createEstimate,
@@ -9,7 +9,7 @@ import {
   updateQuote,
   updateStatus,
 } from "@/lib/estimates/repo";
-import type { EstimateRow, EstimateStatus } from "@/lib/estimates/types";
+import type { EstimateActor, EstimateRow, EstimateStatus } from "@/lib/estimates/types";
 
 /**
  * Server actions for the estimates data layer. Every action here is a
@@ -20,12 +20,15 @@ import type { EstimateRow, EstimateStatus } from "@/lib/estimates/types";
  * programmatically, rather than via FormData). Task 11's builder and Task
  * 11b's list/detail pages are the intended callers.
  *
- * HARD RULE (from the Task 6 review): every server action under (app)
- * calls requireUser() ITSELF. The (app) layout's requireUser() call is
- * display-only (it renders the signed-in user's name in the header) — it
- * runs concurrently with page/children rendering in Next.js, so it is NOT
- * a gate any action can rely on. Each action below re-verifies the session
- * before touching data.
+ * IDENTITY (Matt's directive, replacing the Task 6 login gate): there is no
+ * login. Who's estimating is a client-side picker (see @/lib/estimator and
+ * EstimatorChip.tsx), persisted in localStorage, and passed in as a plain
+ * `estimatorName` string on every mutating call below. Each action
+ * re-validates that string against the 3-name allowlist itself, via
+ * `resolveActor` — these actions ARE the trust boundary in front of the
+ * service-role client, since anything past this point writes with an
+ * admin connection that bypasses RLS. A name that isn't on the allowlist
+ * never reaches repo.ts.
  *
  * Zod validation happens at repo.ts's createEstimate/createNewVersion
  * (validateEstimateDraft parses `unknown` input) — that IS the
@@ -52,11 +55,26 @@ function toActionResult(err: unknown): ActionResult {
   return { ok: false, error: message };
 }
 
+/** Allowlist-checks the picker-declared name and shapes it into the
+ *  `EstimateActor` the data layer expects. `id` is always null — there is
+ *  no auth.users row backing a picker name. Returns null (not a thrown
+ *  error) so callers can surface a friendly, uniform message instead of
+ *  routing an invalid name through toActionResult's generic Error path. */
+function resolveActor(estimatorName: string): EstimateActor | null {
+  return isEstimatorName(estimatorName)
+    ? { id: null, name: estimatorName }
+    : null;
+}
+
 /** Creates a version-1 estimate from a draft object. */
-export async function createEstimateAction(draft: unknown): Promise<ActionResult> {
-  const user = await requireUser();
+export async function createEstimateAction(
+  draft: unknown,
+  estimatorName: string,
+): Promise<ActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
   try {
-    const estimate = await createEstimate(draft, user);
+    const estimate = await createEstimate(draft, actor);
     revalidatePath("/estimates");
     return { ok: true, estimate };
   } catch (err) {
@@ -65,10 +83,15 @@ export async function createEstimateAction(draft: unknown): Promise<ActionResult
 }
 
 /** Creates a new version of an existing estimate chain (the "revise" flow — Task 11b). */
-export async function newVersionAction(parentId: string, draft: unknown): Promise<ActionResult> {
-  const user = await requireUser();
+export async function newVersionAction(
+  parentId: string,
+  draft: unknown,
+  estimatorName: string,
+): Promise<ActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
   try {
-    const estimate = await createNewVersion(parentId, draft, user);
+    const estimate = await createNewVersion(parentId, draft, actor);
     revalidatePath("/estimates");
     revalidatePath(`/estimates/${parentId}`);
     return { ok: true, estimate };
@@ -87,15 +110,20 @@ const ESTIMATE_STATUSES: readonly EstimateStatus[] = [
 ];
 
 /** Flips an estimate's status (Sent/Accepted/Declined buttons on the detail page). */
-export async function updateStatusAction(id: string, status: string): Promise<ActionResult> {
-  const user = await requireUser();
+export async function updateStatusAction(
+  id: string,
+  status: string,
+  estimatorName: string,
+): Promise<ActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
 
   if (!ESTIMATE_STATUSES.includes(status as EstimateStatus)) {
     return { ok: false, error: `invalid status: ${status}` };
   }
 
   try {
-    const estimate = await updateStatus(id, status as EstimateStatus, user);
+    const estimate = await updateStatus(id, status as EstimateStatus, actor);
     revalidatePath("/estimates");
     revalidatePath(`/estimates/${id}`);
     return { ok: true, estimate };
@@ -115,10 +143,12 @@ export async function updateQuoteAction(
   id: string,
   quotedPrice: number | null,
   reason: string | null,
+  estimatorName: string,
 ): Promise<ActionResult> {
-  const user = await requireUser();
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
   try {
-    const estimate = await updateQuote(id, quotedPrice, reason, user);
+    const estimate = await updateQuote(id, quotedPrice, reason, actor);
     revalidatePath("/estimates");
     revalidatePath(`/estimates/${id}`);
     return { ok: true, estimate };

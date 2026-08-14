@@ -1,9 +1,11 @@
 // ============================================================
 // Lost Boys Demolition — web app — estimate draft -> RPC payload mapping
 //
-// PURE. Only type-only imports from server-tagged modules (@/lib/rates,
-// @/lib/auth) so this file never pulls "server-only" in at runtime and
-// stays trivially unit-testable.
+// PURE. Only a type-only import from a server-tagged module (@/lib/rates)
+// so this file never pulls "server-only" in at runtime and stays trivially
+// unit-testable. The actor argument is `EstimateActor` (./types, no
+// server tag) — there is no login, so identity here is just the
+// picker-declared name, not a verified session.
 //
 // THE WRITER CONTRACT (see supabase/migrations/20260814210000_phase_b2_rpcs_audit.sql
 // and its 20260814215000 fixups, "version_chain" check):
@@ -20,8 +22,7 @@
 
 import type { EstimateOutputs } from "@/lib/pricing";
 import type { RatesConfig } from "@/lib/rates";
-import type { AuthedUser } from "@/lib/auth";
-import type { EstimateDraft } from "./types";
+import type { EstimateActor, EstimateDraft } from "./types";
 
 /** Identifies the parent row a new version supersedes. Omit entirely for
  *  a version-1 create — that's what triggers the OMIT branch above. */
@@ -47,7 +48,7 @@ export function mapDraftToEstimatePayload(
   draft: EstimateDraft,
   outputs: EstimateOutputs,
   ratesConfig: RatesConfig,
-  user: AuthedUser,
+  user: EstimateActor,
   versionInfo?: VersionInfo,
 ): EstimatePayload {
   const estimate: Record<string, unknown> = {

@@ -3,10 +3,10 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadRatesConfig } from "@/lib/rates";
 import { computeEstimate, type EstimateInputs } from "@/lib/pricing";
-import type { AuthedUser } from "@/lib/auth";
 import { validateEstimateDraft, validateQuoteOverride } from "./validate";
 import { mapDraftToEstimatePayload, type VersionInfo } from "./map";
 import type {
+  EstimateActor,
   EstimateDetail,
   EstimateDraft,
   EstimateLineItemRow,
@@ -140,7 +140,7 @@ function buildEstimateInputs(draft: EstimateDraft): EstimateInputs {
  *  check -> map -> RPC. `versionInfo` absent means a version-1 create. */
 async function computeAndCreate(
   draft: EstimateDraft,
-  user: AuthedUser,
+  user: EstimateActor,
   versionInfo?: VersionInfo,
 ): Promise<EstimateRow> {
   const ratesConfig = await loadRatesConfig();
@@ -188,7 +188,7 @@ async function computeAndCreate(
  */
 export async function createEstimate(
   draftInput: unknown,
-  user: AuthedUser,
+  user: EstimateActor,
 ): Promise<EstimateRow> {
   const validated = validateEstimateDraft(draftInput);
   if (!validated.success) {
@@ -209,7 +209,7 @@ export async function createEstimate(
 export async function createNewVersion(
   parentId: string,
   draftInput: unknown,
-  user: AuthedUser,
+  user: EstimateActor,
 ): Promise<EstimateRow> {
   const validated = validateEstimateDraft(draftInput);
   if (!validated.success) {
@@ -242,7 +242,7 @@ export async function createNewVersion(
 export async function updateStatus(
   id: string,
   status: EstimateStatus,
-  user: AuthedUser,
+  user: EstimateActor,
 ): Promise<EstimateRow> {
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("update_estimate_status", {
@@ -269,7 +269,7 @@ export async function updateQuote(
   id: string,
   quotedPrice: number | null,
   reason: string | null,
-  user: AuthedUser,
+  user: EstimateActor,
 ): Promise<EstimateRow> {
   const admin = createAdminClient();
 
@@ -317,7 +317,7 @@ export async function updateQuote(
 export async function updateJobNumber(
   id: string,
   jobNumber: string | null,
-  user: AuthedUser,
+  user: EstimateActor,
 ): Promise<EstimateRow> {
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("update_estimate_job_number", {

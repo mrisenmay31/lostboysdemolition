@@ -26,6 +26,15 @@ export type EstimateStatus =
 export type ClientType = "Contractor" | "Homeowner";
 export type JobType = "Residential" | "Commercial";
 
+/** Who performed a write. With no login, `id` is always null and `name` is
+ *  the picker-declared estimator (allowlist-validated in actions.ts).
+ *  `id` stays in the shape because estimates.created_by / audit actor_id
+ *  remain in the schema for a possible future re-auth. */
+export interface EstimateActor {
+  id: string | null;
+  name: string;
+}
+
 // ---------------------------------------------------------------
 // Draft (UI input) shapes
 // ---------------------------------------------------------------

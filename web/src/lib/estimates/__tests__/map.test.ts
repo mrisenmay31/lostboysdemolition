@@ -3,7 +3,7 @@ import { mapDraftToEstimatePayload } from "@/lib/estimates/map";
 import type { EstimateDraft } from "@/lib/estimates/types";
 import type { EstimateOutputs } from "@/lib/pricing";
 import type { RatesConfig } from "@/lib/rates";
-import type { AuthedUser } from "@/lib/auth";
+import type { EstimateActor } from "@/lib/estimates/types";
 
 const draft: EstimateDraft = {
   jobName: "Jorge's Interior",
@@ -56,7 +56,7 @@ const ratesConfig: RatesConfig = {
   markupFloorPct: 15,
 };
 
-const user: AuthedUser = { id: "22222222-2222-2222-2222-222222222222", name: "Dane" };
+const user: EstimateActor = { id: null, name: "Dane" };
 
 describe("mapDraftToEstimatePayload — writer contract", () => {
   it("version-1 payload OMITS estimate_number, version, and supersedes_estimate_id entirely", () => {
@@ -104,7 +104,7 @@ describe("mapDraftToEstimatePayload — writer contract", () => {
   it("sets created_by / created_by_name from the passed-in user, and source = 'app'", () => {
     const { estimate } = mapDraftToEstimatePayload(draft, outputs, ratesConfig, user);
 
-    expect(estimate.created_by).toBe(user.id);
+    expect(estimate.created_by).toBeNull();
     expect(estimate.created_by_name).toBe(user.name);
     expect(estimate.source).toBe("app");
   });
