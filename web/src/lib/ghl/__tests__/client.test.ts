@@ -55,7 +55,7 @@ describe("shouldRetry — pure retry predicate", () => {
 });
 
 describe("ghlFetch — retry-once behavior against mocked fetch", () => {
-  it("retries once after 2s on a 429, then succeeds", async () => {
+  it("retries only after the full 2s delay on a 429 — not a moment sooner", async () => {
     vi.useFakeTimers();
     const fetchMock = vi
       .fn()
@@ -64,11 +64,41 @@ describe("ghlFetch — retry-once behavior against mocked fetch", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const promise = ghlFetch("/test");
-    await vi.advanceTimersByTimeAsync(2000);
+
+    // Pinned per review finding M7(a): advancing 2000ms in a single step
+    // would also pass at 0ms delay (or any delay <= 2000ms), so it can't
+    // tell "waits 2s" apart from "doesn't wait at all". Split it — just
+    // short of the delay, the retry must not have fired yet.
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Crossing the 2000ms threshold fires the retry.
+    await vi.advanceTimersByTimeAsync(1);
     const result = await promise;
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.data).toEqual({ ok: true });
+  });
+
+  it("retries EXACTLY once — never loops — even when the server 500s forever", async () => {
+    vi.useFakeTimers();
+    // mockImplementation (not mockResolvedValue) — a Response body can only
+    // be read once, so every call needs its own fresh instance, and the
+    // server failing "forever" means there's no bound on how many calls
+    // might come in if the retry-once contract were broken.
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(jsonResponse(500, { message: "server error" })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const promise = ghlFetch("/test");
+    const assertion = expect(promise).rejects.toBeInstanceOf(GhlApiError);
+    await vi.advanceTimersByTimeAsync(2000);
+    await assertion;
+
+    // Review finding M7(b): pin the retry-once contract directly — exactly
+    // the initial attempt plus one retry, not an unbounded retry loop.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("does NOT retry on a 400 — throws immediately, fetch called once", async () => {
@@ -108,6 +138,21 @@ describe("ghlFetch — retry-once behavior against mocked fetch", () => {
       expect(apiErr.status).toBe(404);
       expect(apiErr.body).toEqual({ message: "not found" });
     }
+  });
+});
+
+describe("ghlFetch — config errors bypass retry entirely (review finding I1)", () => {
+  it("throws immediately on a missing GHL_API_KEY — no fetch call, no retry delay", async () => {
+    delete process.env.GHL_API_KEY;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    // No fake timers here on purpose: if this regressed back to evaluating
+    // headers inside performGhlFetch's try, the failure would get wrapped
+    // as a GhlNetworkError and retried after a real 2s setTimeout — which
+    // would make this test hang/timeout instead of resolving instantly.
+    await expect(ghlFetch("/test")).rejects.toThrow(/GHL_API_KEY is not set/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

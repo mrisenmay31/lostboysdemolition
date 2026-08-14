@@ -126,19 +126,16 @@ export interface GhlFetchResult {
   data: unknown;
 }
 
-async function performGhlFetch(path: string, init: RequestInit): Promise<GhlFetchResult> {
+async function performGhlFetch(
+  path: string,
+  init: RequestInit,
+  headers: Record<string, string>,
+): Promise<GhlFetchResult> {
   const url = path.startsWith("http") ? path : `${GHL_BASE}${path}`;
 
   let res: Response;
   try {
-    res = await fetch(url, {
-      ...init,
-      headers: {
-        ...authHeaders(),
-        ...(init.body ? { "Content-Type": "application/json" } : {}),
-        ...(init.headers ?? {}),
-      },
-    });
+    res = await fetch(url, { ...init, headers });
   } catch (err) {
     throw new GhlNetworkError(
       `GHL network error for ${init.method ?? "GET"} ${path}: ${err instanceof Error ? err.message : String(err)}`,
@@ -164,12 +161,32 @@ async function performGhlFetch(path: string, init: RequestInit): Promise<GhlFetc
  *  retryable per `shouldRetry` (429, 5xx, or a network error). A plain
  *  4xx (400/401/404/etc.) is never retried. */
 export async function ghlFetch(path: string, init: RequestInit = {}): Promise<GhlFetchResult> {
+  // Config errors (a missing GHL_API_KEY) must throw immediately, before any
+  // retry logic — consistent with how a missing GHL_LOCATION_ID already
+  // behaves (every caller reads it via getLocationId() before invoking
+  // ghlFetch at all, so it never enters the retry path either). Building the
+  // auth headers here, ahead of the try/catch below, rather than inside
+  // performGhlFetch's own try block, is what makes that true: a plain config
+  // Error now propagates straight to the caller instead of getting wrapped
+  // as a GhlNetworkError and retried after a pointless 2s delay (review
+  // finding I1).
+  const headers: Record<string, string> = {
+    ...authHeaders(),
+    ...(init.body ? { "Content-Type": "application/json" } : {}),
+    // Every caller in this module passes a plain object (or nothing) for
+    // `init.headers`, never a Headers instance or a string[][] tuple list —
+    // narrow the wider HeadersInit type accordingly so this stays a plain
+    // Record<string, string> merge, same runtime behavior as before this
+    // was hoisted out of the inline object literal fetch() used to accept.
+    ...((init.headers as Record<string, string> | undefined) ?? {}),
+  };
+
   try {
-    return await performGhlFetch(path, init);
+    return await performGhlFetch(path, init, headers);
   } catch (err) {
     if (!shouldRetry(classifyError(err))) throw err;
     await sleep(RETRY_DELAY_MS);
-    return performGhlFetch(path, init);
+    return performGhlFetch(path, init, headers);
   }
 }
 
@@ -350,8 +367,11 @@ async function getCustomFieldDefsUncached(): Promise<GhlCustomFieldDef[]> {
 }
 
 /** GET /locations/{locationId}/customFields?model=opportunity — used for
- *  Job Scope option matching (picklist option IDs) by the estimate push
- *  module. Cached per process, same rationale as resolvePipeline. */
+ *  Job Scope option matching by the estimate push module. NOTE: live data
+ *  shows `picklistOptions` is an array of option VALUES (e.g. "Kitchen
+ *  Demo"), not option IDs — match on the value string, don't hunt for an
+ *  id that doesn't exist on this shape (review finding M2). Cached per
+ *  process, same rationale as resolvePipeline. */
 export function getCustomFieldDefs(): Promise<GhlCustomFieldDef[]> {
   if (!customFieldDefsCache) {
     customFieldDefsCache = getCustomFieldDefsUncached().catch((err) => {
