@@ -1,25 +1,30 @@
 /**
  * Sanitizes a `?next=` redirect target so it can never leave this origin.
  *
- * Earlier version of this function used a character blocklist
- * (`startsWith("/")`, reject `//` and `/\`). That's whack-a-mole: WHATWG
- * URL parsing (which is what browsers actually use to resolve a redirect
- * `Location` header / `<a href>`) strips ASCII tab/LF/CR from a URL before
- * resolving it, so `"/\t/evil.com"`, `"/\n/evil.com"`, and `"/\r/evil.com"`
- * all sail past a `startsWith("/")` + "no leading `//` or `/\\`" check —
- * `new URL("/\t/evil.com", "http://localhost")` resolves to
- * `http://evil.com/`, an off-origin URL, even though the raw string looks
- * like an innocuous absolute path. A blocklist would need to keep chasing
- * whatever browsers strip/normalize next.
+ * History of this function (two prior bypasses, both closed here):
  *
- * The robust fix is to stop pattern-matching the string and instead
- * resolve it exactly as a browser would (against a fixed dummy origin),
- * then check the RESULT's origin. Same-origin passes; anything else —
- * scheme-relative (`//host`), backslash-relative (`/\host`), control-char
- * tricks, an absolute URL to another host, a host embedded via userinfo —
- * fails the origin check and gets rejected. The origin check is the real
- * gate; the raw-string `startsWith` checks below it are belt-and-suspenders
- * only, not the mechanism doing the actual work.
+ * 1. A character blocklist on the raw input (`startsWith("/")`, reject `//`
+ *    and `/\`) is whack-a-mole: WHATWG URL parsing (what a browser actually
+ *    uses to resolve a redirect `Location` header) strips ASCII tab/LF/CR
+ *    before resolving, so `"/\t/evil.com"` etc. pass a raw-string blocklist
+ *    while still resolving off-origin. Fixed by resolving the INPUT against
+ *    a fixed dummy origin and checking `u.origin === base` instead of
+ *    pattern-matching the string.
+ *
+ * 2. The origin check above validates the INPUT, but this function returns
+ *    a NORMALIZED value (`u.pathname + u.search + u.hash`), and that
+ *    normalization can itself produce a protocol-relative path even though
+ *    the input passed the origin check. `"/..//evil.com"` resolves same-
+ *    origin (`new URL("/..//evil.com", base).origin === base`) because
+ *    `..` only removes one path segment — but the resulting `pathname` is
+ *    `"//evil.com"`, and `redirect()` handing THAT to the browser as a
+ *    `Location` header is itself protocol-relative → `http://evil.com`.
+ *    `"/.//evil.com"`, `"/a/..//evil.com"`, `"/%2e%2e//evil.com"`, and
+ *    `"/foo/..//bar"` all normalize to a `//`-leading pathname the same
+ *    way. The fix is to re-gate the OUTPUT, not just the input: check the
+ *    normalized path for a `//` / `/\` prefix, AND re-resolve that path
+ *    through `new URL` a second time and check its origin too. Belt and
+ *    suspenders, both on the value that's actually returned.
  */
 export function safeNext(v: unknown): string {
   const s = Array.isArray(v) ? v[0] : v;
@@ -28,22 +33,28 @@ export function safeNext(v: unknown): string {
 
   const base = "http://localhost";
 
-  let u: URL;
   try {
-    u = new URL(s, base);
+    const u = new URL(s, base);
+    if (u.origin !== base) return "/"; // input-time gate
+
+    const path = u.pathname + u.search + u.hash; // the value we'd actually return
+
+    // Output-time gate #1: a normalized path beginning with // or /\ is
+    // protocol-relative when a browser re-resolves it from a Location
+    // header, regardless of how same-origin the INPUT looked.
+    if (path.startsWith("//") || path.startsWith("/\\")) return "/";
+
+    // Output-time gate #2 (the real proof): re-resolve the path itself and
+    // confirm it's still same-origin. This is what actually catches the
+    // normalized-`//`-prefix bypass class — gate #1 is redundant with this
+    // for every case found so far, but kept as an independent, cheaper
+    // first check.
+    if (new URL(path, base).origin !== base) return "/";
+
+    if (!path.startsWith("/")) return "/";
+
+    return path;
   } catch {
     return "/";
   }
-
-  if (u.origin !== base) return "/"; // any host/scheme escape → reject
-
-  // Belt-and-suspenders on the raw string, on top of the origin check
-  // above (which is what actually blocks the control-char/backslash
-  // bypasses — these three conditions are already unreachable for a
-  // same-origin `u`, kept only as a second, independent layer).
-  if (!s.startsWith("/") || s.startsWith("//") || s.startsWith("/\\")) {
-    return "/";
-  }
-
-  return u.pathname + u.search + u.hash; // normalized, same-origin path
 }
