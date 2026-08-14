@@ -27,7 +27,7 @@ shipped.
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A | 🟢 Live (v7) — Phase A keystone, live E2E verified; v7 = final-review fix wave | 2026-08-13 |
 | `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
-| Phase B slice-2 (`web/` app + DB) | B | 🟢 **Complete on branch** — all 14 build tasks + the mid-session no-login scope change + a final whole-branch review + fix wave done, reviewed, merged onto `phase-b-slice-2` (tip `53e7d64`); **not merged to main**, decision returns to Matt; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live | 2026-08-14 |
+| Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lbd-estimates.vercel.app** — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
