@@ -33,6 +33,10 @@ describe("sanitizeSearchTerm", () => {
     expect(sanitizeSearchTerm("job_42")).toBe("job\\_42");
   });
 
+  it("escapes literal * — PostgREST's alias for % on ilike (controller-ruled finding 3)", () => {
+    expect(sanitizeSearchTerm("job*42")).toBe("job\\*42");
+  });
+
   it("escapes a literal backslash before escaping wildcards, so it isn't double-escaped", () => {
     expect(sanitizeSearchTerm("a\\b")).toBe("a\\\\b");
     expect(sanitizeSearchTerm("a\\%b")).toBe("a\\\\\\%b");

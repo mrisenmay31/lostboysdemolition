@@ -8,11 +8,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // roster).
 //
 // The whole @/lib/estimates/repo module is mocked (same vi.hoisted +
-// vi.mock pattern rates.test.ts uses for @/lib/supabase/admin), which
-// means the real repo.ts — and its `import "server-only"` — never loads
-// under test, so no separate `vi.mock("server-only", ...)` stub is needed
-// here the way client.test.ts/rates.test.ts require for modules that
-// import server-only directly.
+// vi.mock pattern rates.test.ts uses for @/lib/supabase/admin), so the
+// real repo.ts — and its `import "server-only"` — never loads under test.
+// BUT actions.ts (Task 11b) also has a static top-level
+// `import { pushEstimateToGhl } from "@/lib/ghl/push"`, and push.ts's own
+// first line is `import "server-only"` — that one IS unmocked here (this
+// file never touches pushEstimateAction), so importing "../actions" at
+// all still pulls in the real server-only package. vitest runs in a
+// plain Node environment (no "react-server" export condition), so the
+// real package throws on import outside a Server Component — same
+// condition client.test.ts/log.test.ts/rates.test.ts/estimateDoc.test.ts
+// stub for. Match that precedent.
+vi.mock("server-only", () => ({}));
 
 const {
   createEstimateMock,

@@ -113,7 +113,31 @@ export default async function EstimateDetailPage({
         quoteOverrideReason={estimate.quote_override_reason}
       />
 
-      <StatusActions estimateId={estimate.id} currentStatus={estimate.status} />
+      {/* Review finding I-2 (fix round 1): status actions and the GHL
+          push button are only meaningful on the LATEST version of a
+          chain. update_estimate_status has no state machine — two clicks
+          from the version chain could set an already-superseded v1 to
+          "accepted", permanently erasing the superseded marker with no
+          UI path back, un-hiding it from the default list, and
+          corrupting the chain; a push from a superseded version would
+          overwrite the live GHL opportunity with stale pricing. Gate
+          both on the same `canRevise` flag the Revise button above
+          already uses, reusing the same view-latest link pattern. */}
+      {canRevise ? (
+        <StatusActions estimateId={estimate.id} currentStatus={estimate.status} />
+      ) : (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Status
+          </h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            This version was superseded — status can no longer be changed here.{" "}
+            <Link href={`/estimates/${latestInChain.id}`} className="font-medium underline">
+              View v{latestInChain.version} instead.
+            </Link>
+          </p>
+        </section>
+      )}
 
       {/* Line items */}
       <section className="flex flex-col gap-2">
@@ -213,13 +237,28 @@ export default async function EstimateDetailPage({
         )}
       </section>
 
-      <PushPanel
-        estimateId={estimate.id}
-        isPathB={estimate.is_path_b}
-        hasClientEmail={!!estimate.client_email}
-        hasClientPhone={!!estimate.client_phone}
-        pushState={pushState}
-      />
+      {canRevise ? (
+        <PushPanel
+          estimateId={estimate.id}
+          isPathB={estimate.is_path_b}
+          hasClientEmail={!!estimate.client_email}
+          hasClientPhone={!!estimate.client_phone}
+          pushState={pushState}
+        />
+      ) : (
+        <section className="flex flex-col gap-2 rounded-lg border border-zinc-300 p-3 dark:border-zinc-700">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            GHL push
+          </h2>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            This version was superseded — pushing from here would overwrite the live GHL
+            opportunity with stale pricing.{" "}
+            <Link href={`/estimates/${latestInChain.id}`} className="font-medium underline">
+              View v{latestInChain.version} instead.
+            </Link>
+          </p>
+        </section>
+      )}
     </div>
   );
 }

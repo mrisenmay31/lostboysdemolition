@@ -113,12 +113,26 @@ export default async function ReviseEstimatePage({
   };
 
   return (
-    <EstimateBuilder
-      ratesConfig={ratesConfig}
-      scopeItems={scopeItems}
-      formMode="revise"
-      parentId={estimate.id}
-      initial={initial}
-    />
+    <>
+      {estimate.status === "superseded" ? (
+        // Deferred minor #7 (Task 11b review, fix round 1): the detail
+        // page never LINKS Revise for a superseded row, but this route
+        // itself has no hard guard against a stale bookmark/back-button
+        // landing here directly (see the comment above for why removing
+        // that guard was necessary). One-line heads-up rather than a
+        // block — saving still works (or surfaces the friendly
+        // unique-violation message if someone else already revised it).
+        <p className="mx-auto w-full max-w-lg bg-amber-100 px-4 py-2 text-xs font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+          This is an older version — you&apos;re revising v{estimate.version}, not the latest.
+        </p>
+      ) : null}
+      <EstimateBuilder
+        ratesConfig={ratesConfig}
+        scopeItems={scopeItems}
+        formMode="revise"
+        parentId={estimate.id}
+        initial={initial}
+      />
+    </>
   );
 }

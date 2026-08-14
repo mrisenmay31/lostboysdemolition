@@ -23,6 +23,17 @@
 // patterns straight to Postgres's LIKE machinery, which honors a
 // backslash escape by default — so escaping (not stripping) `%`/`_` is
 // both correct and lossless.
+//
+// PostgREST ALSO treats `*` as an alias for `%` specifically for the
+// pattern-matching operators (like/ilike/etc — documented as a
+// URL-encoding convenience, since `%` needs percent-encoding in a query
+// string but `*` doesn't). That substitution happens on the raw value
+// PostgREST receives, independent of the `%`/`_` escaping above — a
+// search term containing a literal `*` would still wildcard even after
+// `%` itself is escaped, unless `*` is escaped too. Controller-ruled
+// finding (Task 11b review, fix round 1): escape it the same way, via
+// backslash, so PostgREST's `* -> %` substitution produces `\%` (an
+// escaped literal percent), matching every other wildcard char here.
 // ============================================================
 
 /** Characters with PostgREST filter-syntax meaning inside an `.or(...)`
@@ -49,5 +60,6 @@ export function sanitizeSearchTerm(raw: string): string {
     .replace(FILTER_SYNTAX_CHARS, "")
     .replace(/\\/g, "\\\\")
     .replace(/%/g, "\\%")
-    .replace(/_/g, "\\_");
+    .replace(/_/g, "\\_")
+    .replace(/\*/g, "\\*");
 }
