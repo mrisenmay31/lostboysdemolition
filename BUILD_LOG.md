@@ -42,6 +42,22 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 **Status:** 🟢 Complete · **Branch:** `phase-b-slice-1` (all 5 tasks shipped, reviewed, live-verified;
 not yet merged) · No new edge function deployed this slice — schema + engine only.
 
+**Addendum — final whole-branch review fix wave (same day).** Ran the final whole-branch review
+and shipped its fix wave: migration `phase_b_estimates_fixups2` (applied live) widens
+`estimates.dump_count`, `estimate_line_items.dump_count`, and `scope_library.default_dump_count`
+from `numeric(5,1)` to `numeric(6,2)` — the golden fixture carries real dump counts of 0.25, 0.35,
+and 1.25 loads (estimates 1236, 1131, 1295, 1296) that `numeric(5,1)` would have silently rounded
+and re-priced — and adds a `version_chain` check constraint on `estimates` (`version = 1 or
+supersedes_estimate_id is not null`). Also renamed the two colliding 8-digit-prefix migration
+files (`20260814_phase_b_estimates_schema.sql`, `20260814_phase_b_seeds.sql`, both of which parsed
+to the same version number and byte-sorted out of intended order) to unique ordered 14-digit
+prefixes — pure renames, content unchanged; live migration history is unaffected since filenames
+are documentation only. Deferred follow-ups for next session, in priority order: (1) a
+`deno.json` test task so the golden-master gate runs in CI, not just by hand; (2) a
+`pricing_variables` loader so `_shared/pricing.ts` reads live rates instead of the `DEFAULT_RATES`
+snapshot; (3) an audit trail for the four estimate columns immutability still allows to mutate
+(`status`, `quoted_price`, `quote_override_reason`, `job_number`).
+
 Closes out the mid-flight state left by the entry directly below. Tasks 1 and 3 (engine, schema)
 were already shipped and reviewed; this entry covers Tasks 2, 4, and the Task 5 close-out pass.
 
