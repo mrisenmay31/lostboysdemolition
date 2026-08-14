@@ -39,8 +39,9 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ### 2026-08-14 — Phase B slice-1 COMPLETE: golden master, seeds, full verification (Tasks 2, 4, 5)
 
-**Status:** 🟢 Complete · **Branch:** `phase-b-slice-1` (all 5 tasks shipped, reviewed, live-verified;
-not yet merged) · No new edge function deployed this slice — schema + engine only.
+**Status:** 🟢 Complete · **MERGED TO MAIN AND PUSHED same day** (`0196449..7920a9c`, 10 commits;
+branch `phase-b-slice-1` deleted local + remote; tests re-run green on the merged result) · No new
+edge function deployed this slice — schema + engine only.
 
 **Addendum — final whole-branch review fix wave (same day).** Ran the final whole-branch review
 and shipped its fix wave: migration `phase_b_estimates_fixups2` (applied live) widens
@@ -106,9 +107,12 @@ code) and GHL push (line items + headline numbers) — the next two Phase B plan
 from `pricing_variables` at runtime instead of the code-level `DEFAULT_RATES` snapshot; leaving the
 Airtable `Pricing Variables` 3% row uncorrected (read by nothing, parallel-running rule).
 
-**What the next session needs:** Phase B slice-1 is functionally and doc-complete on
-`phase-b-slice-1` but **not yet merged** — next step is a `finishing-a-development-branch` decision
-(merge to `main` vs. PR). No defects found. No new edge function to deploy.
+**What the next session needs:** Phase B slice-1 is **merged to `main` and pushed to GitHub**
+(Matt chose local merge; branch deleted local + remote; stale `origin/phase-b-slice-1` removed).
+Next step is **Phase B slice 2: estimate builder UI (first Next.js/Vercel app code) + GHL push**,
+with the deno.json test task for the golden gate as the first follow-up. No open defects. No new
+edge function to deploy. Matt still owes deletion of the 4 test calendar events (JOB-1102 Aug 17,
+JOB-1104 Aug 20, each on main + Crew 1 calendars).
 
 ### 2026-08-14 — Phase A verification CLOSED, ghl-contact-sync fixed, Phase B slice-1 planned + 2/5 tasks built
 

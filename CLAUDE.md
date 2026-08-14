@@ -534,7 +534,7 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | Phase | Status |
 |---|---|
 | **A — The job record (keystone)** | 🟢 **Substantially complete 2026-08-13** — job record + GHL workflows + calendar/Slack live; BILL leg gated; night-before digest live. See `BUILD_LOG.md`. |
-| **B — Estimate builder** | 🟡 **Slice 1 shipped 2026-08-14** — pricing engine (`_shared/pricing.ts`) + estimates schema + seeds live on `phase-b-slice-1`, not yet merged; verified to the cent against all 321 live estimates. Estimate builder UI (first Next.js/Vercel app code) and GHL push are next. Kills the Fillout→GHL rekeying Dane named as a huge friction point. Must reproduce today's prices to the cent. |
+| **B — Estimate builder** | 🟡 **Slice 1 MERGED to main 2026-08-14** — pricing engine (`_shared/pricing.ts`) + estimates schema + seeds live and merged; verified to the cent against all 321 live estimates (golden master). **Slice 2 next:** estimate builder UI (first Next.js/Vercel app code) + GHL push. Kills the Fillout→GHL rekeying Dane named as a huge friction point. Must reproduce today's prices to the cent. |
 | **C — Expenses + dump counts (BILL)** | Not started. One transaction = one dump load, so this delivers cost *and* count. |
 | **D — Time tracking** | 🔴 **Blocked** on the open decision. |
 | **E — Invoicing** | Not started. Direct Stripe, `stripe-webhook`, AR digest, Synder→QBO. |
