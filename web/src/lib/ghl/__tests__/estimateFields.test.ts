@@ -402,38 +402,88 @@ describe("splitClientName", () => {
 // ── decideDocPreflight ─────────────────────────────────────────────────
 
 describe("decideDocPreflight", () => {
-  it("proceeds when not Path B and both email+phone are present", () => {
-    expect(decideDocPreflight({ isPathB: false, contactEmail: "a@b.com", contactPhone: "+18015551234" })).toEqual({
-      proceed: true,
-    });
+  it("proceeds when not Path B, a contact id is resolved, and both email+phone are present", () => {
+    expect(
+      decideDocPreflight({
+        isPathB: false,
+        hasContactId: true,
+        contactEmail: "a@b.com",
+        contactPhone: "+18015551234",
+      }),
+    ).toEqual({ proceed: true });
   });
 
   it("skips as skipped_path_b when isPathB is true, even with full contact info", () => {
-    expect(decideDocPreflight({ isPathB: true, contactEmail: "a@b.com", contactPhone: "+18015551234" })).toEqual({
-      proceed: false,
-      reason: "skipped_path_b",
-    });
+    expect(
+      decideDocPreflight({
+        isPathB: true,
+        hasContactId: true,
+        contactEmail: "a@b.com",
+        contactPhone: "+18015551234",
+      }),
+    ).toEqual({ proceed: false, reason: "skipped_path_b" });
   });
 
   it("skips as skipped_missing_contact when email is missing", () => {
-    expect(decideDocPreflight({ isPathB: false, contactEmail: null, contactPhone: "+18015551234" })).toEqual({
-      proceed: false,
-      reason: "skipped_missing_contact",
-    });
+    expect(
+      decideDocPreflight({ isPathB: false, hasContactId: true, contactEmail: null, contactPhone: "+18015551234" }),
+    ).toEqual({ proceed: false, reason: "skipped_missing_contact" });
   });
 
   it("skips as skipped_missing_contact when phone is missing", () => {
-    expect(decideDocPreflight({ isPathB: false, contactEmail: "a@b.com", contactPhone: null })).toEqual({
-      proceed: false,
-      reason: "skipped_missing_contact",
-    });
+    expect(
+      decideDocPreflight({ isPathB: false, hasContactId: true, contactEmail: "a@b.com", contactPhone: null }),
+    ).toEqual({ proceed: false, reason: "skipped_missing_contact" });
   });
 
   it("Path B takes priority over a missing-contact condition", () => {
-    expect(decideDocPreflight({ isPathB: true, contactEmail: null, contactPhone: null })).toEqual({
-      proceed: false,
-      reason: "skipped_path_b",
-    });
+    expect(
+      decideDocPreflight({ isPathB: true, hasContactId: false, contactEmail: null, contactPhone: null }),
+    ).toEqual({ proceed: false, reason: "skipped_path_b" });
+  });
+
+  // ── Review finding 2: hasContactId is now an independent gate — it must
+  //    NOT be inferred from (or conflated with) a fields-target failure.
+  //    A caller reports hasContactId purely from whether a GHL contact id
+  //    is currently in hand, regardless of why the fields target as a
+  //    whole did or didn't succeed. ──────────────────────────────────────
+
+  it("skips as skipped_missing_contact when no contact id is resolved, even with full email+phone on the estimate row", () => {
+    // The exact review-finding-2 scenario: the ESTIMATE has full contact
+    // info, but no GHL contact id has been established yet (or a transient
+    // failure elsewhere means one isn't in hand this call) — the doc target
+    // still can't proceed without an id to attach the doc to.
+    expect(
+      decideDocPreflight({
+        isPathB: false,
+        hasContactId: false,
+        contactEmail: "a@b.com",
+        contactPhone: "+18015551234",
+      }),
+    ).toEqual({ proceed: false, reason: "skipped_missing_contact" });
+  });
+
+  it("proceeds when a contact id IS known, independent of whatever caused a fields-target failure", () => {
+    // This is the positive form of review finding 2a: a known contact id
+    // (e.g. from ghl_push_state on the attach path) must let the doc
+    // target proceed even though, in the real orchestrator, this gate is
+    // evaluated after a fields-target try/catch that may have failed for
+    // an unrelated reason (a transient updateOpportunity 500). This pure
+    // function has no idea whether fields succeeded — by design.
+    expect(
+      decideDocPreflight({
+        isPathB: false,
+        hasContactId: true,
+        contactEmail: "a@b.com",
+        contactPhone: "+18015551234",
+      }),
+    ).toEqual({ proceed: true });
+  });
+
+  it("missing contact id takes priority over a missing-phone condition (both are 'skipped_missing_contact', but hasContactId is checked first)", () => {
+    expect(
+      decideDocPreflight({ isPathB: false, hasContactId: false, contactEmail: "a@b.com", contactPhone: null }),
+    ).toEqual({ proceed: false, reason: "skipped_missing_contact" });
   });
 });
 

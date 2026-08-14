@@ -198,17 +198,28 @@ async function resolveContact(estimate: EstimateRow): Promise<string> {
 // between createOpportunity succeeding and ghl_push_state being persisted.
 
 interface FieldsTargetResult {
-  contactId: string;
   opportunityId: string;
   createdNewOpportunity: boolean;
 }
 
+/** CV-2 SETTLED LIVE (Task 12 fix round 1, 2026-08-14): `PUT /opportunities/{id}`
+ *  MERGES `customFields` into the opportunity's existing set — it does NOT
+ *  replace the array. Live-verified: created a disposable test opportunity
+ *  with field A set, PUT with ONLY field B in `customFields`, then fetched
+ *  fresh — field A was still present in both the PUT response and the
+ *  follow-up GET. So a re-push here is safe: it can never wipe Crew, Job
+ *  Start/End Date, or any other field written by ghl-job-webhook /
+ *  airtable-job-scheduled, and it can never wipe this module's OWN
+ *  conditionally-omitted fields (Estimator/Job Scope/Airtable Job ID when
+ *  null, or Job Scope when loadJobScopeOptions() degrades to []) — an
+ *  earlier push's values for those stay put under a merge, they are not
+ *  nulled out by a later push that happens to omit them. */
 async function pushFieldsTarget(
   estimate: EstimateRow,
   lineItems: EstimateLineItemRow[],
   jobScopeOptions: string[],
   priorDocNumber: string | null,
-  knownContactId: string | null,
+  contactId: string,
   knownOpportunityId: string | null,
 ): Promise<FieldsTargetResult> {
   const jobScope = buildJobScopeSelection(
@@ -231,18 +242,16 @@ async function pushFieldsTarget(
   const name = opportunityName(estimate);
   const monetaryValue = estimate.quoted_price ?? estimate.total_bid;
 
-  const contactId = knownContactId ?? (await resolveContact(estimate));
-
   if (knownOpportunityId) {
     await updateOpportunity(knownOpportunityId, { name, monetaryValue, customFields });
-    return { contactId, opportunityId: knownOpportunityId, createdNewOpportunity: false };
+    return { opportunityId: knownOpportunityId, createdNewOpportunity: false };
   }
 
   const existingOpps = await searchOpportunitiesByContact(contactId);
   const match = findExistingOpportunityByName(existingOpps, name);
   if (match) {
     await updateOpportunity(match.id, { name, monetaryValue, customFields });
-    return { contactId, opportunityId: match.id, createdNewOpportunity: false };
+    return { opportunityId: match.id, createdNewOpportunity: false };
   }
 
   const pipeline = await resolvePipeline();
@@ -255,7 +264,7 @@ async function pushFieldsTarget(
     monetaryValue,
     customFields,
   });
-  return { contactId, opportunityId, createdNewOpportunity: true };
+  return { opportunityId, createdNewOpportunity: true };
 }
 
 // ── Doc target ──────────────────────────────────────────────────────────
@@ -312,8 +321,22 @@ async function pushDocTarget(
 
   if (action === "replace") {
     const payload = buildEstimateDocPayload(estimate, lineItems, contact, { isRevision: false });
-    const result = await updateEstimateDoc(docId as string, payload);
-    return { docId: docId as string, docNumber: result.estimateNumber, action };
+    try {
+      const result = await updateEstimateDoc(docId as string, payload);
+      return { docId: docId as string, docNumber: result.estimateNumber, action };
+    } catch (err) {
+      // Review finding 3: a tracked doc that was deleted out-of-band (e.g.
+      // Dane deleting a draft in the GHL UI) 404s on PUT. Without this
+      // fallback that would wedge the estimate on doc:"error" forever —
+      // decideDocAction would keep returning "replace" against a docId
+      // that will never again resolve. Recover by creating a fresh draft
+      // and adopting its id, exactly like the "create" branch above.
+      if (err instanceof GhlApiError && err.status === 404) {
+        const created = await createEstimateDoc(payload);
+        return { docId: created.id, docNumber: created.estimateNumber, action: "create" };
+      }
+      throw err;
+    }
   }
 
   // revise — the prior doc (sent/viewed/accepted/declined) is left alone;
@@ -364,6 +387,16 @@ export async function pushEstimateToGhl(estimateId: string): Promise<PushResult>
   const jobScopeOptions = await loadJobScopeOptions();
 
   try {
+    // Review finding 2c: resolve the contact FIRST and assign it to the
+    // outer `contactId` immediately on success — before attempting the
+    // opportunity create/update — so a failure in the REST of the fields
+    // target (e.g. a transient updateOpportunity 500) doesn't discard a
+    // contact id that was already in hand. Only actually resolves when not
+    // already known (attach path / inherited from a parent version).
+    if (!contactId) {
+      contactId = await resolveContact(estimate);
+    }
+
     const fieldsOut = await pushFieldsTarget(
       estimate,
       lineItems,
@@ -372,7 +405,6 @@ export async function pushEstimateToGhl(estimateId: string): Promise<PushResult>
       contactId,
       opportunityId,
     );
-    contactId = fieldsOut.contactId;
     opportunityId = fieldsOut.opportunityId;
 
     await upsertPushState(admin, estimate.id, {
@@ -423,73 +455,90 @@ export async function pushEstimateToGhl(estimateId: string): Promise<PushResult>
     });
   }
 
+  // Review finding 2a: the doc target is gated SOLELY on decideDocPreflight
+  // (contact-id presence, Path B, email/phone) — never on `fieldsResult`.
+  // A fields-target failure that happened AFTER a contact id was already
+  // resolved (e.g. the opportunity write itself 500ing) must not block a
+  // doc push that has everything it needs. pushDocTarget never touches the
+  // opportunity, only the contact, so the two targets are genuinely
+  // independent here, not just independently try/caught.
+  const preflight = decideDocPreflight({
+    isPathB,
+    hasContactId: contactId !== null,
+    contactEmail: estimate.client_email,
+    contactPhone: estimate.client_phone,
+  });
+
   let docResult: PushResult["doc"];
 
-  if (fieldsResult === "error" || !contactId) {
-    // Fields never established a contact — nothing to build a doc against.
+  if (!preflight.proceed) {
+    docResult = preflight.reason;
+  } else if (!contactId) {
+    // Structurally unreachable — preflight.proceed already required
+    // hasContactId. Kept as an explicit TS narrowing guard rather than a
+    // cast, so this can never silently push a doc with a null contactId
+    // even if decideDocPreflight's contract changes later.
     docResult = "skipped_missing_contact";
   } else {
-    const preflight = decideDocPreflight({
-      isPathB,
-      contactEmail: estimate.client_email,
-      contactPhone: estimate.client_phone,
-    });
-
-    if (!preflight.proceed) {
-      docResult = preflight.reason;
-    } else {
-      try {
-        const docOut = await pushDocTarget(estimate, lineItems, contactId, priorDocId);
-        docResult = "ok";
-        await upsertPushState(admin, estimate.id, {
-          ghl_estimate_id: docOut.docId,
-          ghl_estimate_number: docOut.docNumber,
-          doc_pushed_at: nowIso(),
-          last_error: null,
-        });
-        await writeSyncLog(admin, {
-          direction: "app_to_ghl",
-          trigger_event: "estimate_push_doc",
-          action_taken: docOut.action === "replace" ? "updated" : "created",
-          status: "success",
-          payload_in: { estimateId: estimate.id, docAction: docOut.action },
-        });
-      } catch (err) {
-        if (err instanceof GhlApiError && (err.status === 401 || err.status === 403)) {
-          docResult = "not_configured";
-          await writeSyncLog(admin, {
-            direction: "app_to_ghl",
-            trigger_event: "estimate_push_doc",
-            action_taken: "skipped",
-            status: "success",
-            error_message: errorMessage(err),
-            payload_in: { estimateId: estimate.id, reason: "not_configured" },
-          });
-        } else {
-          docResult = "error";
-          errors.doc = errorMessage(err);
-          await upsertPushState(admin, estimate.id, { last_error: errors.doc, incrementAttempts: true });
-          await writeSyncLog(admin, {
-            direction: "app_to_ghl",
-            trigger_event: "estimate_push_doc",
-            action_taken: "error",
-            status: "error",
-            error_message: errors.doc,
-            payload_in: { estimateId: estimate.id },
-          });
-        }
-      }
-    }
-
-    if (docResult === "skipped_path_b" || docResult === "skipped_missing_contact") {
+    try {
+      const docOut = await pushDocTarget(estimate, lineItems, contactId, priorDocId);
+      docResult = "ok";
+      await upsertPushState(admin, estimate.id, {
+        ghl_estimate_id: docOut.docId,
+        ghl_estimate_number: docOut.docNumber,
+        doc_pushed_at: nowIso(),
+        last_error: null,
+      });
       await writeSyncLog(admin, {
         direction: "app_to_ghl",
         trigger_event: "estimate_push_doc",
-        action_taken: "skipped",
+        action_taken: docOut.action === "replace" ? "updated" : "created",
         status: "success",
-        payload_in: { estimateId: estimate.id, reason: docResult },
+        payload_in: { estimateId: estimate.id, docAction: docOut.action },
       });
+    } catch (err) {
+      if (err instanceof GhlApiError && (err.status === 401 || err.status === 403)) {
+        docResult = "not_configured";
+        await writeSyncLog(admin, {
+          direction: "app_to_ghl",
+          trigger_event: "estimate_push_doc",
+          action_taken: "skipped",
+          status: "success",
+          error_message: errorMessage(err),
+          payload_in: { estimateId: estimate.id, reason: "not_configured" },
+        });
+      } else {
+        docResult = "error";
+        errors.doc = errorMessage(err);
+        await upsertPushState(admin, estimate.id, { last_error: errors.doc, incrementAttempts: true });
+        await writeSyncLog(admin, {
+          direction: "app_to_ghl",
+          trigger_event: "estimate_push_doc",
+          action_taken: "error",
+          status: "error",
+          error_message: errors.doc,
+          payload_in: { estimateId: estimate.id },
+        });
+      }
     }
+  }
+
+  // Review finding 2b: this is now the ONLY place either skip reason is
+  // logged, and it runs unconditionally — regardless of whether the skip
+  // came from the pure preflight or the defensive narrowing guard above —
+  // so every docResult value (ok / not_configured / error already log
+  // inside their own branch above; skipped_path_b / skipped_missing_contact
+  // log here) writes exactly one sync_log row for the doc target. Nothing
+  // upstream of this point may `return` early — that would reintroduce the
+  // "no sync_log row" gap this fixes.
+  if (docResult === "skipped_path_b" || docResult === "skipped_missing_contact") {
+    await writeSyncLog(admin, {
+      direction: "app_to_ghl",
+      trigger_event: "estimate_push_doc",
+      action_taken: "skipped",
+      status: "success",
+      payload_in: { estimateId: estimate.id, reason: docResult },
+    });
   }
 
   return {

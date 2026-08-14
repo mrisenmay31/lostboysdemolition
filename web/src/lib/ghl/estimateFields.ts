@@ -280,20 +280,31 @@ export type DocPreflightResult =
   | { proceed: true }
   | { proceed: false; reason: "skipped_path_b" | "skipped_missing_contact" };
 
-/** Pure preflight gate for the doc target. isPathB skips unconditionally
- *  (a record-only estimate has, by definition, no proposal to send — see
- *  BUILD_PLAN.md "Path B = estimate recorded, not sent"). Missing email OR
- *  phone skips next (buildEstimateDocPayload requires both; this lets
- *  push.ts short-circuit before attempting any GHL call). The remaining
- *  'not_configured' PushResult outcome (GHL estimates scope not granted)
- *  can only be discovered via a live 401/403, so it's classified in
- *  push.ts's try/catch, not here. */
+/** Pure preflight gate for the doc target — the SOLE gate, independent of
+ *  whether the fields target itself succeeded (review finding 2: the doc
+ *  target must not be blocked by a fields-target failure once a contact id
+ *  is already in hand — e.g. a transient updateOpportunity 500 on the
+ *  attach path, where ghl_push_state already carries a known contact).
+ *  Priority order: isPathB skips unconditionally (a record-only estimate
+ *  has, by definition, no proposal to send — see BUILD_PLAN.md "Path B =
+ *  estimate recorded, not sent"); no resolved GHL contact id skips next
+ *  (nothing to attach a doc to, regardless of why — no email at all, or a
+ *  contact-resolution failure); missing email OR phone skips last
+ *  (buildEstimateDocPayload requires both — this is mostly a defensive
+ *  backstop, since `hasContactId` true already implies client_email was
+ *  present when resolveContact ran, but is kept independent so this
+ *  function's contract doesn't rely on that correlation holding forever).
+ *  The remaining 'not_configured' PushResult outcome (GHL estimates scope
+ *  not granted) can only be discovered via a live 401/403, so it's
+ *  classified in push.ts's try/catch, not here. */
 export function decideDocPreflight(input: {
   isPathB: boolean;
+  hasContactId: boolean;
   contactEmail: string | null | undefined;
   contactPhone: string | null | undefined;
 }): DocPreflightResult {
   if (input.isPathB) return { proceed: false, reason: "skipped_path_b" };
+  if (!input.hasContactId) return { proceed: false, reason: "skipped_missing_contact" };
   if (!input.contactEmail || !input.contactPhone) return { proceed: false, reason: "skipped_missing_contact" };
   return { proceed: true };
 }
