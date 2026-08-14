@@ -60,6 +60,7 @@ function makeEstimate(overrides: Partial<EstimateRow> = {}): EstimateRow {
     true_margin_pct: 19.3,
     quoted_price: null,
     quote_override_reason: null,
+    is_path_b: false,
     source: "app",
     airtable_estimate_id: null,
     created_at: "2026-08-14T12:00:00Z",

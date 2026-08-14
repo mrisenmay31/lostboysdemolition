@@ -351,18 +351,6 @@ async function pushDocTarget(
 /**
  * Pushes one estimate version to GHL. See module header for the
  * fields/doc target contract and idempotency model.
- *
- * `is_path_b` note: read via a defensive runtime cast
- * (`(estimate as unknown as { is_path_b?: boolean })`) rather than a typed
- * property access, because at the time this was written
- * `EstimateRow`/`estimates` don't yet have the column — migration
- * `20260814230000_phase_b2_path_b_flag.sql` (Task B1) is landing in a
- * parallel lane and merges into this branch shortly. The cast is correct
- * either way: today every row reads `is_path_b` as `undefined` -> `false`
- * (doc attempted, matching current behavior); once the migration + type
- * update land, real rows carry the real value regardless of whether this
- * particular expression has been tidied to a direct property access yet.
- * See task-12-report.md for the sequencing note.
  */
 export async function pushEstimateToGhl(estimateId: string): Promise<PushResult> {
   const admin = createAdminClient();
@@ -374,7 +362,7 @@ export async function pushEstimateToGhl(estimateId: string): Promise<PushResult>
     state = await loadInheritedPushState(admin, versionChain, estimate.id);
   }
 
-  const isPathB = Boolean((estimate as unknown as { is_path_b?: boolean }).is_path_b);
+  const isPathB = estimate.is_path_b;
 
   let contactId = state?.ghl_contact_id ?? null;
   let opportunityId = state?.ghl_opportunity_id ?? null;
