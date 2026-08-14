@@ -195,7 +195,7 @@ in the SDD ledger `progress.md`; the ones with practical follow-up weight):**
 **Manual setup status — Manual Setup #1 (env vars) DONE mid-session (Matt); Manual Setup #2
 (auth users) CANCELLED (see no-login change above), not owed anymore.**
 
-**Deploy status:** Vercel deploy: [CONTROLLER TO FILL POST-DEPLOY]
+**Deploy status:** Vercel deploy LIVE 2026-08-14: project `lbd-estimates` (team matt-risenmays-projects, `prj_hCH0ZxkpeuRaOWLFjCaZ9wz5KKKm`), Root Directory `web`, include-files-outside-root ENABLED, production branch `main`, all 5 env vars set in all 3 environments (encrypted). Production URL **https://lbd-estimates.vercel.app** — verified 200, `/` → `/estimates`, title "LBD Estimates". Merge to main: `dd6cc87` (Matt's explicit instruction, same session). Build 31s. Outstanding human verification: Matt's phone smoke + the one-real-bid Fillout parallel check (brief item — not yet performed at close).
 
 **Next session:** merge-to-main is Matt's decision, informed by the final review's APPROVED verdict
 above. If merging: standard PR/merge flow, no additional gate. After that (or in parallel): Phase C

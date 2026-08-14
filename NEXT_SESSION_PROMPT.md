@@ -39,7 +39,7 @@ are staged alongside it as `task-N-brief.md` / `task-N-report.md`.
 - `deno task test` → 18/18 (golden 321 gate intact, engine changed by one word all slice). Web
   suite `cd web && npx vitest run` → 261/261. `npm run build` → green.
 
-### Vercel deploy state: [CONTROLLER TO FILL POST-DEPLOY]
+### Vercel deploy state: LIVE — https://lbd-estimates.vercel.app (project `lbd-estimates`, root `web`, outside-root ON, prod branch `main`, merged as `dd6cc87`). Matt's phone smoke + one-real-bid Fillout parallel check were still outstanding at session close — confirm they happened before treating the builder as validated for daily use.
 
 The Vercel project creation and the production phone smoke (login-free flow: pick estimator → build
 a real estimate alongside Fillout in parallel → push → Dane/Jackson see the draft in GHL) were
