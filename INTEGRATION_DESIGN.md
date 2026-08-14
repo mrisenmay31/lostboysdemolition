@@ -181,8 +181,8 @@ Total estimated effort once questions are answered: **4–8 hours of agent + Mat
 
 ## Files Referenced
 
-- [`SCHEMA_AUDIT_REPORT.md`](./SCHEMA_AUDIT_REPORT.md) — Schema audit (mentions Jobs table is ready for actuals)
-- [`schema_overview.md`](./schema_overview.md) — Canonical Airtable schema
+- [`SCHEMA_AUDIT_REPORT.md`](./docs/archive/SCHEMA_AUDIT_REPORT.md) — Schema audit (mentions Jobs table is ready for actuals). **Archived 2026-08-14 — superseded by `SYSTEM_AUDIT_2026-07-30.md`, and its `Clients.Jobs` recommendation is backwards.**
+- [`schema_overview.md`](./docs/archive/schema_overview.md) — ~~Canonical Airtable schema~~. **This description is wrong** and was wrong when written: the file contains Supabase integration notes, not an Airtable schema. Archived 2026-08-14. For the real Airtable schema see `SYSTEM_AUDIT_2026-07-30.md`.
 - [Bill.com Spend & Expense API](https://developer.bill.com/docs/spend-expense-api)
 - [Bill.com webhook events](https://developer.bill.com/docs/webhooks)
 - [Gusto Project Tracking](https://support.gusto.com/article/202018885100000/Manage-projects-and-track-project-time)
