@@ -111,8 +111,8 @@ Airtable `Pricing Variables` 3% row uncorrected (read by nothing, parallel-runni
 (Matt chose local merge; branch deleted local + remote; stale `origin/phase-b-slice-1` removed).
 Next step is **Phase B slice 2: estimate builder UI (first Next.js/Vercel app code) + GHL push**,
 with the deno.json test task for the golden gate as the first follow-up. No open defects. No new
-edge function to deploy. Matt still owes deletion of the 4 test calendar events (JOB-1102 Aug 17,
-JOB-1104 Aug 20, each on main + Crew 1 calendars).
+edge function to deploy. The 4 test calendar events (JOB-1102 Aug 17, JOB-1104 Aug 20, main +
+Crew 1 each) were deleted by Matt at session close — that cleanup item is closed.
 
 ### 2026-08-14 — Phase A verification CLOSED, ghl-contact-sync fixed, Phase B slice-1 planned + 2/5 tasks built
 

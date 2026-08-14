@@ -39,9 +39,8 @@ Before or at its start, the top deferred follow-ups (full list in BUILD_LOG adde
 2. `pricing_variables` loader to replace the `DEFAULT_RATES` duplication.
 3. Audit trail for the 4 mutable estimate columns (`quoted_price` especially).
 
-OTHER OPEN ITEMS (unchanged):
-1. Matt: delete 4 test calendar events — JOB-1102 Aug 17, JOB-1104 Aug 20, each on main +
-   Crew 1 calendars.
+OTHER OPEN ITEMS:
+1. ✅ 4 test calendar events deleted by Matt 2026-08-14 — no test artifacts remain.
 2. BL-4 (crew Slack message format) — scheduled for END of Phase B.
 3. receive-airtable-webhook retirement still queued (disable Airtable automations
    wflYoupCQ00h2BrVa + wfldrRGvkSgRsE3ok in base apptzp0IclCaAtOk2 first).

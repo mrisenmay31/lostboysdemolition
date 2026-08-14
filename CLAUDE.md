@@ -361,8 +361,8 @@ Lost Boys live account before real invoicing (the Stripe MCP in-session is CTA I
 
 JOB-1102 (2026-08-13) and JOB-1104 (2026-08-14) were minted from real GHL opportunities during
 live E2E verification; both are `status_v2='cancelled'`, so no night-before digest will fire for
-them. Their four test calendar events (JOB-1102 on Aug 17, JOB-1104 on Aug 20, each on main +
-Crew 1 calendars) await manual deletion.
+them. Their four test calendar events were manually deleted by Matt 2026-08-14 — no test
+artifacts remain on any calendar.
 
 `job_events` columns: `stage_from`, `stage_to`, `function_name`, `trigger_source`,
 `action_summary`, `status`, `error_message`, `payload_in`, plus `job_number` and
