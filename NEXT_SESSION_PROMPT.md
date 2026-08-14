@@ -13,7 +13,7 @@ truth), then BUILD_PLAN.md (official plan, amended 2026-07-31, phases A–G + Tr
 SYSTEM_AUDIT_2026-07-30.md is still useful for pre-Phase-A systems state but its §2 is materially
 wrong and carries a correction banner.
 
-Where the last session left off (2026-08-13, branch `phase-a-job-record`, NOT YET MERGED to main):
+Where the last session left off (2026-08-13, MERGED to main and pushed, tree clean):
 Phase A — the job record keystone — shipped and is live. Two new Supabase Edge Functions:
 ghl-job-webhook (v7) and crew-night-before (v4), plus 4 migrations (canonical `jobs` schema with
 JOB-XXXX sequence starting 1100, RLS, two rounds of adversarial-review fixups, and a pg_cron
@@ -36,21 +36,27 @@ widened in a third migration. Full defect list — including 7 caught by adversa
 any of this went live — is in the 2026-08-13 Phase A entry of BUILD_LOG.md; read that entry before
 touching this code again.
 
+RESOLVED at session close: JOB-1102 was CANCELLED (status_v2='cancelled') — no digest will fire
+for it; the two Aug-17 test calendar events (main + Crew 1) remain for manual deletion. The
+night-before digest's Slack leg WAS live-verified (synthetic job → post to #ops-test → stamp →
+idempotent re-fire → cleaned up). A remote PR ("backlog items + July work reconciliation", BL-1/2/3
+from a Dane meeting) was merged in with Phase A — BUILD_PLAN.md now has a
+"Backlog — captured, not scheduled" section; BL-3 (crew P&L) carries a real four-pads hazard note.
+
 IMMEDIATE OPEN ITEMS, in priority order:
-1. JOB-1102 needs a keep-or-cancel decision from me before 2026-08-16 — the night-before digest
-   will otherwise fire to the real Crew 1 Slack channel for a job that only exists because of a
-   live-verification drag.
-2. Workflow 2 (job_scheduled) still needs its GHL-workflow drag done — the create-path drag was
+1. Workflow 2 (job_scheduled) still needs its GHL-workflow drag done — the create-path drag was
    verified through the real GHL UI; the schedule path was verified by a direct function call, not
    yet by dragging the opportunity through the actual GHL workflow.
-3. BILL credentials, if the BILL job-code leg should go live now rather than waiting for Phase C.
+2. BILL credentials, if the BILL job-code leg should go live now rather than waiting for Phase C.
    BILL_API_TOKEN is unset everywhere by design; the leg no-ops cleanly without it.
-4. ghl-contact-sync v20 has a live, pre-existing, unfixed bug — an unlogged
+3. ghl-contact-sync v20 has a live, pre-existing, unfixed bug — an unlogged
    `TypeError: tags.map is not a function` on some live traffic, found by accident during this
    session. Not Phase A code. Needs its own small fix.
-5. receive-airtable-webhook retirement is still queued and unrelated to Phase A — disable Airtable
+4. receive-airtable-webhook retirement is still queued and unrelated to Phase A — disable Airtable
    automations wflYoupCQ00h2BrVa and wfldrRGvkSgRsE3ok in base apptzp0IclCaAtOk2 first, then remove
    the function, so they fail closed.
+5. Delete the two Aug-17 test calendar events (main + Crew 1 calendars, "JOB-1102 – Contractor
+   Company").
 
 NEXT BUILD: Phase B — the estimate builder. It replaces the Fillout bid calculator (the
 Fillout/estimate side of the system is completely untouched by Phase A) and must reproduce today's
@@ -76,10 +82,13 @@ Start by telling me what you think the highest-value next move is, and why.
 
 ## Session context not in the prompt above
 
-- **Branch state:** all Phase A work is on `phase-a-job-record`, not merged to `main`. Commits:
-  `5c52c8b`, `7fca329`, `55c17f6`, `0b8f5b2`, `358cf8a`, `b6f0f27`, `9fa8770`, `bd7aca7`,
-  `79b479d`, `0f3c6a9`, `f63be73`, `4942552`, `402b6b0`, plus this docs close-out commit. Decide
-  whether/when to merge before starting Phase B.
+- **Branch state:** MERGED. `phase-a-job-record` (17 commits) fast-forwarded into `main`, then the
+  remote backlog PR (`ab3e6e6`) was merged in (`1e91ce3`, one BUILD_LOG conflict resolved keeping
+  both entries), pushed, branch deleted. Tree clean; nothing pending.
+- **Execution model used (Matt's directive, worked well):** orchestrator advises only; Sonnet
+  subagents implement; Opus subagents adversarially review every task + a final whole-branch
+  review. Via superpowers:subagent-driven-development. 7 defects were caught by review before
+  deploy, 2 more only by live probes — keep both layers for Phase B.
 - **Full build ledger:** `docs/superpowers/plans/2026-08-13-phase-a-job-record-ledger.md` — every
   ruling, defect, and review round from the session, in order (frozen, closed 2026-08-13).
 - **CLAUDE.md was corrected in three places this session** beyond the Phase A additions: the GHL
