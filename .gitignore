@@ -4,3 +4,6 @@ node_modules/
 *.csv
 *.pdf
 .superpowers/
+.next/
+.vercel
+.env*.local

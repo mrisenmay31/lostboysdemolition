@@ -1,0 +1,50 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# next.js regenerates these agent-instruction files on every `next dev` run
+# (see node_modules/next/dist/server/lib/generate-agent-files.js). Task 5
+# deliberately kept them out of the committed tree — they'd collide with
+# this repo's own CLAUDE.md convention (a nested web/CLAUDE.md gets loaded
+# alongside the root one, which is confusing, not additive).
+/AGENTS.md
+/CLAUDE.md
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

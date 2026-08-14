@@ -1,0 +1,6 @@
+{
+  "tasks": {
+    "test": "deno test --allow-read=supabase/functions/_shared/fixtures supabase/functions/_shared/"
+  },
+  "exclude": ["web/", "node_modules/", "airtable-automations/"]
+}

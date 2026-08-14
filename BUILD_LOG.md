@@ -27,6 +27,7 @@ shipped.
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A | 🟢 Live (v7) — Phase A keystone, live E2E verified; v7 = final-review fix wave | 2026-08-13 |
 | `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
+| Phase B slice-2 (`web/` app + DB) | B | 🟢 **Complete on branch** — all 14 build tasks + the mid-session no-login scope change + a final whole-branch review + fix wave done, reviewed, merged onto `phase-b-slice-2` (tip `53e7d64`); **not merged to main**, decision returns to Matt; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live | 2026-08-14 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -36,6 +37,210 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-14 (night) — Phase B slice-2 COMPLETE on branch: T11/T11b/T12/T9f + no-login scope change + final review; T13 docs close-out
+
+**Status:** 🟢 Complete on branch `phase-b-slice-2` (tip `53e7d64`, 16 new commits since the last
+close at `26b9495`), **NOT merged to main** — merge-to-main is Matt's call, informed by the final
+whole-branch review's APPROVED verdict below. Resumes and finishes the session paused after Task 8.
+Vercel deploy and the production phone smoke are **controller/Matt-owned, not part of this session's
+scope** — see the deploy-status line at the bottom of this entry.
+
+**What shipped, task by task (all reviewed by opus; sonnet implemented):**
+
+- **T11 — estimate builder page** (`/estimates/new`): mobile-first, live client-side recalc via
+  `computeEstimate`, quick/itemized modes, scope picker over the 19 `scope_library` rows, markup
+  preset chips. First-real-create live smoke burned estimate 1416. Fix round 1 closed two review
+  findings: partial-decimal inputs (`".25"`) silently resolving to 0, and Save being disabled with
+  unreachable dead-code explanations. Merge was deliberately **deferred** past the fix round because
+  the no-login scope change (below) landed mid-flight and would have broken the builder's call
+  signature immediately after merging — folded into one **integration round** instead (commit
+  `cfc90f0`) that rebased onto the merged no-login branch, wired `useEstimator()` → `estimatorName`,
+  wired the Path B toggle to the now-real `is_path_b` column, fixed a comma/whitespace decimal-parse
+  bug, and re-ran the live smoke through the real action path (estimate 1424). Self-caught mid-round:
+  `/estimates/new` had gone **static** post-auth-removal (would have frozen rates at build time) —
+  `force-dynamic` added; confirmed the only affected route.
+- **T11b — list + detail + lifecycle pages**: quote override (required reason enforced by the
+  `quote_override_reason_required` DB CHECK), status actions restricted to sent/accepted/declined
+  only, version chain + audit history display, revise → new version. Estimate 1425 burned
+  (override → v2 → declined) proving the full lifecycle live. Two **live-caught UI bugs fixed
+  in-commit**, not just found: the override-reason textarea was unmounting mid-typing (now keyed off
+  price-differs-from-bid instead of a state flag that flickered), and `revise`'s `notFound()` was
+  firing spuriously on a Next.js post-action page refresh (guard removed; a friendly
+  "newer version exists" message now covers the real conflict case — reproduced live with two
+  browser tabs racing a double-revise). Fix round 1 additionally closed the `listEstimates`
+  PostgREST-filter-injection carry from T8 (verified live against `,()` bypass attempts) and gave
+  superseded-version pages a "viewing an old version" banner.
+- **T12 — GHL push orchestration** (`web/src/lib/ghl/push.ts` + `PushPanel.tsx`): per-target
+  idempotent push (opportunity fields, draft estimate doc) via `ghl_push_state`, attach-existing or
+  create-new-opportunity, version-to-version GHL-id inheritance via `supersedes_estimate_id`. Live
+  E2E burned estimates 1417–1420 (initial) and 1421–1423 (fix-round re-verification); real GHL
+  artifacts created and manually cleaned up. **Settled a standing open question live**: `PUT
+  /opportunities/{id}` **merges** `customFields`, it does not replace them (CV-2, previously an
+  assumption inherited from Phase A's behavior — now proven, and it matters to
+  `airtable-job-created`/`ghl-job-webhook` too, not just this feature). Fix round 1 decoupled the
+  fields-push and doc-push targets so a transient fields error no longer silently skips and
+  mislabels the doc-push `sync_log` row, and added create-fallback recovery for a doc Dane manually
+  deleted in the GHL UI (previously wedged that estimate's doc push forever on a 404).
+- **T9f — follow-up fix task** (controller-created mid-session, not in the original 14): repaired
+  `searchContactByEmail` in `web/src/lib/ghl/client.ts` (the live API had moved off the `GET
+  /contacts/?email=` shape T9 was built against — that call now 422s; fixed to `POST
+  /contacts/search` with an `eq` filter, live-verified); added the `server-only` import guard T9
+  deferred; found and closed a **second, transitive** version of the same guard gap
+  (`estimateFields.ts → estimateDoc.ts → client.ts` via the money-allocation helper) by extracting a
+  zero-dependency `allocation.ts` — proven **byte-identical** behavior via md5 hash match before/after
+  the extraction, so T10's exact-remainder money math did not change.
+- **No-login scope change (mid-session, Matt's explicit directive, plan-mode approved):**
+  `docs/superpowers/plans/2026-08-14-no-login-estimator-picker.md`. Three tasks (A1 identity
+  plumbing, A2 delete the auth stack, B1 persist Path B as a real column) replaced Task 6's
+  Supabase-Auth login gate with a no-password device-remembered estimator picker. **See CLAUDE.md's
+  "No-login estimate tool" section for the full user-facing description — do not rely on any
+  auth-related text elsewhere in this repo written before this entry's date.** Net: `middleware.ts`,
+  `/login`, `auth.ts`, `safe-next.ts` (and its 3-fix-round-hardened open-redirect protection),
+  `supabase/server.ts`, and the `/debug` route are **deleted** (preserved in git history, not lost —
+  T6's work through merged range `34eb9b7..0d3470b` remains a reusable pattern). Manual Setup #2
+  (provision 3 auth users) is **cancelled**. Migration `20260814230000_phase_b2_path_b_flag.sql`
+  applied live, adding `estimates.is_path_b boolean not null default false` and re-creating
+  `create_estimate_with_items`/`enforce_estimate_immutability` to cover it — one fix round on the
+  DB task (I-1: the coalesce expression needed a `nullif('')` wrap to match the guard's existing
+  convention, verified via `pg_get_functiondef` hunk-diffs against the live baseline before and after
+  apply, and confirmed the two function bodies contained *only* the intended `is_path_b` deltas).
+- **Final whole-branch review** (dispatched early, in parallel with T11b's build, over commit range
+  `342f489..e430534`, then a scoped supplemental pass over T11b's range after it merged): **APPROVED
+  FOR MERGE, conditional** on three must-fix items — C-1 (these docs, this entry), C-2 (the
+  `listEstimates` injection carry — closed inside T11b's own fix round, verified in that review),
+  C-3 (stale `requireUser()` doc-comments left behind by the no-login deletion — closed by a
+  dedicated **final fix wave** commit that also added `layout.tsx`'s missing title/description,
+  fixed GHL doc-list pagination (see below), and added allowlist-rejection tests at the actions
+  layer). Reviewer's full triage: 23 findings already resolved by the time of review, 3 must-fix (all
+  closed above), 26 follow-up-OK (see Known limitations / Deferred below).
+
+**The three new DB migrations from the paused-session entry below are unchanged; one more applied
+live this segment:**
+- `20260814230000_phase_b2_path_b_flag.sql` — `estimates.is_path_b`, described above.
+
+**Gates at close:** `deno task test` **18/18** (golden 321 gate intact — the engine changed by
+exactly one word across the entire slice, the `requireRates` export). Web suite (`cd web && npx
+vitest run`) **261/261** (15 test files). `npm run build` green with env supplied — routes: `/`
+(static), `/estimates` (dynamic), `/estimates/[id]` (dynamic), `/estimates/[id]/revise` (dynamic),
+`/estimates/new` (dynamic, force-dynamic-corrected). No middleware, no `/login` in the build output.
+
+**Live estimates data at close (verified via SQL this docs pass, not carried from memory):** 16
+rows total. `estimate_number` 1414 (v1+v2), 1416, 1417 (v1+v2), 1418, 1419 (v1+v2), 1420, 1421,
+1422, 1423, 1424 (v1+v2), 1425 (v1+v2) — every row `job_name` labeled `TEST` / `TEST — void, do not
+use` variants, every row's final status is `declined` or `superseded`. **First real estimate will be
+≥ 1426.** `ghl_push_state` has **10 rows** (T12's E2E + fix-round pushes — the table is genuinely
+written now, not just schema). `sync_log` has **24 rows** with `direction='app_to_ghl'`.
+`estimate_mutations_audit` has **27 rows**.
+
+**Defects found and fixed this segment (beyond the ones named above):**
+- GHL estimate-doc listing (`listEstimateDocs`) defaulted to GHL's own `limit=10` — a contact with
+  more than 10 historical docs could have its live draft missed by the push logic, which would then
+  create a duplicate instead of updating in place (or, worse, `PUT` a stale doc id). Fixed to
+  auto-paginate at `AUTO_PAGE_SIZE=100` when no explicit limit is given; live-verified GHL honors
+  `limit=100` (100 of 511 docs returned per page; auto-pagination sweeps the rest).
+- `/estimates/new` going static post-auth-removal (named above under T11).
+- The override-reason-textarea-unmounts-mid-typing and spurious-`notFound()`-on-refresh bugs (named
+  above under T11b) — both **live-caught through real browser interaction**, not unit tests; the SDD
+  session's live-smoke discipline is what surfaced them.
+
+**Known limitations — recorded here because they are invisible from reading any single file, per
+the final review's explicit flag (not fixed this session, accepted as low-risk at 3 internal
+users):**
+1. **Superseded-version protection is UI-only.** The detail page hides status/push controls once a
+   version is superseded, but `updateStatusAction` and `pushEstimateAction` do not themselves
+   re-check version status — a stale browser tab left open from before a `revise` can still mutate
+   or push the superseded row. Partially self-healing (re-pushing the current version overwrites
+   the GHL side) but not a status fix — the UI only offers sent/accepted/declined, so restoring a
+   wrongly-set superseded marker needs a direct RPC/SQL call, not a click anywhere in the app; a
+   server-side defense-in-depth check is deferred.
+2. **No concurrency guard on the GHL push.** Two simultaneous first-pushes of the same estimate can
+   race `search-before-create` and create duplicate GHL opportunities — `ghl_push_state` has no
+   arbitrating constraint. Low likelihood; recovery is deleting the duplicate opportunity in GHL.
+3. **The no-login deployment ships network-layer open.** Anyone with the URL can create/mutate/push
+   estimates. Deliberately deferred, not solved, by this session — see CLAUDE.md.
+
+**Repo-level open items surfaced this session, out of slice-2's own scope, needing their own future
+task:**
+- **`airtable-client-sync` v19's `searchGhlByEmail()` is the same broken shape T9f fixed in the web
+  app** — `GET /contacts/?email=` now 422s live, and the function never checks `res.ok` before
+  `res.json()`, so its search leg is silently dead; the function only survives because GHL's
+  duplicate-contact 400 exposes `meta.contactId` as a fallback match. Confirmed by reading the live
+  deployed source this docs pass. Needs its own edge-function fix task — same repair T9f applied
+  (`POST /contacts/search`, `eq` filter).
+- **`crew-night-before` redeploy still owed** — carried from T5's CV-1 mitigation: T5 proved
+  `supabase/functions/_shared/package.json {"type":"module"}` is deploy-inert for the two live
+  consumers (`ghl-job-webhook`, `crew-night-before`) via static analysis (absent from the Deno
+  module graph) and `deno check`, but neither function has actually been **redeployed** since that
+  file was added. A real redeploy (not just a check) closes the question permanently; low urgency
+  since the static proof is solid, but it's the difference between "proven" and "proven and shipped."
+- **6 pre-existing clock-in-era `SECURITY DEFINER` functions callable by `anon`** (e.g.
+  `get_my_role`) — flagged during T3's review as unrelated to slice 2 but real; worth re-weighing
+  now that the estimate tool itself ships network-open (the security posture of the whole
+  environment, not just this feature, deserves a fresh look).
+
+**Deferred minors (non-blocking, not addressed this session — full itemized list, task-by-task, is
+in the SDD ledger `progress.md`; the ones with practical follow-up weight):**
+- `quotedPrice`/negative-entry inputs clamp silently in the builder UI rather than showing a hint.
+- Decimal-comma mis-parse (`"0,25"` → `25`) — theoretical for a US-locale team, not exercised live.
+- `revise`-mode prop pairing between the builder and its preload path is not structurally enforced
+  by the type system (M-3, final review) — works correctly today, worth a type-level tightening.
+- A duplicated `scope_library` loader and a dead `isLifecycleActionStatus` export (M-4, final
+  review) — harmless, cheap cleanup whenever someone is next in that file.
+- `crypto.randomUUID` throws on non-secure origins (breaks LAN-IP phone QA over plain HTTP; fine
+  once Vercel gives it HTTPS).
+- Several accessibility nits (unassociated labels, missing `aria-pressed` on the chip, dialog
+  semantics on the scope-picker sheet).
+
+**Manual setup status — Manual Setup #1 (env vars) DONE mid-session (Matt); Manual Setup #2
+(auth users) CANCELLED (see no-login change above), not owed anymore.**
+
+**Deploy status:** Vercel deploy: [CONTROLLER TO FILL POST-DEPLOY]
+
+**Next session:** merge-to-main is Matt's decision, informed by the final review's APPROVED verdict
+above. If merging: standard PR/merge flow, no additional gate. After that (or in parallel): Phase C
+(BILL expenses + dump counts), Track B (lead intake), or the BL-4 crew Slack format item deferred
+from this slice's brief. See `NEXT_SESSION_PROMPT.md` (regenerated this session) for the full
+picture.
+
+### 2026-08-14 (evening) — Phase B slice-2 IN PROGRESS: 10/14 tasks done on branch `phase-b-slice-2` (paused mid-build)
+
+**Status:** 🟡 In progress, paused for session close. Branch `phase-b-slice-2` (tip `123b74a`), **16 commits, NOT merged to main.** Tasks T1–T10 complete + reviewed + merged onto the branch; **T11, T11b, T12, T13 remain.** Executed subagent-driven (sonnet implements / opus reviews per task + fix loops) under a **hybrid-lane concurrency model Matt approved** — a DB migration lane and a web lane ran concurrently via isolated git worktrees, each task merged back after its own review passed. SDD ledger + all task briefs/reports live under `.superpowers/sdd/2026-08-14-phase-b-slice-2-estimate-builder-ghl-push/` (gitignored) — read `progress.md` there first next session.
+
+**What shipped this session (all on the branch, all reviewed):**
+
+*DB lane — 3 new migrations, all APPLIED LIVE to `eiqqqwajmcpcwhvxxnhx` and committed (parity holds):*
+- `20260814200000_phase_b2_estimator_columns.sql` — adds `estimates.created_by uuid → auth.users`, `created_by_name text` (both **immutable**, added to the `enforce_estimate_immutability` guard list; mutable set unchanged: status/quoted_price/quote_override_reason/job_number).
+- `20260814210000_phase_b2_rpcs_audit.sql` + `20260814215000_phase_b2_rpcs_fixups.sql` — the estimate **write RPCs** (`create_estimate_with_items`, `update_estimate_status`, `update_estimate_quote`, `update_estimate_job_number`) + `estimate_mutations_audit` table & AFTER-UPDATE trigger. All RPCs service-role-only (revoked from public/anon/authenticated), `search_path=public`, take `p_actor`/`p_actor_name` for the audit trail. The create RPC is one transaction (writer contract: v1 omits estimate_number→sequence, vN passes parent's number + supersedes_estimate_id, flips parent to superseded). Fixups added: insert-path override-reason CHECK (`quote_override_reason_required`), `nullif('')` cast hardening, quote-clearing allowed, 2dp rounding, audit-table immutability guard, and actor-on-supersede.
+- `20260814220000_phase_b2_ghl_push_state.sql` — `ghl_push_state` table (PK estimate_id → estimates; contact/opp/estimate-doc ids, per-target timestamps, last_error, attempts; mutable, app sets updated_at) + widened `sync_log_direction_check` with `app_to_ghl`.
+- **Test estimate rows** (permanent — estimates are undeletable): `estimate_number 1414` (v1+v2, both `job_name='TEST — void, do not use'`, left `declined`) from the T3 verification. `1415` **burned** by the T3-fixups negative-CHECK test (nextval non-transactional). Numbers 1400–1413 burned earlier by dev rollbacks. **First real estimate will be ≥ 1416.**
+
+*Web lane — first Next.js app code, in `web/` (own package.json; legacy root untouched):*
+- **T5 scaffold** — Next 16.3 App Router + Tailwind 4 + vitest 4; imports the golden-tested `_shared/pricing.ts` via a re-export shim `web/src/lib/pricing.ts` (never forked). Needed `supabase/functions/_shared/package.json {"type":"module"}` for Turbopack ESM resolution (proven deploy-inert — absent from the Deno module graph).
+- **T6 auth** — Supabase Auth (email/password, 3 users, no self-signup), `@supabase/ssr` middleware, `requireUser()`, service-role `admin.ts` (`import "server-only"`), gated `(app)` group. **Open-redirect hardening took 3 fix rounds** (protocol-relative, control-char, and normalized-output re-entrancy bypasses each found+closed; final `safeNext` uses `new URL()` origin re-resolution, fuzzed 71k cases 0 violations).
+- **T7 rates loader** — `web/src/lib/rates.ts` `loadRatesConfig()` reads all 6 `pricing_variables` live via service role; throws on any missing key (**never** falls back to DEFAULT_RATES). Exported `requireRates` from pricing.ts (one word; golden gate held 18/18).
+- **T9 GHL client** — `web/src/lib/ghl/client.ts` (contacts/opportunities/pipelines/custom-field-defs/estimate-list + retry-once ghlFetch). **Live scope smoke = GO: the existing `GHL_API_KEY` already has estimate scopes** (HTTP 200, 510 docs) — no token rotation needed.
+- **T10 estimate-doc builder** — `web/src/lib/ghl/estimateDoc.ts`: builds the customer-facing GHL draft estimate. **Live-validated 3 payload corrections** the OpenAPI spec got wrong (`name`≤40 chars, line items need `type:"one_time"`, `frequencySettings.schedule` must be `null`). Allocation uses **largest-remainder (Hamilton)** so line amounts sum to the quoted price exactly AND are never negative. ⚠️ **GHL stores `meta` keys CAMELCASED** (`lbdEstimateId`) — read-back must use camelCase (T12 must honor).
+- **T8 data layer** — `web/src/lib/estimates/{types,validate,map,repo}.ts` + `app/(app)/estimates/actions.ts`. Pure validate (zod; itemized reconciliation; **rejects negative inputs** the DB doesn't constrain) + map (writer contract) + repo (the 7 operations via RPCs, service-role, numeric-as-string normalization at every boundary) + server actions (each calls `requireUser()` itself). Added `zod ^4.4.3` as an explicit web dep.
+
+**Gates at pause:** web vitest **139/139**, `deno task test` **18/18** (golden 321 intact), `npm run build` green with env supplied. `pricing.ts` engine only changed by the one-word `export` — no quoted price moved.
+
+**Defects found but deferred to next session (from reviews, none blocking the merge):**
+- `listEstimates` `q` param is PostgREST-filter-injectable (`repo.ts` ~1116) — **sanitize `,()` before T11b wires the list page** (low risk: 3 trusted users, read-only, service-role, same table).
+- `quotedPrice` not non-negative-guarded (`validate.ts:69`) — a negative override → negative GHL amount in T12; add `nonNegativeNumber`.
+- `updateStatus` accepts any of the 6 statuses with no transition rules — T11b UI must only offer sent/accepted/declined.
+- `createNewVersion` on a stale (already-superseded) parent fails with a raw unique-violation string — T11b should add a friendly "newer version exists" check.
+- T6 minor: middleware matcher exempts `*.png`-suffixed routes at any depth (inert today).
+- T1 doc minors (fold into T13 doc pass): CLAUDE.md prose polish around the test command; `deno.json` absent from the repo-structure tree.
+
+**Manual setup still owed by Matt (carried; none blocked this session's work):**
+1. **`web/.env.local`** must be hand-created before local `npm run dev`/build (the M5 env-guard throws without it — by design). Needs `NEXT_PUBLIC_SUPABASE_URL=https://eiqqqwajmcpcwhvxxnhx.supabase.co`, `NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_ZmXLIhozN3vMWf-8e13hQQ_59AkdjnY`, and the **service-role key** (server-only). The permission layer blocked agents from writing it.
+2. **Provision the 3 auth users** (Dane/Jackson/Matt) in the Supabase dashboard with `display_name` metadata, then disable public signups. Only 1 pre-existing account exists today. Record their emails in CLAUDE.md once created. **(CANCELLED — see the 2026-08-14 (night) entry above; the no-login scope change replaced this with a picker, no auth users needed.)**
+3. GHL estimate scopes: **already present** — no action needed (smoke test confirmed).
+
+**Repo-hygiene note for future migration work:** migration **filenames** carry 14-digit timestamps but the live `schema_migrations` **version** stamps differ (MCP `apply_migration` uses its own wall-clock) — repo-wide, pre-existing. Consequence: a `supabase db push` from the repo would see these as unapplied and re-run `create table` (fails). Don't "fix" by renaming applied files; document only.
+
+**Next session — resume at T11 + T12 (both unblocked, can run in parallel):** T11 = the mobile-first estimate builder page (live recalc via client-side `computeEstimate`, scope picker, quick/itemized modes, Path B toggle) with a first-real-create live smoke test; T12 = push orchestration (`pushEstimateToGhl`, per-target idempotent via `ghl_push_state`, honoring the meta-camelCase read + search-before-create idempotency the reviews flagged). Then T11b (list+detail+lifecycle), then T13 (Vercel deploy + docs + BUILD_LOG close + optionally merge to main). Briefs are staged in the SDD workspace dir.
 
 ### 2026-08-14 — Phase B slice-1 COMPLETE: golden master, seeds, full verification (Tasks 2, 4, 5)
 

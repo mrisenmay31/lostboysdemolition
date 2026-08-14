@@ -1,53 +1,89 @@
-# Next-session prompt (regenerated 2026-08-14, post Phase B slice-1 merge)
-
-Copy-paste to start the next session:
-
----
-
 Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (business ground
-truth), then BUILD_PLAN.md (official plan, phases A–G + Track B). The 2026-08-14 entries in
-BUILD_LOG.md (Phase B slice-1 + fix-wave addendum) describe exactly where things stand.
+truth), then BUILD_PLAN.md (official plan, phases A–G + Track B). The **2026-08-14 (night)** entry
+in BUILD_LOG.md describes exactly where things stand.
 
-Where the last session left off (2026-08-14, evening):
+## Where the last session left off (2026-08-14, night) — Phase B slice 2 COMPLETE on branch, merge-to-main pending
 
-**Phase B slice 1 is COMPLETE — merged to main and pushed (`0196449..7920a9c`, 10 commits;
-branch `phase-b-slice-1` deleted local + remote).** All 5 tasks went through sonnet
-implementation + opus review + fix loops, then a final whole-branch opus review with one fix
-wave. Everything is live on Supabase project `eiqqqwajmcpcwhvxxnhx` AND committed:
+**Phase B slice 2 (estimate builder UI + GHL push) is DONE on branch `phase-b-slice-2` (tip
+`53e7d64`), NOT merged to main.** All 14 build tasks, a mid-session no-login scope change (3 more
+tasks), and a final whole-branch review + fix wave are complete, reviewed, and merged onto the
+branch. The final review's verdict was **APPROVED FOR MERGE**. Merging to main is Matt's decision —
+nothing technical blocks it.
 
-- `supabase/functions/_shared/pricing.ts` + `pricing_test.ts` (12 tests) — exact Fillout port,
-  cost-plus markup, true half-up rounding, `requireRates` validation.
-- `pricing_golden_test.ts` + `fixtures/estimates-golden-321.json` — all 321 live estimates
-  reproduce to the cent (309 exact + 11 legacy-diff pinned + 1 penny). This is the acceptance
-  gate for "no quoted price may move." Run:
-  `deno test --allow-all supabase/functions/_shared/` (18/18 green at merge).
-- 4 migrations, applied live and committed, ordered 14-digit prefixes:
-  `20260814150000_phase_b_estimates_schema` (estimates/estimate_line_items/scope_library/
-  pricing_variables, immutability trigger, seq @1400 — live seq drifted to ~1410 by rolled-back
-  tests, first real estimate ≥1411), `20260814160000_phase_b_estimates_fixups` (search_path
-  pins; line items immutable, estimates undeletable), `20260814163000_phase_b_seeds` (19 scopes,
-  6 pricing vars, cc_fee_rate 0.035), `20260814170000_phase_b_estimates_fixups2`
-  (dump_count → numeric(6,2) — live data has 0.25/0.35/1.25 loads; `version_chain` constraint).
-- Estimates writer contract (slice 2 must honor): version 1 rows take `estimate_number` from the
-  sequence; version >1 rows supply the parent's `estimate_number` explicitly AND set
-  `supersedes_estimate_id` (DB check enforces the latter). RLS on, zero policies, all 4 tables.
+**READ FIRST if you need task-level history:** the SDD ledger at
+`.superpowers/sdd/2026-08-14-phase-b-slice-2-estimate-builder-ghl-push/progress.md` (gitignored) —
+full per-task history, every ruling, every deferred finding. Task briefs + reports for every task
+are staged alongside it as `task-N-brief.md` / `task-N-report.md`.
 
-NEXT UP — Phase B slice 2: estimate builder UI (first Next.js/Vercel app code) + GHL push.
-Before or at its start, the top deferred follow-ups (full list in BUILD_LOG addendum):
-1. `deno.json` test task so the golden gate doesn't depend on someone typing `--allow-read`
-   (final review's highest-leverage recommendation).
-2. `pricing_variables` loader to replace the `DEFAULT_RATES` duplication.
-3. Audit trail for the 4 mutable estimate columns (`quoted_price` especially).
+### What's live and working:
 
-OTHER OPEN ITEMS:
-1. ✅ 4 test calendar events deleted by Matt 2026-08-14 — no test artifacts remain.
-2. BL-4 (crew Slack message format) — scheduled for END of Phase B.
-3. receive-airtable-webhook retirement still queued (disable Airtable automations
-   wflYoupCQ00h2BrVa + wfldrRGvkSgRsE3ok in base apptzp0IclCaAtOk2 first).
-4. BILL credentials still absent by design; the gated leg no-ops.
-5. Phase D (time tracking) remains the only blocking decision.
+- **The estimate builder** (`/estimates/new`): mobile-first, live client-side recalc against
+  server-supplied rates, quick/itemized modes, 19-item scope picker, Path B toggle (now a real,
+  persisted `is_path_b` column). First real estimate will be **≥ 1426** — 16 rows exist today, all
+  labeled `TEST` and all ending `declined`/`superseded`.
+- **List + detail + lifecycle** (`/estimates`, `/estimates/[id]`, `/estimates/[id]/revise`): status
+  actions (sent/accepted/declined only), quote override with a DB-enforced required reason, version
+  chains, full audit history via `estimate_mutations_audit` (27 rows).
+- **GHL push** (`web/src/lib/ghl/push.ts` + the detail page's push panel): per-target idempotent via
+  `ghl_push_state` (10 rows, genuinely written), opportunity custom fields + a draft estimate doc
+  with line amounts that sum exactly to the quoted price. **`PUT /opportunities` merges
+  `customFields`** — settled live this slice, matters to the Phase A functions too.
+- **⚠️ THERE IS NO LOGIN.** Matt's explicit decision, mid-session. Identity is a device-remembered
+  "Who's estimating?" picker (Dane/Jackson/Matt) validated server-side against a fixed allowlist;
+  `created_by` is NULL on every row created under this model (one pre-scope-change row, estimate
+  1416 v1, still carries a real `auth.users` id — see CLAUDE.md), `created_by_name` carries the
+  picked name. The deployment ships
+  network-layer **open**. Read CLAUDE.md's "No-login estimate tool" section before touching
+  anything auth-shaped in this repo — earlier docs/session artifacts describing a Supabase-Auth
+  gate are now wrong.
+- `deno task test` → 18/18 (golden 321 gate intact, engine changed by one word all slice). Web
+  suite `cd web && npx vitest run` → 261/261. `npm run build` → green.
 
-Standing rules: (a) plan + explicit approval before any new build (small fixes exempt);
-(b) anything deployed to Supabase committed same session; (c) BUILD_LOG.md entry at every
-session close; (d) one-tap capture or it won't happen. Pipeline Reference base
-appA7uj7FhnPp9Bvg = Field Registry / Secrets & Credentials / People & IDs only.
+### Vercel deploy state: [CONTROLLER TO FILL POST-DEPLOY]
+
+The Vercel project creation and the production phone smoke (login-free flow: pick estimator → build
+a real estimate alongside Fillout in parallel → push → Dane/Jackson see the draft in GHL) were
+explicitly out of this docs session's scope — controller/Matt own that step. If this file still
+says the placeholder above, the deploy has not happened yet; do that before anything else that
+depends on a live URL.
+
+### Two known limitations to carry forward (not bugs to silently "fix" without re-reading the
+context — see BUILD_LOG for full reasoning):
+
+1. Superseded-version protection is UI-only — the server actions don't re-check version status
+   themselves. Low risk, self-healing, deferred.
+2. No concurrency guard on the GHL push — a push race can create a duplicate GHL opportunity.
+   Low likelihood, manual cleanup if it happens.
+
+### Repo-level open items (not slice-2 scope, but discovered while building it):
+
+- **`airtable-client-sync` v19 has a dead search leg** — same broken `GET /contacts/?email=` shape
+  T9f fixed in the web app, live-422ing, silently absorbed by a fallback path. Needs its own small
+  edge-function fix task.
+- **`crew-night-before` redeploy still owed** — closes out the `_shared/package.json {"type":
+  "module"}` deploy-safety question with an actual redeploy, not just static proof.
+- **6 anon-callable `SECURITY DEFINER` clock-in-era functions** — re-weigh now that the estimate
+  tool itself ships open; this is a repo-wide security posture question, not a slice-2 one.
+
+### What's next (roughly in the order Matt is likely to want them; none blocked):
+
+1. **Merge-to-main decision** for `phase-b-slice-2` — technically clear (final review approved),
+   purely Matt's call on timing.
+2. **Vercel deploy + phone smoke** (see above) — needed before Dane/Jackson can actually use this
+   in parallel with Fillout.
+3. **Historical import of the 321 Airtable estimates** — explicitly deferred from this slice.
+   `estimate_number` 1001–1321 are reserved for it (`status='historical'`).
+4. **BL-4 — crew Slack message format** — explicitly deferred to "end of Phase B (after this
+   slice)" per Matt 2026-08-14. Now is that point.
+5. **Retiring Fillout** — only after Dane/Jackson are actually live on the builder day-to-day, not
+   automatically once the code exists.
+6. **Phase C — Expenses + dump counts (BILL)** and **Track B — Lead intake** are the next
+   not-started phases in `BUILD_PLAN.md`'s A–G sequence; Track B was flagged "start now" back in
+   July and still hasn't.
+7. The two repo-level open items above, whenever convenient — neither is urgent.
+
+Standing rules unchanged: (a) plan + explicit approval before any new build (small fixes exempt);
+(b) anything deployed/applied to Supabase committed same session; (c) BUILD_LOG.md entry at every
+session close, including docs-only ones; (d) subagent-driven with per-task opus review for anything
+build-sized; (e) Pipeline Reference base `appA7uj7FhnPp9Bvg` = Field Registry / Secrets &
+Credentials / People & IDs only, its old Build Log table is superseded.
