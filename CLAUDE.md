@@ -576,7 +576,7 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | Phase | Status |
 |---|---|
 | **A — The job record (keystone)** | 🟢 **Substantially complete 2026-08-13** — job record + GHL workflows + calendar/Slack live; BILL leg gated; night-before digest live. See `BUILD_LOG.md`. |
-| **B — Estimate builder** | 🟢 **Slice 1 MERGED to main. Slice 2 COMPLETE on branch `phase-b-slice-2` (tip `53e7d64`), 2026-08-14 — all 14 build tasks + a mid-session no-login scope change + a final whole-branch review + fix wave done, reviewed, and merged onto the branch. Not yet merged to main — that decision returns to Matt.** Slice 1 = pricing engine + schema + seeds (golden-verified to the cent). Slice 2 shipped the first Next.js app in `web/`: a mobile-first estimate builder (`/estimates/new`, live client-side recalc, quick/itemized modes, Path B toggle), a list + detail + revise flow with lifecycle actions (sent/accepted/declined, quote override with required reason, version chains, audit history), and GHL push (per-target idempotent via `ghl_push_state`, opportunity fields + draft estimate doc). **There is no login** — see "No-login estimate tool" below. Vercel deploy: see BUILD_LOG. Golden gate held throughout (engine changed by one word). |
+| **B — Estimate builder** | 🟢 **Slices 1 AND 2 MERGED TO MAIN and LIVE, 2026-08-14. Slice 2 merged as `dd6cc87` (Matt's explicit instruction, same session) and deployed to production: https://lbd-estimates.vercel.app** (Vercel project `lbd-estimates`, root `web`, include-outside-root ON, prod branch `main`). All 14 build tasks + a mid-session no-login scope change + a final whole-branch review + fix wave done and reviewed. Matt's phone smoke + the one-real-bid Fillout parallel check were still outstanding at session close — confirm before treating the builder as validated for daily use. Slice 1 = pricing engine + schema + seeds (golden-verified to the cent). Slice 2 shipped the first Next.js app in `web/`: a mobile-first estimate builder (`/estimates/new`, live client-side recalc, quick/itemized modes, Path B toggle), a list + detail + revise flow with lifecycle actions (sent/accepted/declined, quote override with required reason, version chains, audit history), and GHL push (per-target idempotent via `ghl_push_state`, opportunity fields + draft estimate doc). **There is no login** — see "No-login estimate tool" below. Vercel deploy: see BUILD_LOG. Golden gate held throughout (engine changed by one word). |
 | **C — Expenses + dump counts (BILL)** | Not started. One transaction = one dump load, so this delivers cost *and* count. |
 | **D — Time tracking** | 🔴 **Blocked** on the open decision. |
 | **E — Invoicing** | Not started. Direct Stripe, `stripe-webhook`, AR digest, Synder→QBO. |
@@ -587,8 +587,8 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 
 Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening.
 
-The Next.js/Vercel app **is now built** (Phase B slice-2, branch `phase-b-slice-2`, not yet merged
-to main): `web/` holds a Next 16 App Router + Tailwind 4 + vitest 4 app with its own `package.json`
+The Next.js/Vercel app **is built, merged to main, and LIVE at https://lbd-estimates.vercel.app**
+(Phase B slice-2, merged `dd6cc87` 2026-08-14): `web/` holds a Next 16 App Router + Tailwind 4 + vitest 4 app with its own `package.json`
 (the root `package.json` still declares only `dotenv` and is untouched). It imports the
 golden-tested `_shared/pricing.ts` via the re-export shim `web/src/lib/pricing.ts` (never forked);
 needs `supabase/functions/_shared/package.json {"type":"module"}` for Turbopack. A `pricing_variables`

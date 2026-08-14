@@ -2,13 +2,15 @@ Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (b
 truth), then BUILD_PLAN.md (official plan, phases A–G + Track B). The **2026-08-14 (night)** entry
 in BUILD_LOG.md describes exactly where things stand.
 
-## Where the last session left off (2026-08-14, night) — Phase B slice 2 COMPLETE on branch, merge-to-main pending
+## Where the last session left off (2026-08-14, night) — Phase B slice 2 SHIPPED: merged to main and LIVE in production
 
-**Phase B slice 2 (estimate builder UI + GHL push) is DONE on branch `phase-b-slice-2` (tip
-`53e7d64`), NOT merged to main.** All 14 build tasks, a mid-session no-login scope change (3 more
-tasks), and a final whole-branch review + fix wave are complete, reviewed, and merged onto the
-branch. The final review's verdict was **APPROVED FOR MERGE**. Merging to main is Matt's decision —
-nothing technical blocks it.
+**Phase B slice 2 (estimate builder UI + GHL push) is DONE, MERGED TO MAIN (`dd6cc87`, Matt's
+explicit instruction, plus close-out `4c00a61`), and DEPLOYED: https://lbd-estimates.vercel.app.**
+All 14 build tasks, a mid-session no-login scope change (3 more tasks), and a final whole-branch
+review + fix wave were completed, reviewed, and merged; the final review's verdict was APPROVED
+FOR MERGE and every merge condition was closed before the merge happened. The frozen session
+ledger (all rulings and deferred findings) is at
+`docs/superpowers/plans/2026-08-14-phase-b-slice-2-ledger.md`.
 
 **READ FIRST if you need task-level history:** the SDD ledger at
 `.superpowers/sdd/2026-08-14-phase-b-slice-2-estimate-builder-ghl-push/progress.md` (gitignored) —
@@ -67,10 +69,9 @@ context — see BUILD_LOG for full reasoning):
 
 ### What's next (roughly in the order Matt is likely to want them; none blocked):
 
-1. **Merge-to-main decision** for `phase-b-slice-2` — technically clear (final review approved),
-   purely Matt's call on timing.
-2. **Vercel deploy + phone smoke** (see above) — needed before Dane/Jackson can actually use this
-   in parallel with Fillout.
+1. ~~Merge-to-main~~ **DONE** (`dd6cc87`) and ~~Vercel deploy~~ **DONE** (live URL above). Still
+   owed from that pair: **Matt's phone smoke + the one-real-bid Fillout parallel check** — the gate
+   before Dane/Jackson use the builder in parallel with Fillout.
 3. **Historical import of the 321 Airtable estimates** — explicitly deferred from this slice.
    `estimate_number` 1001–1321 are reserved for it (`status='historical'`).
 4. **BL-4 — crew Slack message format** — explicitly deferred to "end of Phase B (after this
