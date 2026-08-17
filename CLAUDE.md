@@ -145,6 +145,48 @@ nowhere in git and a fourth was a generation stale, so redeploying from the repo
 regressed live behavior. **Any function deployed to Supabase must be committed here in the same
 session.** Verify with `mcp__Supabase__list_edge_functions` before assuming the repo is current.
 
+### Parallel agent execution — the default, not the exception
+
+**Matt's directive (2026-08-17): run agents in parallel as much as possible. Code integrity and
+quality is the first priority; efficiency is the second.** Those two are ordered, not traded off —
+parallelism buys speed by removing *idle waiting*, never by removing a review or a test gate.
+
+**Default to concurrent.** Before dispatching anything, ask "what else could be running right now?"
+and launch all of it in a single message with multiple tool calls. Serial dispatch of independent
+work is a defect in the plan, not a safe choice. What made this work in practice:
+
+- **Isolated worktrees per lane.** `git worktree add .claude/worktrees/<lane> -b <branch> main`.
+  Independent lanes build, review, and merge on their own clock; each merges to `main` as soon as
+  its own review passes, rather than waiting for a big-bang merge at the end.
+- **Explicit file ownership in every prompt.** When two agents share one worktree, name the exact
+  files each one owns and state that everything else is off-limits, including the other agent's
+  directory. Disjoint file sets make same-worktree concurrency safe.
+- **Scoped test runs while siblings are mid-flight.** Tell each agent to run only its own
+  directory's tests (`deno test supabase/functions/<fn>/`), because a sibling's transient broken
+  state produces phantom failures that agents then "helpfully" try to fix. The orchestrator runs
+  the full suite once, at the end, as the real gate.
+- **Reviews parallelize with unrelated implementation.** An adversarial review reads logic and
+  queries the live DB read-only; it does not need a green test run. So a reviewer for function A can
+  run while an agent edits function B's tests — just tell the reviewer not to run the suite and not
+  to report findings about files it doesn't own.
+- **Fix rounds parallelize too.** Two independent review-fix rounds are two lanes, not a queue.
+
+**Do NOT parallelize when:**
+- One task's output *defines the other's interface.* Wiring against a shared module that is still
+  being written wastes both agents' work. Build the interface, then fan out against it.
+- Two agents would edit the same file. There is no safe version of this.
+- The second task only exists if the first one's findings say so.
+
+**Never parallelize away a quality gate.** Every build-sized task still gets its own adversarial
+Opus review before deploy, plus a final whole-branch review. Reviews caught a name-erasing GHL PUT,
+a `sync_log` insert that had been silently rejected for 3.5 months, a migration that would have
+flipped a lifelong no-op into a live write, and a divider glyph that contradicted the approved
+brief — none of which any test would have caught. Speed comes from running those reviews
+concurrently, never from skipping one.
+
+See also the build execution model: orchestrator advises and reviews, Sonnet implements, Opus
+reviews every task plus the whole branch.
+
 ---
 
 ## What This System Does
