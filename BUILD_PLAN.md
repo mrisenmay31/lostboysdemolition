@@ -388,6 +388,59 @@ violated one channel over, by code that predates it.
   that the Slack rule is negotiable.
 - **Depends on:** nothing. Can be picked up any time.
 
+### BL-6 — Close the `airtable-client-sync` data-loss item (Matt, 2026-08-17)
+
+**Backlogged by Matt during the BL-4 build.** The *code* fix shipped 2026-08-17 (v27): the repaired
+`POST /contacts/search`, an `updateGhlContact` call on the duplicate-400 path, and a guard that
+stopped blank names erasing GHL contact names. **But the data-loss item is NOT closed**, and the
+reason is not in the code at all.
+
+The Airtable automation that invokes this function (`wflSSK2Twr9Tqwgpq`, base `apptzp0IclCaAtOk2`)
+triggers on **`recordCreated` only**. There is no `recordUpdated` automation on the Clients table.
+So the function is never invoked when someone edits a client, and no code change to it can alter
+that. All 1045 Clients rows already carry a GHL Contact ID, so the two branches the fix repaired now
+only ever run for brand-new rows.
+
+- **⚠️ The hard part is an echo loop, not the trigger.** `ghl-contact-sync` writes to Airtable →
+  `recordCreated` → `airtable-client-sync` → PUT to GHL → GHL workflow → `ghl-contact-sync` → … It
+  terminates **only** because the Airtable trigger is create-only. Daily traffic fits this exactly
+  (`ghl_to_airtable` runs ~2–3× `airtable_to_ghl`). Adding `recordUpdated` without a guard creates a
+  live infinite sync loop on a daily-traffic integration.
+- **What the work actually is:** an echo guard first — compare incoming values against
+  `client_sync_state`, or skip when the payload matches what was last synced within N seconds — and
+  only then add the `recordUpdated` trigger with `watchFields` limited to firstName, lastName, email,
+  phone, companyName, clientType.
+- **Verification note:** the repaired search leg cannot be verified from `sync_log` alone. Read the
+  edge-function console logs for `[ghl] contact search FAILED`. The
+  `20260817140000_widen_sync_log_match_method` migration added `'email_duplicate'` specifically so a
+  search-match and a duplicate-fallback stay distinguishable, but a *failing* search still needs the
+  logs. Also unconfirmed: whether the Supabase `GHL_API_KEY` is the same token/scopes the web app's
+  live-verified search was proven against.
+- **Depends on:** nothing. Blocked only on designing the echo guard deliberately.
+
+### BL-7 — Decide `handle_new_auth_user()`'s fate (Matt, 2026-08-17)
+
+**Backlogged by Matt during the BL-4 build.** Inert today; needs a decision before Phase D.
+
+The 2026-08-17 hardening pass pinned `search_path` on every legacy `SECURITY DEFINER` function
+**except this one**, deliberately. GoTrue connects as `supabase_auth_admin`, whose `search_path` is
+`auth`, so the function's unqualified `INSERT INTO users` resolves to **`auth.users`**, collides with
+the row that just landed, and is swallowed by `ON CONFLICT DO NOTHING`. It has **always** been a
+silent no-op. Live proof: `auth.users` has 1 row, `public.users` has 0 — that, not "the clock-in
+schema was never used", is why `public.users` is empty.
+
+- **The decision:** pin it (making it actually insert into `public.users`), or leave it inert, or
+  drop the trigger. Pinning is a **behaviour change**, not hardening: the next auth user created
+  would gain a `public.users` row with `role='employee'`, which activates the live
+  `get_my_role()`-based RLS policies. That is why it was not done as a side effect of a security pass.
+- **Related, and the reason this matters before Phase D:** `get_my_role()`/`get_my_crew_id()` are
+  load-bearing in **7 live RLS policies** on `users`, `crews` and `time_entries` — contradicting
+  CLAUDE.md's "RLS enabled, no policies by design" for those three tables. The hardening pass revoked
+  EXECUTE from `anon`/`authenticated`, which turns "0 rows" into "permission denied" for those roles.
+  Correct while there is no login, but **Phase D clock-in is specced against `time_entries`** and must
+  either re-grant EXECUTE to `authenticated` (with `pg_temp` pinned) or replace those policies.
+- **Depends on:** nothing. Should be settled as part of Phase D's design, not before.
+
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
 Phase A. BL-3 should not be attempted before Phase F, and paying against it should not happen
 until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 shipped
