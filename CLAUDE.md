@@ -341,15 +341,15 @@ as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic
 
 | Function | Deploy ver | Purpose |
 |---|---|---|
-| `airtable-client-sync` | **28** | Airtable Clients → GHL Contacts. Search leg repaired + duplicate path now updates + name-erasure guarded (2026-08-17). Data-loss item open → BL-6. |
+| `airtable-client-sync` | **29** | Airtable Clients → GHL Contacts. Search leg repaired + duplicate path now updates + name-erasure guarded (2026-08-17). Data-loss item open → BL-6. |
 | `ghl-contact-sync` | 27 | GHL Contacts → Airtable Clients (reverse). **Tags defect FIXED 2026-08-14** (commit `65cae85`): GHL workflow webhooks send `tags` as a comma-separated string; now normalized, and payload extraction moved inside the try so parse errors log to `sync_log` instead of escaping as unlogged 500s. Live-verified same day. Review found contacts with tags had *never* synced client type before this fix (all 590 logged payloads carried string tags). |
 | `airtable-job-created` | 21 | Jobs → GHL Opportunity at **Stage 3 only**. 15 custom fields via `buildCustomFields()` using `id:` format. Logs `job_events`. |
 | `airtable-job-scheduled` | 16 | Advances to Stage 6, creates Google Calendar events (main + crew). Slack still a placeholder. |
 | `airtable-job-completed` | 14 | Stage 8 → Stripe **draft** invoice, GHL Stage 9, task for Dane. Slack paused via `SLACK_NOTIFICATIONS_ENABLED = false`. |
 | `receive-airtable-webhook` | 11 | Writes Supabase `jobs` mirror. **No auth.** Only handles `Scheduled`/`Invoiced` — never `Completed`, so the mirror is permanently stale. Retirement queued. |
 | `push-to-airtable` | 11 | Aggregates `time_entries` → Airtable actuals. Never run. Latent bug: PATCHes a formula field. |
-| `ghl-job-webhook` | **13** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. |
-| `crew-night-before` | **10** | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. **BL-4 (2026-08-17):** new format + `———` divider between job blocks, shared module, `client_name` fallback. Discharges the owed redeploy. |
+| `ghl-job-webhook` | **16** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. |
+| `crew-night-before` | **11** | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. **BL-4 (2026-08-17):** new format + `———` divider between job blocks, shared module, `client_name` fallback. Discharges the owed redeploy. |
 
 **Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
 sum is below Total Bid, a "Project Total" line is appended for the difference. Fallback with no
@@ -465,7 +465,7 @@ affected by the first one:
   misleading `match_method`. Repairing the search alone is not sufficient; the duplicate-400 path
   needs its own `updateGhlContact` call.
 
-  **✅ CODE FIXED 2026-08-17 (v28), and the claim above is OVERSTATED — read this before repeating it.**
+  **✅ CODE FIXED 2026-08-17 (v29), and the claim above is OVERSTATED — read this before repeating it.**
   Live `sync_log` shows **313** rows of `match_method='ghl_contact_id'` / `action_taken='updated'`, so
   once a contact's GHL ID is cached back into Airtable, every *later* edit genuinely does propagate.
   The drop was **one-time per contact**, on the first sync of a contact that existed in GHL without an
@@ -480,7 +480,7 @@ affected by the first one:
   to GHL → GHL workflow → `ghl-contact-sync` → … which terminates today *only* because the trigger is
   create-only.
 
-  Also fixed in v28, and worse than previously recorded: `ghlFields` sent `firstName`/`lastName`
+  Also fixed in v29, and worse than previously recorded: `ghlFields` sent `firstName`/`lastName`
   unguarded, and they default to `''` which `JSON.stringify` keeps — so a blank Airtable name **erased
   the name on the GHL contact** (87 of 1045 rows have a blank first name, 203 a blank last name).
   And the duplicate path wrote `match_method='email_duplicate'` / `action_taken='matched_existing'`,

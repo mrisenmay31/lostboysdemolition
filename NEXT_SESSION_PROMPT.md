@@ -7,8 +7,8 @@ The approved BL-4 brief was executed, reviewed, deployed, live-verified, and mer
 **There is no build brief waiting for you this time.** Read the `2026-08-17` entry in `BUILD_LOG.md`
 before planning anything.
 
-Live now: **`ghl-job-webhook` v13**, **`crew-night-before` v10**, **`airtable-client-sync` v28**.
-Three migrations applied. `deno task test` → **312 passing** (golden-321 gate intact).
+Live now: **`ghl-job-webhook` v16**, **`crew-night-before` v11**, **`airtable-client-sync` v29**.
+Three migrations applied. `deno task test` → **312 passing** (golden-321 gate intact). NB version counters read higher than the number of real deploys — the CLI bumps unrelated already-deployed functions as a side effect, so `sha256` is what proves a redeploy, not the counter.
 
 **The estimate→job promotion now exists.** `estimates.job_number` had zero writers before this
 session. Quote Accepted back-writes it and flips the estimate to `accepted`, non-fatally.
@@ -51,7 +51,7 @@ See `BUILD_PLAN.md` → "Backlog — captured, not scheduled".
 - **BL-5** — strip `Estimate: $X` from **crew** calendar events, keep it on main. Decision already
   made. Non-trivial because one `eventBody` is built once and posted to both targets, so it needs two
   descriptions without disturbing the per-target event-ID idempotency that took two Phase A fix rounds.
-- **BL-6** — close the `airtable-client-sync` data-loss item. The **code** is fixed (v28); the gap is
+- **BL-6** — close the `airtable-client-sync` data-loss item. The **code** is fixed (v29); the gap is
   that the Airtable automation fires on `recordCreated` **only**, so edits never invoke the function.
   ⚠️ **Design the echo guard first** — `ghl-contact-sync` → Airtable → `airtable-client-sync` → GHL →
   `ghl-contact-sync` terminates today *only* because the trigger is create-only.

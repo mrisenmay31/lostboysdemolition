@@ -18,15 +18,15 @@ shipped.
 
 | Function / Component | Stage | Status | Last touched |
 |---|---|---|---|
-| `airtable-client-sync` | — | 🟢 Live (**v28**) — search leg repaired, duplicate path now updates, name-erasure guarded 2026-08-17. **Data-loss item NOT closed → BL-6** (automation is `recordCreated`-only) | 2026-08-17 |
+| `airtable-client-sync` | — | 🟢 Live (**v29**) — search leg repaired, duplicate path now updates, name-erasure guarded 2026-08-17. **Data-loss item NOT closed → BL-6** (automation is `recordCreated`-only) | 2026-08-17 |
 | `ghl-contact-sync` | — | 🟢 Live (v27+) — tags crash FIXED 2026-08-14, live-verified | 2026-08-14 |
 | `airtable-job-created` | 3 | 🟡 In Progress (v21) — **GHL UI verification still pending since 2026-05-15** | 2026-07-30 |
 | `airtable-job-scheduled` | 6 | 🟢 Live (v16) — verified end to end | 2026-05-15 |
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
-| `ghl-job-webhook` | A | 🟢 Live (**v13**) — Phase A keystone + BL-4: estimate→job promotion (chain-pivot, live-proven), 4-tier scope, new crew Slack format | 2026-08-17 |
-| `crew-night-before` | — | 🟢 Live (**v10**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
+| `ghl-job-webhook` | A | 🟢 Live (**v16**) — Phase A keystone + BL-4: estimate→job promotion (chain-pivot, live-proven), 4-tier scope, new crew Slack format | 2026-08-17 |
+| `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lbd-estimates.vercel.app** — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
 | BL-4 crew Slack + repo fixes | — | 🟢 **SHIPPED and merged to main 2026-08-17** — both crew messages reformatted, estimate→job promotion built and live-proven, 2 of 3 repo fixes done (3rd → BL-6). Suite 312. New backlog: BL-5/BL-6/BL-7 | 2026-08-17 |
@@ -49,9 +49,9 @@ Everything below is merged to `main` and live. Suite: **312 passing**, golden-32
 #### Deployed
 | Function | Version | What changed |
 |---|---|---|
-| `ghl-job-webhook` | **13** | Contact fields persisted at Quote Accepted; estimate→job promotion; 4-tier scope; new Slack format; `SLACK_TEST_CHANNEL_OVERRIDE` |
-| `crew-night-before` | **10** | Same format + divider; shared module; override no longer stamps `night_before_sent_on` |
-| `airtable-client-sync` | **28** | Repaired search, duplicate-path update, name-erasure guard |
+| `ghl-job-webhook` | **16** | Contact fields persisted at Quote Accepted; estimate→job promotion; 4-tier scope; new Slack format; `SLACK_TEST_CHANNEL_OVERRIDE` |
+| `crew-night-before` | **11** | Same format + divider; shared module; override no longer stamps `night_before_sent_on` |
+| `airtable-client-sync` | **29** | Repaired search, duplicate-path update, name-erasure guard |
 
 Migrations applied: `bl4_job_crew_fields` (5 nullable text columns on `jobs`),
 `widen_sync_log_match_method` (adds `'email_duplicate'`), `security_revoke_legacy_definers`.
