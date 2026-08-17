@@ -8,6 +8,17 @@
 import { buildJobName, clientLabel, parseCity } from "../_shared/job.ts";
 import { addOneDay, formatCurrency } from "../_shared/google.ts";
 import { writeJobEvent, writeSyncLog } from "../_shared/log.ts";
+import {
+  buildCrewJobBlock,
+  resolveCrewEnvKey,
+  type CrewEnvKey,
+} from "../_shared/slack.ts";
+
+// Re-exported so existing importers (handlers_test.ts) keep working unchanged
+// now that crew-vocabulary resolution lives in _shared/slack.ts (single source
+// of truth, shared with crew-night-before).
+export { resolveCrewEnvKey };
+export type { CrewEnvKey };
 
 // ── GHL custom field IDs — sourced from field_mapping.md (repo root) ─────────
 // field_mapping.md, Group 1 — Job Info, "Job Address"
@@ -91,7 +102,16 @@ export function mapContactToLabelInput(contact: any): {
 }
 
 /** Looks up a GHL custom field value by field ID, tolerant of the several
- *  shapes GHL's API uses for custom fields across read/write payloads. */
+ *  shapes GHL's API uses for custom fields across read/write payloads.
+ *  Deliberately does NOT fall back to `fieldValueDate` (BL-4, Task D):
+ *  `/opportunities/search` returns DATE fields as epoch milliseconds, and
+ *  this function is shared by normalizeScheduleDate's caller (which expects
+ *  a YYYY-MM-DD string or ISO timestamp) — silently accepting an epoch-ms
+ *  number here would make normalizeScheduleDate misparse it instead of
+ *  cleanly returning null. This function is only ever fed `/opportunities/{id}`
+ *  responses today (not `/opportunities/search`), so the gap is inert in
+ *  practice; excluding it is a deliberate guard against a future caller
+ *  switching sources without noticing the shape change. */
 export function getCustomFieldValue(
   customFields: any[] | null | undefined,
   fieldId: string,
@@ -99,7 +119,37 @@ export function getCustomFieldValue(
   if (!Array.isArray(customFields)) return undefined;
   const match = customFields.find((cf) => cf?.id === fieldId || cf?.fieldId === fieldId);
   if (!match) return undefined;
-  return match.field_value ?? match.fieldValue ?? match.value ?? undefined;
+  return (
+    match.field_value ??
+    match.fieldValue ??
+    match.value ??
+    match.fieldValueString ??
+    match.fieldValueArray ??
+    undefined
+  );
+}
+
+/** Extracts the three BL-4 contact fields from a GHL contact record — net
+ *  new API calls: zero, handleQuoteAccepted already holds the full contact.
+ *  Mirrors mapContactToLabelInput's defensive str() coercion so a weird GHL
+ *  shape (number, object, array) becomes null instead of leaking into the
+ *  jobs row. */
+export function extractContactJobFields(contact: any): {
+  clientContactName: string | null;
+  businessName: string | null;
+  clientPhone: string | null;
+} {
+  const str = (v: any): string | null => (typeof v === "string" ? v : null);
+  const firstName = (str(contact?.firstName) ?? "").trim();
+  const lastName = (str(contact?.lastName) ?? "").trim();
+  const fullName = `${firstName} ${lastName}`.trim();
+  const businessNameRaw = (str(contact?.companyName) ?? "").trim();
+  const phoneRaw = (str(contact?.phone) ?? "").trim();
+  return {
+    clientContactName: fullName === "" ? null : fullName,
+    businessName: businessNameRaw === "" ? null : businessNameRaw,
+    clientPhone: phoneRaw === "" ? null : phoneRaw,
+  };
 }
 
 /** Normalizes a raw GHL custom-field value into a usable address string or
@@ -182,9 +232,243 @@ async function retryGhlWriteBack(
     });
     return { status: "success", error: null };
   } catch (err: any) {
-    const msg = err.message ?? String(err);
+    const msg = err?.message ?? String(err);
     console.error("[handleQuoteAccepted] Skip-path GHL write-back retry failed (non-fatal):", msg);
     return { status: "failed", error: msg };
+  }
+}
+
+// ── Estimate → job promotion (BL-4, Task B) ──────────────────────────────────
+// estimates.job_number has zero writers before this. Non-fatal by design: a
+// job with no linked estimate is ordinary (Path A jobs created straight in
+// GHL), so nothing here may fail minting or change the HTTP status.
+
+export interface EstimateVersionRow {
+  id: string;
+  estimate_number: number;
+  version: number;
+  status: string;
+  job_number: string | null;
+  created_at?: string;
+  // F4: free text an estimator typed (quick-mode estimates carry their scope
+  // here instead of as line items). Optional/omitted on rows fetched by
+  // queries that don't need it (e.g. promoteEstimateForJob's chain-number
+  // lookup doesn't read it) — only resolveScopeSummary's tier 1/2 selects
+  // populate it.
+  job_details?: string | null;
+}
+
+/** Picks the highest-version, non-superseded row; ties break on newest
+ *  created_at. Pure — no DB access — so it's directly unit-testable. Used by
+ *  the plain `estimates` shape (tier 1 of resolveScopeSummary), and by
+ *  selectPromotableEstimate below (kept as a tested utility; as of the F2
+ *  chain-pivot fix, promoteEstimateForJob and tier 2 of resolveScopeSummary
+ *  no longer call it directly — see selectChainEstimateNumber /
+ *  fetchCurrentChainVersion instead). */
+export function pickHighestNonSupersededVersion(
+  rows: Array<EstimateVersionRow | null | undefined> | null | undefined,
+): EstimateVersionRow | null {
+  if (!Array.isArray(rows)) return null;
+  const candidates = rows.filter((r): r is EstimateVersionRow => r != null && r.status !== "superseded");
+  if (candidates.length === 0) return null;
+  return candidates.slice().sort((a, b) => {
+    if (b.version !== a.version) return b.version - a.version;
+    return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+  })[0];
+}
+
+export interface GhlPushStateEstimateRow {
+  estimate_id: string;
+  estimates: EstimateVersionRow | null;
+}
+
+/** ghl_push_state.ghl_opportunity_id is nullable, unindexed, and NOT unique
+ *  — several versions of one estimate chain can carry the same opportunity
+ *  id — so callers fetch ALL matching rows and this picks the winner. */
+export function selectPromotableEstimate(
+  rows: GhlPushStateEstimateRow[] | null | undefined,
+): EstimateVersionRow | null {
+  if (!Array.isArray(rows)) return null;
+  return pickHighestNonSupersededVersion(rows.map((r) => r?.estimates));
+}
+
+export type PromotionOutcome = "promoted" | "skipped" | "not_found" | "failed" | "conflict";
+
+export interface PromotionResult {
+  outcome: PromotionOutcome;
+  estimateNumber?: number;
+  detail?: string;
+}
+
+/** F2/F6: picks which estimate_number CHAIN to pivot on, from
+ *  ghl_push_state-joined rows for one opportunity. Deliberately does NOT
+ *  drop superseded rows the way pickHighestNonSupersededVersion does — a
+ *  push-state row pointing at a now-superseded version still correctly
+ *  identifies which chain this opportunity belongs to (the common failure
+ *  mode this fixes: v1 was pushed and later superseded by a revise, v2 was
+ *  never re-pushed, so only v1 has a ghl_push_state row at all).
+ *  F6: when every row shares one estimate_number (the overwhelming common
+ *  case) that number wins outright. When rows carry more than one DISTINCT
+ *  estimate_number — two chains sharing one opportunity, a known
+ *  low-probability outcome of the non-atomic push race documented on
+ *  ghl_push_state — "highest version" is meaningless across chains (chain A
+ *  v3, obsolete, would beat chain B v1, current), so the row with the
+ *  newest created_at wins instead. */
+export function selectChainEstimateNumber(
+  rows: GhlPushStateEstimateRow[] | null | undefined,
+): number | null {
+  if (!Array.isArray(rows)) return null;
+  const candidates = rows
+    .map((r) => r?.estimates)
+    .filter((e): e is EstimateVersionRow => e != null);
+  if (candidates.length === 0) return null;
+
+  const distinctNumbers = new Set(candidates.map((c) => c.estimate_number));
+  if (distinctNumbers.size === 1) {
+    return candidates[0].estimate_number;
+  }
+  const winner = candidates.slice().sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""))[0];
+  return winner.estimate_number;
+}
+
+/** F2: resolves the CURRENT (highest non-superseded) version of an estimate
+ *  chain directly from `estimates`, keyed on estimate_number — not on
+ *  whichever specific row a caller happened to already be holding. This is
+ *  what makes the ordinary revise flow work: a chain's current version
+ *  often has no ghl_push_state row of its own (the GHL push is a manual
+ *  button, so a fresh revise frequently isn't re-pushed), so picking only
+ *  from push-state-embedded rows misses it. Same non-monetary column list
+ *  as every other estimates query in this file — money invariant intact. */
+async function fetchCurrentChainVersion(
+  supabase: any,
+  estimateNumber: number,
+): Promise<{ row: EstimateVersionRow | null; error: string | null }> {
+  // F4: job_details included so resolveScopeSummary's tier 2.5 can use it
+  // without a second lookup (promoteEstimateForJob, which shares this
+  // function, simply ignores the extra column).
+  const { data, error } = await supabase
+    .from("estimates")
+    .select("id, estimate_number, version, status, job_number, created_at, job_details")
+    .eq("estimate_number", estimateNumber)
+    .neq("status", "superseded")
+    .order("version", { ascending: false })
+    .limit(1);
+  if (error) return { row: null, error: error.message ?? String(error) };
+  const row = Array.isArray(data) && data.length > 0 ? data[0] : null;
+  return { row, error: null };
+}
+
+/** Finds the estimate CHAIN linked to this GHL opportunity via
+ *  ghl_push_state (F2: pivoting on the chain's estimate_number, not
+ *  whichever row happens to carry a push-state entry — see
+ *  selectChainEstimateNumber / fetchCurrentChainVersion) and back-writes
+ *  job_number + status='accepted' via the two mutation RPCs. Idempotent
+ *  (skips a write whose value already matches) and NEVER throws — every
+ *  failure mode returns outcome:'failed' instead of propagating, per the
+ *  brief: this must never fail minting or change the HTTP status. */
+export async function promoteEstimateForJob(
+  supabase: any,
+  opportunityId: string,
+  jobNumber: string,
+): Promise<PromotionResult> {
+  try {
+    // F6: explicit server-side order — without one, two rows tied on
+    // (version, created_at) resolve to arbitrary PostgREST row order.
+    const { data: rows, error } = await supabase
+      .from("ghl_push_state")
+      .select("estimate_id, estimates(id, estimate_number, version, status, job_number, created_at)")
+      .eq("ghl_opportunity_id", opportunityId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      const msg = `Estimate lookup failed: ${error.message ?? String(error)}`;
+      console.error("[promoteEstimateForJob]", msg);
+      return { outcome: "failed", detail: msg };
+    }
+
+    const estimateNumber = selectChainEstimateNumber(rows);
+    if (estimateNumber === null) {
+      return { outcome: "not_found" };
+    }
+
+    const { row: picked, error: chainError } = await fetchCurrentChainVersion(supabase, estimateNumber);
+    if (chainError) {
+      const msg = `Chain lookup failed for estimate_number ${estimateNumber}: ${chainError}`;
+      console.error("[promoteEstimateForJob]", msg);
+      return { outcome: "failed", detail: msg };
+    }
+    if (!picked) {
+      // Every version of this chain is superseded — nothing current to promote.
+      return { outcome: "not_found" };
+    }
+
+    // F7: guard the shape before it's used as an RPC argument — a future
+    // one-to-many embed (or any unexpected shape) must fail legibly here
+    // instead of silently passing p_id: undefined into the RPC.
+    if (typeof picked.id !== "string") {
+      const msg =
+        `Chain lookup for estimate_number ${estimateNumber} returned a row with a non-string id ` +
+        "(possible one-to-many embed) — refusing to call the RPC";
+      console.error("[promoteEstimateForJob]", msg);
+      return { outcome: "failed", detail: msg, estimateNumber: picked.estimate_number };
+    }
+
+    // F3: estimates.job_number is a single column FK'd to jobs — an
+    // estimate belongs to exactly one job. A non-null, DIFFERENT job_number
+    // here means this chain is already linked elsewhere (plausible via the
+    // documented non-atomic ghl_push_state push race that can create a
+    // duplicate GHL opportunity) — overwriting it would start a permanent
+    // ping-pong between the two opportunities and pollute
+    // estimate_mutations_audit with two audit rows per flip, forever.
+    // Refuse loudly instead of writing.
+    if (picked.job_number !== null && picked.job_number !== jobNumber) {
+      const msg =
+        `Refusing to overwrite job_number — estimate ${picked.estimate_number} is already linked to ` +
+        `${picked.job_number}, this fire wants to link it to ${jobNumber}`;
+      console.error("[promoteEstimateForJob]", msg);
+      return { outcome: "conflict", detail: msg, estimateNumber: picked.estimate_number };
+    }
+
+    const needsJobNumber = picked.job_number !== jobNumber;
+    const needsStatus = picked.status !== "accepted";
+
+    if (!needsJobNumber && !needsStatus) {
+      return { outcome: "skipped", estimateNumber: picked.estimate_number };
+    }
+
+    if (needsJobNumber) {
+      const { error: jobNumberError } = await supabase.rpc("update_estimate_job_number", {
+        p_id: picked.id,
+        p_job_number: jobNumber,
+        p_actor: null,
+        p_actor_name: "ghl-job-webhook",
+      });
+      if (jobNumberError) {
+        const msg = `update_estimate_job_number failed: ${jobNumberError.message ?? String(jobNumberError)}`;
+        console.error("[promoteEstimateForJob]", msg);
+        return { outcome: "failed", detail: msg, estimateNumber: picked.estimate_number };
+      }
+    }
+
+    if (needsStatus) {
+      const { error: statusError } = await supabase.rpc("update_estimate_status", {
+        p_id: picked.id,
+        p_status: "accepted",
+        p_actor: null,
+        p_actor_name: "ghl-job-webhook",
+      });
+      if (statusError) {
+        const msg = `update_estimate_status failed: ${statusError.message ?? String(statusError)}`;
+        console.error("[promoteEstimateForJob]", msg);
+        return { outcome: "failed", detail: msg, estimateNumber: picked.estimate_number };
+      }
+    }
+
+    return { outcome: "promoted", estimateNumber: picked.estimate_number };
+  } catch (err: any) {
+    const msg = err?.message ?? String(err);
+    console.error("[promoteEstimateForJob] unexpected error (non-fatal):", msg);
+    return { outcome: "failed", detail: msg };
   }
 }
 
@@ -196,6 +480,10 @@ async function respondSkipped(
   summaryPrefix: string,
 ): Promise<HandlerResult> {
   const retry = await retryGhlWriteBack(deps, opportunityId, job);
+  // BL-4 Task B: promotion deserves the same self-healing treatment as the
+  // GHL write-back retry above — a re-fired webhook can repair a prior
+  // partial promotion failure too.
+  const promotion = await promoteEstimateForJob(supabase, opportunityId, job.job_number);
 
   // Cleanup (controller ruling, fix round 2, I8b; corrected fix round 1, I4):
   // sync_log used to hardcode action_taken:'skipped'/status:'success'
@@ -221,9 +509,9 @@ async function respondSkipped(
     trigger_source: "ghl_workflow",
     ghl_opportunity_id: opportunityId,
     action_summary:
-      retry.status === "success"
+      (retry.status === "success"
         ? `${summaryPrefix}; GHL write-back re-confirmed`
-        : `${summaryPrefix}; GHL write-back retry failed`,
+        : `${summaryPrefix}; GHL write-back retry failed`) + `; promotion: ${promotion.outcome}`,
     status: retry.status === "success" ? "skipped" : "error",
     error_message: retry.status === "failed" ? `GHL PUT retry failed (non-fatal): ${retry.error}` : null,
     payload_in: deps.payloadIn,
@@ -231,7 +519,7 @@ async function respondSkipped(
 
   return {
     status: 200,
-    body: { action: "skipped", job_number: job.job_number, ghl_update: retry.status },
+    body: { action: "skipped", job_number: job.job_number, ghl_update: retry.status, promotion: promotion.outcome },
   };
 }
 
@@ -291,7 +579,7 @@ export async function handleQuoteAccepted(
       const contact = await deps.fetchContact(contactId);
       contactRecord = contact?.contact ?? contact;
     } catch (err: any) {
-      const msg = `Failed to fetch opportunity/contact: ${err.message ?? String(err)}`;
+      const msg = `Failed to fetch opportunity/contact: ${err?.message ?? String(err)}`;
       console.error("[handleQuoteAccepted]", msg);
       await writeSyncLog(supabase, {
         direction: "ghl_to_supabase",
@@ -319,6 +607,7 @@ export async function handleQuoteAccepted(
     const labelInput = mapContactToLabelInput(contactRecord);
     const client = clientLabel(labelInput);
     const clientType = resolveClientType(contactRecord?.tags);
+    const contactJobFields = extractContactJobFields(contactRecord);
 
     // I1/I6: coerce non-string/empty custom-field values to null so an
     // unexpected GHL shape falls through to the contact-address fallback
@@ -379,6 +668,9 @@ export async function handleQuoteAccepted(
         ghl_contact_id: contactId,
         estimate_value: estimateValue,
         status_v2: "accepted",
+        client_contact_name: contactJobFields.clientContactName,
+        business_name: contactJobFields.businessName,
+        client_phone: contactJobFields.clientPhone,
       })
       .select("id, job_number")
       .single();
@@ -474,9 +766,12 @@ export async function handleQuoteAccepted(
       });
     } catch (err: any) {
       ghlUpdateStatus = "failed";
-      ghlUpdateError = err.message ?? String(err);
+      ghlUpdateError = err?.message ?? String(err);
       console.error("[handleQuoteAccepted] GHL opportunity update failed (non-fatal):", ghlUpdateError);
     }
+
+    // BL-4 Task B: the estimate → job promotion, non-fatal (see promoteEstimateForJob).
+    const promotion = await promoteEstimateForJob(supabase, opportunityId, jobNumber);
 
     await writeJobEvent(supabase, {
       job_number: jobNumber,
@@ -486,9 +781,9 @@ export async function handleQuoteAccepted(
       trigger_source: "ghl_workflow",
       ghl_opportunity_id: opportunityId,
       action_summary:
-        ghlUpdateStatus === "success"
+        (ghlUpdateStatus === "success"
           ? "Job created and GHL opportunity updated"
-          : "Job created; GHL opportunity update failed",
+          : "Job created; GHL opportunity update failed") + `; promotion: ${promotion.outcome}`,
       status: ghlUpdateStatus === "success" ? "success" : "error",
       error_message: ghlUpdateStatus === "failed" ? `GHL PUT failed (non-fatal): ${ghlUpdateError}` : null,
       payload_in: deps.payloadIn,
@@ -509,13 +804,14 @@ export async function handleQuoteAccepted(
         action: "created",
         job_number: jobNumber,
         ghl_update: ghlUpdateStatus,
+        promotion: promotion.outcome,
       },
     };
   } catch (err: any) {
     // I1: anything that slipped past every specific try/catch above (e.g. a
     // synchronous throw from the supabase client, or an unanticipated shape
     // bug) still lands here instead of crashing the request unhandled.
-    const msg = `Unexpected error in handleQuoteAccepted: ${err.message ?? String(err)}`;
+    const msg = `Unexpected error in handleQuoteAccepted: ${err?.message ?? String(err)}`;
     console.error("[handleQuoteAccepted]", msg);
     await writeSyncLog(supabase, {
       direction: "ghl_to_supabase",
@@ -550,6 +846,15 @@ export async function handleQuoteAccepted(
 export const CREW_FIELD_ID = "fZ0oA8LnX0mK1k2or4Yi";
 export const START_DATE_FIELD_ID = "j62a5w1P2v0YvgZ3dI6z";
 export const END_DATE_FIELD_ID = "5SplCgVz5cocqIX21RQs";
+// ghl_field_mapping.md, Group 3 — Scheduling, "Job Start Time" (TEXT — free
+// text, not reliably populated per Matt; never parsed/reformatted).
+export const START_TIME_FIELD_ID = "qJOGxmXtwExCNpoBrp1h";
+// ghl_field_mapping.md, Group 2 — Estimate, "Job Scope" (MULTIPLE_OPTIONS).
+// Zero of 11 live opportunities have this populated as of BL-4, so its
+// runtime value shape is unobserved — normalizeJobScopeNames is tolerant of
+// every shape GHL is known to use for multi-value fields elsewhere in this
+// repo (see the tags-as-comma-string defect in ghl-contact-sync).
+export const JOB_SCOPE_FIELD_ID = "lm91PNb2dNB2g0GPoUuU";
 
 // ── Pure extraction / validation helpers ────────────────────────────────────
 
@@ -579,10 +884,86 @@ export function normalizeScheduleDate(raw: unknown): string | null {
   return datePart;
 }
 
+/** Job Start Time is free text off a TEXT field — trim only, never parse or
+ *  reformat. Blank/non-string becomes null so the caller can simply omit the
+ *  line rather than render an empty one. */
+export function normalizeStartTime(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+/** Tolerant of every shape GHL is known to use for a MULTIPLE_OPTIONS field:
+ *  an array of plain strings; an array of objects carrying name/value/label;
+ *  a single comma-separated string (the same shape bug ghl-contact-sync hit
+ *  on `tags`); a single plain string (handled by the same split(",") path —
+ *  a string with no commas just yields a one-element array); a nested array
+ *  (F9 — e.g. `[["Kitchen Demo"]]`, flattened rather than silently dropped);
+ *  or null/undefined/other junk, which becomes []. Trims each entry, drops
+ *  empties, dedupes, and preserves first-seen order. */
+export function normalizeJobScopeNames(raw: unknown): string[] {
+  const pickStringField = (obj: Record<string, unknown>, key: string): string | null => {
+    const v = obj[key];
+    return typeof v === "string" ? v : null;
+  };
+
+  // F9: returns a LIST, not a single name-or-null — two fixes bundled in
+  // because both are the same root cause (an item that "looks empty" under
+  // the old single-candidate logic actually isn't):
+  //   1. `obj.name ?? obj.value ?? obj.label` used to short-circuit on a
+  //      present-but-non-string `name` (e.g. {name: 123, value: "Kitchen
+  //      Demo"}), dropping a perfectly usable `value`. Each field is now
+  //      checked independently.
+  //   2. A nested array is an "object" by typeof with none of
+  //      name/value/label, so it silently became []. It's now flattened
+  //      (recursively, via the same function) instead of dropped.
+  const toNames = (item: unknown): string[] => {
+    if (typeof item === "string") {
+      const trimmed = item.trim();
+      return trimmed === "" ? [] : [trimmed];
+    }
+    if (Array.isArray(item)) {
+      return item.flatMap(toNames);
+    }
+    if (item !== null && typeof item === "object") {
+      const obj = item as Record<string, unknown>;
+      const candidate =
+        pickStringField(obj, "name") ?? pickStringField(obj, "value") ?? pickStringField(obj, "label");
+      if (candidate !== null) {
+        const trimmed = candidate.trim();
+        return trimmed === "" ? [] : [trimmed];
+      }
+    }
+    return [];
+  };
+
+  let items: unknown[];
+  if (Array.isArray(raw)) {
+    items = raw;
+  } else if (typeof raw === "string") {
+    items = raw.split(",");
+  } else {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const names: string[] = [];
+  for (const item of items) {
+    for (const name of toNames(item)) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      names.push(name);
+    }
+  }
+  return names;
+}
+
 export interface ScheduleFields {
   crew: string | null;
   startDate: string | null;
   endDate: string | null;
+  startTime: string | null;
+  jobScopeNames: string[];
 }
 
 export function extractScheduleFields(opp: any): ScheduleFields {
@@ -591,6 +972,8 @@ export function extractScheduleFields(opp: any): ScheduleFields {
     crew: normalizeCrew(getCustomFieldValue(customFields, CREW_FIELD_ID)),
     startDate: normalizeScheduleDate(getCustomFieldValue(customFields, START_DATE_FIELD_ID)),
     endDate: normalizeScheduleDate(getCustomFieldValue(customFields, END_DATE_FIELD_ID)),
+    startTime: normalizeStartTime(getCustomFieldValue(customFields, START_TIME_FIELD_ID)),
+    jobScopeNames: normalizeJobScopeNames(getCustomFieldValue(customFields, JOB_SCOPE_FIELD_ID)),
   };
 }
 
@@ -617,22 +1000,8 @@ export function shouldSkipSchedule(
   return { skip: false };
 }
 
-// ── Crew → env-key resolution (shared shape for calendar + Slack maps) ──────
-
-export type CrewEnvKey = "crew1" | "crew2" | "crew3" | "crew4";
-
-const CREW_ENV_KEY_MAP: Record<string, CrewEnvKey> = {
-  "crew 1": "crew1",
-  "crew 2": "crew2",
-  "crew 3": "crew3",
-  "crew 4": "crew4",
-};
-
-/** Case-insensitive/trimmed match — pattern airtable-job-scheduled/index.ts:64. */
-export function resolveCrewEnvKey(crew: string | null): CrewEnvKey | null {
-  if (!crew) return null;
-  return CREW_ENV_KEY_MAP[crew.trim().toLowerCase()] ?? null;
-}
+// ── Crew → env-key resolution: CrewEnvKey / resolveCrewEnvKey now imported
+//    from _shared/slack.ts (single source of truth) and re-exported above ──
 
 // ── Calendar event body ──────────────────────────────────────────────────────
 
@@ -672,31 +1041,235 @@ export function buildCalendarEventBody(job: ScheduleJobInput): {
   };
 }
 
-// ── Slack message ────────────────────────────────────────────────────────────
+// ── Scope summary — three-tier hybrid source (BL-4, Task C) ──────────────────
+// 🚨 HARD RULE: never read or forward GHL "Scope Notes" (PdNTCRzIpYi3IANr71eh)
+// — it carries total bid, quoted price, markup %, and true margin %. No
+// pricing may reach a crew message. Likewise, only name/description are ever
+// rendered from a line item — never hours, dump counts, or materials cost.
 
-function formatScheduleDate(yyyyMmDd: string): string {
-  const [y, m, d] = yyyyMmDd.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  const weekday = dt.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" });
-  const month = dt.toLocaleDateString("en-US", { month: "short", timeZone: "UTC" });
-  return `${weekday} ${month} ${d}`;
+export interface ScopeLineItem {
+  name: string;
+  description: string | null;
 }
 
-/** Exact template per controller ruling — omit 📍/👤 lines when null; no
- *  🕗/📞 (those fields don't exist on the jobs row). */
-export function buildSlackScheduleMessage(job: {
-  job_name: string;
-  start_date: string;
-  job_address: string | null;
-  client_name: string | null;
-}): string {
-  const lines = [
-    `🏗️ New job scheduled: ${job.job_name}`,
-    `📅 ${formatScheduleDate(job.start_date)}`,
-  ];
-  if (job.job_address) lines.push(`📍 ${job.job_address}`);
-  if (job.client_name) lines.push(`👤 ${job.client_name}`);
-  return lines.join("\n");
+/** Tier 1 & 2 renderer: one line per item, `"name — description"` when a
+ *  non-blank description exists, else just `name`. Caller supplies items
+ *  already ordered by sort_order. */
+export function buildScopeSummaryFromLineItems(
+  items: ScopeLineItem[] | null | undefined,
+): string | null {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const lines = items.map((item) => {
+    const desc = item.description?.trim();
+    return desc ? `${item.name} — ${desc}` : item.name;
+  });
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
+/** Tier 3 renderer (GHL fallback): name only, one per line — no descriptions
+ *  exist on a bare GHL Job Scope picklist value. */
+export function buildScopeSummaryFromScopeNames(names: string[] | null | undefined): string | null {
+  if (!Array.isArray(names) || names.length === 0) return null;
+  return names.join("\n");
+}
+
+// ── F4: job_details currency guardrail ───────────────────────────────────────
+// job_details is free text an ESTIMATOR typed (quick-mode estimates have no
+// line items and carry their scope here instead) — unlike every other scope
+// source in this file, it is NOT a controlled vocabulary and CAN contain
+// pricing: a dollar figure, a bare decimal that looks like money, or a
+// markup/margin percentage. This is the only scope source with that risk.
+// stripCurrencyFromScopeText is the guardrail that makes it safe to forward
+// to a crew Slack message — do not "simplify" it away; removing this call
+// would leak dollar figures/percentages onto crew phones.
+//
+// Money-looking tokens are REMOVED (not replaced with a placeholder like
+// "[redacted]") so a line whose entire content was a bare figure collapses
+// to empty and is dropped, rather than surviving as a content-free
+// "[redacted]" line. Surrounding prose on the same line is preserved.
+// Known limitation: a legitimate non-money decimal on its own line (e.g.
+// "3.5 loads") is indistinguishable from a money figure by regex alone and
+// will also be stripped — accepted per the brief's explicit test list, which
+// only requires plain INTEGERS ("3 loads", "2 bathrooms") to survive untouched.
+const MONEY_DOLLAR_RE = /\$\s*\d[\d,]*(?:\.\d+)?/g;
+const MONEY_PERCENT_RE = /\d+(?:\.\d+)?\s*%/g;
+// F4 fix (own test caught it): digit run before the optional thousands
+// groups must NOT be capped at \d{1,3} — that only matched grouped figures
+// like "4,250.00" and silently missed a plain "4250.00" (4+ digits, no
+// commas), which is exactly the "bare decimal" case this regex exists for.
+const MONEY_BARE_DECIMAL_RE = /\b\d+(?:,\d{3})*\.\d+\b/g;
+
+/** Strips currency-looking tokens (dollar amounts, percentages, bare
+ *  decimals) out of free text, line by line. A line left empty/
+ *  whitespace-only after stripping is dropped entirely; returns null if
+ *  nothing survives. Pure — no DB access. */
+export function stripCurrencyFromScopeText(raw: string | null | undefined): string | null {
+  if (typeof raw !== "string") return null;
+  const survivors: string[] = [];
+  for (const line of raw.split("\n")) {
+    const stripped = line
+      .replace(MONEY_DOLLAR_RE, "")
+      .replace(MONEY_PERCENT_RE, "")
+      .replace(MONEY_BARE_DECIMAL_RE, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .trim();
+    if (stripped !== "") survivors.push(stripped);
+  }
+  return survivors.length > 0 ? survivors.join("\n") : null;
+}
+
+// F1: 'error' is deliberately distinct from 'none' — the old code collapsed
+// "a lookup failed" and "genuinely no scope exists" into the same
+// {summary: null, tier: 'none'}, and the terminal update wrote that null
+// unconditionally, silently and permanently erasing any previously-good
+// scope_summary on the next transient DB blip (no other writer exists for
+// that column). 'error' means "we couldn't tell" and must never overwrite
+// known-good text; 'none' still means "genuinely nothing to show."
+export type ScopeTier =
+  | "estimate_by_job_number"
+  | "estimate_by_push_state"
+  | "estimate_job_details"
+  | "ghl_fallback"
+  | "none"
+  | "error";
+
+export interface ScopeResolution {
+  summary: string | null;
+  tier: ScopeTier;
+}
+
+/** Reads estimate_line_items for a given estimate, ordered by sort_order.
+ *  Non-fatal — a lookup error logs and returns errored:true so the caller
+ *  both falls through to the next tier AND can tell 'error' apart from a
+ *  genuine "no line items" ('errored' is not the same thing as an empty
+ *  summary — an estimate with zero line items is legitimate). */
+async function fetchLineItemSummary(
+  supabase: any,
+  estimateId: string,
+): Promise<{ summary: string | null; errored: boolean }> {
+  try {
+    const { data: items, error } = await supabase
+      .from("estimate_line_items")
+      .select("name, description, sort_order")
+      .eq("estimate_id", estimateId)
+      .order("sort_order", { ascending: true });
+    if (error) {
+      console.error("[resolveScopeSummary] line item lookup failed (non-fatal):", error.message ?? String(error));
+      return { summary: null, errored: true };
+    }
+    return { summary: buildScopeSummaryFromLineItems(items), errored: false };
+  } catch (err: any) {
+    console.error("[resolveScopeSummary] line item lookup threw (non-fatal):", err?.message ?? String(err));
+    return { summary: null, errored: true };
+  }
+}
+
+/** Four-tier hybrid scope source (Matt's decision; F4 added tier 2.5):
+ *  1. The promoted link — an estimates row whose job_number matches this
+ *     job, highest non-superseded version.
+ *  2. The ghl_push_state link — promotion may have failed on a prior fire;
+ *     re-derive the estimate CHAIN via the opportunity's push-state rows
+ *     (F2: pivoting on estimate_number via selectChainEstimateNumber /
+ *     fetchCurrentChainVersion, not on whichever specific version happens
+ *     to carry a push-state row — same fix as promoteEstimateForJob, same
+ *     reason: the current version of a chain is frequently never re-pushed
+ *     after a revise).
+ *  2.5. F4: the job_details free text on whichever estimate tier 1 or 2
+ *     already resolved (NO additional lookup — quick-mode estimates have
+ *     zero line items, so tiers 1/2 above resolve an estimate but return no
+ *     summary; this is the common case, not an edge case — 12 of 16 live
+ *     estimates as of this fix). Currency-stripped, see
+ *     stripCurrencyFromScopeText.
+ *  3. GHL fallback — the opportunity's own Job Scope picklist, name only.
+ *  Every DB call is wrapped so a lookup failure falls through to the next
+ *  tier instead of failing the whole job_scheduled request; the final
+ *  fallback (tier 3) is pure and cannot fail. `hadLookupError` tracks
+ *  whether any tier failed outright (as opposed to legitimately finding
+ *  nothing) so the function can report 'error' instead of 'none' — see
+ *  ScopeTier. */
+export async function resolveScopeSummary(
+  supabase: any,
+  jobRow: { job_number: string },
+  opportunityId: string,
+  jobScopeNames: string[],
+): Promise<ScopeResolution> {
+  let hadLookupError = false;
+  // F4: whichever estimate row tier 1 or 2 resolves, captured for tier 2.5
+  // so it never needs a second lookup. Tier 1 wins if both resolve one.
+  let resolvedEstimate: EstimateVersionRow | null = null;
+
+  // Tier 1
+  try {
+    const { data: rows, error } = await supabase
+      .from("estimates")
+      .select("id, estimate_number, version, status, job_number, created_at, job_details")
+      .eq("job_number", jobRow.job_number);
+    if (error) {
+      hadLookupError = true;
+      console.error("[resolveScopeSummary] tier1 estimates lookup failed (non-fatal):", error.message ?? String(error));
+    } else {
+      const picked = pickHighestNonSupersededVersion(rows);
+      if (picked) {
+        resolvedEstimate = picked;
+        const { summary, errored } = await fetchLineItemSummary(supabase, picked.id);
+        if (errored) hadLookupError = true;
+        if (summary) return { summary, tier: "estimate_by_job_number" };
+      }
+    }
+  } catch (err: any) {
+    hadLookupError = true;
+    console.error("[resolveScopeSummary] tier1 unexpected error (non-fatal):", err?.message ?? String(err));
+  }
+
+  // Tier 2 — F2 chain pivot, mirroring promoteEstimateForJob.
+  try {
+    // F6: explicit server-side order for the same tie-break reason as
+    // promoteEstimateForJob's identical query.
+    const { data: rows, error } = await supabase
+      .from("ghl_push_state")
+      .select("estimate_id, estimates(id, estimate_number, version, status, job_number, created_at)")
+      .eq("ghl_opportunity_id", opportunityId)
+      .order("created_at", { ascending: false });
+    if (error) {
+      hadLookupError = true;
+      console.error("[resolveScopeSummary] tier2 ghl_push_state lookup failed (non-fatal):", error.message ?? String(error));
+    } else {
+      const estimateNumber = selectChainEstimateNumber(rows);
+      if (estimateNumber !== null) {
+        const { row: picked, error: chainError } = await fetchCurrentChainVersion(supabase, estimateNumber);
+        if (chainError) {
+          hadLookupError = true;
+          console.error("[resolveScopeSummary] tier2 chain lookup failed (non-fatal):", chainError);
+        } else if (picked) {
+          // F4: tier 1 takes priority for the tier-2.5 fallback below — only
+          // set resolvedEstimate here if tier 1 didn't already resolve one.
+          if (!resolvedEstimate) resolvedEstimate = picked;
+          const { summary, errored } = await fetchLineItemSummary(supabase, picked.id);
+          if (errored) hadLookupError = true;
+          if (summary) return { summary, tier: "estimate_by_push_state" };
+        }
+      }
+    }
+  } catch (err: any) {
+    hadLookupError = true;
+    console.error("[resolveScopeSummary] tier2 unexpected error (non-fatal):", err?.message ?? String(err));
+  }
+
+  // Tier 2.5 (F4) — job_details on the estimate tier 1/2 already resolved.
+  // No additional DB call. See the currency-guardrail comment above
+  // stripCurrencyFromScopeText: job_details is the ONLY scope source that
+  // can contain pricing, and the strip call is load-bearing — do not remove
+  // it "to simplify."
+  if (resolvedEstimate) {
+    const stripped = stripCurrencyFromScopeText(resolvedEstimate.job_details ?? null);
+    if (stripped) return { summary: stripped, tier: "estimate_job_details" };
+  }
+
+  // Tier 3 — pure, cannot fail.
+  const fallback = buildScopeSummaryFromScopeNames(jobScopeNames);
+  if (fallback) return { summary: fallback, tier: "ghl_fallback" };
+
+  return { summary: null, tier: hadLookupError ? "error" : "none" };
 }
 
 // ── handleJobScheduled — deps-injected orchestration ─────────────────────────
@@ -734,6 +1307,11 @@ interface ScheduleJobRow {
   gcal_crew_event_id: string | null;
   slack_notified_at: string | null;
   bill_job_code: string | null;
+  client_contact_name: string | null;
+  business_name: string | null;
+  client_phone: string | null;
+  start_time: string | null;
+  scope_summary: string | null;
 }
 
 export async function handleJobScheduled(
@@ -748,7 +1326,8 @@ export async function handleJobScheduled(
       .from("jobs")
       .select(
         "id, job_number, job_name, client_name, job_address, estimate_value, crew, " +
-          "start_date, end_date, gcal_main_event_id, gcal_crew_event_id, slack_notified_at, bill_job_code",
+          "start_date, end_date, gcal_main_event_id, gcal_crew_event_id, slack_notified_at, bill_job_code, " +
+          "client_contact_name, business_name, client_phone, start_time, scope_summary",
       )
       .eq("ghl_opportunity_id", opportunityId)
       .maybeSingle();
@@ -768,7 +1347,13 @@ export async function handleJobScheduled(
     }
 
     if (!job) {
-      const guard = shouldSkipSchedule(null, { crew: null, startDate: null, endDate: null });
+      const guard = shouldSkipSchedule(null, {
+        crew: null,
+        startDate: null,
+        endDate: null,
+        startTime: null,
+        jobScopeNames: [],
+      });
       // F5 (final review): this is NOT a benign skip — job_scheduled firing with no
       // matching job row means Quote Accepted was very likely never processed (or its
       // insert failed), so the job was never created. That must be loud, not a quiet
@@ -808,7 +1393,7 @@ export async function handleJobScheduled(
       const opportunity = await deps.fetchOpportunity(opportunityId);
       opp = opportunity?.opportunity ?? opportunity;
     } catch (err: any) {
-      const msg = `Failed to fetch opportunity: ${err.message ?? String(err)}`;
+      const msg = `Failed to fetch opportunity: ${err?.message ?? String(err)}`;
       console.error("[handleJobScheduled]", msg);
       await writeSyncLog(supabase, {
         direction: "ghl_to_supabase",
@@ -980,7 +1565,7 @@ export async function handleJobScheduled(
             }
           });
         } catch (err: any) {
-          errors.push(`access-token: ${err.message ?? String(err)}`);
+          errors.push(`access-token: ${err?.message ?? String(err)}`);
         }
       }
 
@@ -1033,6 +1618,12 @@ export async function handleJobScheduled(
       calendarStatus = "stale";
     }
 
+    // ── Scope summary — three-tier hybrid source (BL-4, Task C) ───────────────
+    // Recomputed every fire (not idempotency-gated) — same pattern as
+    // crew/start_date/end_date below, which are also unconditionally
+    // overwritten each fire.
+    const scopeResolution = await resolveScopeSummary(supabase, jobRow, opportunityId, fields.jobScopeNames);
+
     // ── Leg 2: Slack (idempotent on slack_notified_at) ────────────────────────
     let slackStatus: LegStatus;
     let slackNotified = false;
@@ -1049,11 +1640,19 @@ export async function handleJobScheduled(
           : "crew not mapped to a known crew Slack channel";
       } else {
         try {
-          const message = buildSlackScheduleMessage({
-            job_name: jobRow.job_name,
-            start_date: startDate,
-            job_address: jobRow.job_address,
-            client_name: jobRow.client_name,
+          // Prefer freshly-computed values (startDate/fields.startTime/
+          // scopeResolution.summary) over the possibly-stale jobRow columns
+          // of the same name — jobRow.start_time/scope_summary reflect the
+          // PRIOR fire, not this one.
+          const message = buildCrewJobBlock({
+            headline: `🏗️ New job scheduled — ${jobRow.job_number}`,
+            contactName: jobRow.client_contact_name,
+            businessName: jobRow.business_name,
+            clientPhone: jobRow.client_phone,
+            startDate,
+            startTime: fields.startTime,
+            jobAddress: jobRow.job_address,
+            scopeSummary: scopeResolution.summary,
           });
           const result = await deps.postSlackMessage(channel, message);
           if (result.ok) {
@@ -1065,7 +1664,7 @@ export async function handleJobScheduled(
           }
         } catch (err: any) {
           slackStatus = "error";
-          slackError = err.message ?? String(err);
+          slackError = err?.message ?? String(err);
         }
       }
     }
@@ -1091,7 +1690,7 @@ export async function handleJobScheduled(
         }
       } catch (err: any) {
         billStatus = "error";
-        billError = err.message ?? String(err);
+        billError = err?.message ?? String(err);
       }
     }
 
@@ -1104,9 +1703,23 @@ export async function handleJobScheduled(
       crew: fields.crew,
       start_date: fields.startDate,
       end_date: fields.endDate,
+      // start_time is GHL-authoritative and unconditionally overwritten every
+      // fire (including with null when GHL's "Job Start Time" is blank) — an
+      // intentional asymmetry with scope_summary just below: there is no
+      // independent Postgres-only source of truth for start_time worth
+      // protecting against clobbering, unlike scope_summary's line-item data.
+      start_time: fields.startTime,
       status_v2: "scheduled",
       updated_at: nowIso,
     };
+    // F1: never let a null scope resolution overwrite a previously-persisted
+    // good scope_summary — omit the key entirely (rather than writing null)
+    // for BOTH the genuinely-empty ('none') and lookup-failed ('error')
+    // cases; there is no other writer for this column, so a null here is
+    // permanent. scopeResolution.tier is still always recorded in
+    // job_events below, so a silent degradation stays visible even when
+    // nothing is written here.
+    if (scopeResolution.summary !== null) updatePayload.scope_summary = scopeResolution.summary;
     if (slackNotified) updatePayload.slack_notified_at = nowIso;
     if (billJobCode) updatePayload.bill_job_code = billJobCode;
 
@@ -1153,7 +1766,9 @@ export async function handleJobScheduled(
       function_name: "ghl-job-webhook",
       trigger_source: "ghl_workflow",
       ghl_opportunity_id: opportunityId,
-      action_summary: `Job scheduled | calendar: ${calendarStatus}, slack: ${slackStatus}, bill: ${billStatus}`,
+      action_summary:
+        `Job scheduled | calendar: ${calendarStatus}, slack: ${slackStatus}, bill: ${billStatus}, ` +
+        `scope: ${scopeResolution.tier}`,
       status: anyLegError ? "error" : "success",
       error_message: overallErrorMsg,
       payload_in: deps.payloadIn,
@@ -1184,7 +1799,7 @@ export async function handleJobScheduled(
       },
     };
   } catch (err: any) {
-    const msg = `Unexpected error in handleJobScheduled: ${err.message ?? String(err)}`;
+    const msg = `Unexpected error in handleJobScheduled: ${err?.message ?? String(err)}`;
     console.error("[handleJobScheduled]", msg);
     await writeSyncLog(supabase, {
       direction: "ghl_to_supabase",

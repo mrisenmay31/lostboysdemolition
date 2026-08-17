@@ -4,11 +4,22 @@
 // network clients) so this module has zero top-level side effects and can be
 // unit tested without hitting the network. Mirrors the ghl-job-webhook split.
 //
-// NOTE ON DUPLICATION: formatJobLine/buildCrewDigest intentionally reimplement
-// the per-job Slack line shape Task 4 built in ghl-job-webhook rather than
-// importing from a shared module — a parallel agent owns that directory and
-// _shared/ is off-limits this session. Consolidate later (controller decision).
+// BL-4: this module now shares supabase/functions/_shared/slack.ts for the
+// per-job Slack block format (buildCrewJobBlock), date formatting, crew-env
+// resolution, and postSlackMessage — the same module ghl-job-webhook uses, so
+// there is exactly one implementation of each going forward.
 // ============================================================
+
+import {
+  buildCrewJobBlock,
+  formatDateLabel,
+  joinCrewJobBlocks,
+  resolveCrewChannelEnvVar,
+} from "../_shared/slack.ts";
+
+// Re-exported for handlers_test.ts / any other callers that import these
+// from this module rather than directly from _shared/slack.ts.
+export { formatDateLabel, resolveCrewChannelEnvVar };
 
 const DENVER_TZ = "America/Denver";
 const SEND_HOUR = 16; // 4pm local — the intended digest send time
@@ -66,47 +77,59 @@ export function isInSendWindow(now: Date, force: boolean): boolean {
   return getDenverLocalHour(now) === SEND_HOUR;
 }
 
-/** Formats a plain `date` column value ("YYYY-MM-DD", no time/zone) as
- *  "Thu Aug 20". Anchored at noon UTC and formatted in UTC so the weekday/
- *  month/day are read straight off the calendar string, immune to any
- *  timezone shifting either the machine's or Denver's. */
-export function formatDateLabel(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-  const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" }).format(dt);
-  const month = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" }).format(dt);
-  return `${weekday} ${month} ${d}`;
-}
-
 // ── Job row shape + Slack message building ────────────────────────────────────
 
 export interface JobRow {
   id: string;
   job_number: string | null;
+  // L1 (BL-4 adversarial review): unread by formatJobLine — the BL-4 format
+  // uses job_number + client_contact_name/business_name for identity, not
+  // the combined "JOB-1104 – Contractor Company" string this column holds.
+  // Kept selected/typed anyway: it's free (already indexed with the row),
+  // and useful for ad-hoc debugging/log inspection without a second query.
+  // client_name, its select-neighbor, is NOT dead — see the M1 fix above.
   job_name: string | null;
   job_address: string | null;
   client_name: string | null;
   start_date: string; // "YYYY-MM-DD"
   crew: string | null;
+  client_contact_name: string | null;
+  business_name: string | null;
+  client_phone: string | null;
+  start_time: string | null;
+  scope_summary: string | null;
 }
 
-/** Per-job block, per the controller-specified 4-line spec:
- *  line 1 ⏰ Tomorrow: {job_name}
- *  line 2 📅 {formatted date}
- *  line 3 📍 {job_address}   (omitted if null)
- *  line 4 👤 {client_name}   (omitted if null)
- *  No 🕗 start-time or 📞 phone segment — neither is stored in Phase A. */
+/** Per-job block, built via the shared BL-4 format (_shared/slack.ts
+ *  buildCrewJobBlock): headline carries the job number (not the job name) so
+ *  a multi-job digest stays legible once blocks are divider-joined.
+ *
+ *  M1 fix (BL-4 adversarial review): `client_contact_name` /
+ *  `business_name` are written ONLY by ghl-job-webhook's Quote Accepted leg
+ *  — the Job Scheduled leg never backfills them — so a job minted before
+ *  this column existed and scheduled after has both NULL while
+ *  `client_name` (the older, always-populated column) is non-null. Falling
+ *  back to `client_name` keeps the client visible in that case; without it
+ *  the identity line silently drops the client entirely. */
 export function formatJobLine(job: JobRow): string {
-  const lines = [`⏰ Tomorrow: ${job.job_name ?? job.job_number ?? "Job"}`];
-  lines.push(`📅 ${formatDateLabel(job.start_date)}`);
-  if (job.job_address) lines.push(`📍 ${job.job_address}`);
-  if (job.client_name) lines.push(`👤 ${job.client_name}`);
-  return lines.join("\n");
+  return buildCrewJobBlock({
+    headline: `⏰ Tomorrow — ${job.job_number ?? "Job"}`,
+    contactName: job.client_contact_name ?? job.client_name,
+    businessName: job.business_name,
+    clientPhone: job.client_phone,
+    startDate: job.start_date,
+    startTime: job.start_time,
+    jobAddress: job.job_address,
+    scopeSummary: job.scope_summary,
+  });
 }
 
-/** One Slack message body per crew: all its jobs' blocks, blank line between. */
+/** One Slack message body per crew: all its jobs' blocks, joined via the
+ *  shared divider (blank line, divider, blank line) so multi-job digests
+ *  stay legible — buildCrewJobBlock's per-block blank lines would otherwise
+ *  make block boundaries ambiguous under a plain "\n\n".join(). */
 export function buildCrewDigest(jobs: JobRow[]): string {
-  return jobs.map(formatJobLine).join("\n\n");
+  return joinCrewJobBlocks(jobs.map(formatJobLine));
 }
 
 export interface CrewGroup {
@@ -131,19 +154,8 @@ export function groupJobsByCrew(jobs: JobRow[]): Map<string, CrewGroup> {
   return map;
 }
 
-/** Crew → Slack channel env var name, case-insensitive & trimmed (ruling 3).
- *  Returns the env VAR NAME, not its value — the caller resolves that via
- *  its own env accessor so this stays a pure function. */
-export function resolveCrewChannelEnvVar(crew: string | null | undefined): string | null {
-  const key = (crew ?? "").trim().toLowerCase();
-  switch (key) {
-    case "crew 1": return "SLACK_CREW1_CHANNEL";
-    case "crew 2": return "SLACK_CREW2_CHANNEL";
-    case "crew 3": return "SLACK_CREW3_CHANNEL";
-    case "crew 4": return "SLACK_CREW4_CHANNEL";
-    default: return null;
-  }
-}
+// resolveCrewChannelEnvVar (crew → SLACK_CREWn_CHANNEL env var name) now lives
+// in _shared/slack.ts — imported and re-exported above.
 
 // ── Request body ──────────────────────────────────────────────────────────────
 
@@ -172,6 +184,15 @@ export interface NightBeforeDeps {
   writeLog: (entry: SyncLogEntry) => Promise<void>;
   now: Date;
   force?: boolean;
+  /** H1 fix (BL-4 adversarial review): true when SLACK_TEST_CHANNEL_OVERRIDE
+   *  is active, i.e. every crew's digest this run was posted to a scratch
+   *  channel instead of its real SLACK_CREWn_CHANNEL. Orchestration uses this
+   *  to suppress the night_before_sent_on stamp — stamping it here would make
+   *  the real 4pm send believe the redirected job's digest already went out
+   *  (excluded by index.ts's .or(night_before_sent_on...) filter), and since
+   *  this design sends at most once with no retry, that crew would silently
+   *  never get a real digest. */
+  testChannelOverride?: boolean;
 }
 
 export interface HandlerResult {
@@ -278,22 +299,31 @@ export async function runNightBeforeDigest(deps: NightBeforeDeps): Promise<Handl
       }
 
       const jobIds = crewJobs.map((j) => j.id);
-      const { error: updateError } = await deps.updateSentOn(jobIds, tomorrow);
-      if (updateError) {
-        const msg = `Slack sent but night_before_sent_on stamp failed for crew "${crew}": ${
-          updateError instanceof Error ? updateError.message : String(updateError)
-        }`;
-        console.error(`[crew-night-before] ${msg}`);
-        await deps.writeLog({
-          direction: DIRECTION,
-          trigger_event: TRIGGER_EVENT,
-          action_taken: "error",
-          status: "error",
-          error_message: msg,
-          payload_in: { crew, job_count: crewJobs.length },
-        });
-        results.push({ crew, action: "sent_unstamped", error: msg });
-        continue;
+
+      // H1 fix (BL-4 adversarial review): under testChannelOverride the post
+      // above went to a scratch channel, not this crew's real channel — do
+      // NOT stamp night_before_sent_on, or the real 4pm send will believe
+      // this job's digest already went out and silently skip it (no retry
+      // exists once the date window moves on). Everything else in this
+      // function is unchanged.
+      if (!deps.testChannelOverride) {
+        const { error: updateError } = await deps.updateSentOn(jobIds, tomorrow);
+        if (updateError) {
+          const msg = `Slack sent but night_before_sent_on stamp failed for crew "${crew}": ${
+            updateError instanceof Error ? updateError.message : String(updateError)
+          }`;
+          console.error(`[crew-night-before] ${msg}`);
+          await deps.writeLog({
+            direction: DIRECTION,
+            trigger_event: TRIGGER_EVENT,
+            action_taken: "error",
+            status: "error",
+            error_message: msg,
+            payload_in: { crew, job_count: crewJobs.length },
+          });
+          results.push({ crew, action: "sent_unstamped", error: msg });
+          continue;
+        }
       }
 
       await deps.writeLog({
@@ -301,9 +331,21 @@ export async function runNightBeforeDigest(deps: NightBeforeDeps): Promise<Handl
         trigger_event: TRIGGER_EVENT,
         action_taken: "created",
         status: "success",
-        payload_in: { crew, job_count: crewJobs.length },
+        payload_in: deps.testChannelOverride
+          ? {
+              crew,
+              job_count: crewJobs.length,
+              stamped: false,
+              skip_reason: "test_channel_override_active",
+            }
+          : { crew, job_count: crewJobs.length },
       });
-      results.push({ crew, action: "created", job_count: crewJobs.length });
+      results.push({
+        crew,
+        action: "created",
+        job_count: crewJobs.length,
+        ...(deps.testChannelOverride ? { stamped: false } : {}),
+      });
     } catch (err) {
       const msg = `Unexpected error processing crew "${crew}": ${err instanceof Error ? err.message : String(err)}`;
       console.error(`[crew-night-before] ${msg}`);
