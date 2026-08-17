@@ -1,0 +1,363 @@
+-- Harden the legacy SECURITY DEFINER functions that predate this migrations
+-- directory, plus two non-definer functions in the same anon-executable
+-- class, plus three Phase B trigger functions found in review to carry the
+-- exact same over-exposed ACL this migration exists to close. Ten functions
+-- total are touched; not all ten get the same treatment -- see the
+-- per-function inventory in the ALTER/REVOKE sections below, and the
+-- "Fix 1" block comment for the one deliberate exception.
+--
+-- The five SECURITY DEFINER functions exist ONLY in the live database --
+-- nothing in this repo defines them, so their bodies cannot be read from git
+-- and this migration deliberately does not attempt to redefine them. It only
+-- ALTERs their config (to pin search_path) and REVOKEs their ACL, and even
+-- that is not uniform across all five -- again, see "Fix 1" below. Do not
+-- CREATE OR REPLACE any of these; that would require guessing a body we do
+-- not have, which is exactly the kind of reckless rewrite this migration is
+-- avoiding.
+--
+--   calculate_duration_and_cost()   -- trigger fn, on time_entries
+--   get_my_crew_id()                -- callable RPC
+--   get_my_role()                   -- callable RPC
+--   handle_new_auth_user()          -- trigger fn, on auth.users -- REVOKE
+--                                       only; deliberately NOT search_path-
+--                                       pinned by this migration, see "Fix 1"
+--   notify_airtable_on_archive()    -- trigger fn, on jobs (archive path)
+--
+-- Two more are in scope, neither SECURITY DEFINER, same anon-exposure issue:
+--
+--   next_job_number()      -- already has search_path=public pinned (by an
+--                              earlier, separate migration, outside this
+--                              file); needs only the REVOKE here.
+--                              Anon-executable today, so an anonymous caller
+--                              could burn job numbers from job_number_seq
+--                              before this migration.
+--   get_pay_period(date)   -- unpinned search_path AND anon-executable;
+--                              needs both fixes.
+--
+-- Three more were added during review ("Fix 5" below) -- not SECURITY
+-- DEFINER, already search_path-pinned by an earlier migration, but carrying
+-- the identical anon/authenticated-exposed ACL this migration exists to
+-- close. Verified live before writing this fix: their siblings
+-- audit_estimate_mutation() and enforce_estimate_mutations_audit_immutability()
+-- are already correctly {postgres, service_role}-only; these three are not:
+--
+--   enforce_estimate_immutability()             -- trigger fn, on estimates
+--   enforce_estimate_line_item_immutability()   -- trigger fn, on estimate_line_items
+--   enforce_estimate_no_delete()                -- trigger fn, on estimates
+--
+-- Real data exposure today is NONE. Three of the five legacy definers, plus
+-- notify_airtable_on_archive, plus all three Phase B trigger functions, are
+-- trigger functions never invoked as RPCs by any client. The only two
+-- genuinely callable ones -- get_my_role() and get_my_crew_id() -- read the
+-- `users` table, which has 0 rows, keyed by auth.uid() (NULL for an anon
+-- caller). So there is nothing to leak right now. The issues being closed
+-- here are: the unpinned search_path (a privilege-escalation vector, see the
+-- pg_temp note below), the exposed ACL on the three Phase B functions, and
+-- next_job_number()'s sequence being burnable by anon. All are hardening
+-- against future risk, not a response to an active leak.
+--
+-- ---------------------------------------------------------------------
+-- Fix 1 -- handle_new_auth_user() is deliberately NOT pinned here. This is
+-- an open item recorded on purpose, not an oversight.
+-- ---------------------------------------------------------------------
+--
+-- Pinning this one function is NOT a config-only change, unlike the other
+-- nine. Live evidence:
+--
+--   - GoTrue connects as `supabase_auth_admin`, which has search_path=auth
+--     (checked via pg_db_role_setting).
+--   - handle_new_auth_user() currently has proconfig = null, so it inherits
+--     the CALLING role's search_path -- i.e. `auth` when GoTrue's own
+--     trigger fires it. Its body is an UNQUALIFIED
+--     `INSERT INTO users (id, email) ... ON CONFLICT (id) DO NOTHING`.
+--   - The trigger is `on_auth_user_created AFTER INSERT ... ON auth.users`.
+--
+-- So today, with search_path=auth in effect, unqualified `users` resolves
+-- to auth.users -- the very row that just landed. The INSERT collides with
+-- it on the PK, and `ON CONFLICT (id) DO NOTHING` swallows the conflict.
+-- The function is therefore a SILENT NO-OP, and always has been. Live
+-- proof: auth.users has 1 row; public.users has 0. That, not "public.users
+-- has just never been used," is the actual reason public.users is empty.
+--
+-- If this migration pinned search_path=public on handle_new_auth_user()
+-- (the same treatment as the other four legacy definers), the unqualified
+-- `users` reference would resolve to public.users instead of auth.users,
+-- and the function would flip from a silent no-op into a REAL INSERT. The
+-- very next auth user created would gain a public.users row with the
+-- column default `role='employee'`, which in turn ACTIVATES the live
+-- get_my_role()-based RLS policies (see "Fix 3" below) for that user. That
+-- is a genuine behavior change on account creation, which this migration's
+-- own stated purpose -- config/ACL hardening that changes no behavior --
+-- explicitly rules out making silently.
+--
+-- Action taken: the `alter function ... set search_path` statement for
+-- handle_new_auth_user() has been removed from this migration. Its
+-- `revoke` is kept -- see the residual-risk note below, that part is safe
+-- on its own. Pinning it is left as an explicit open item for an owner
+-- (Matt) to decide with the consequence above in view, not something a
+-- future session should "fix" by adding the alter back without reading
+-- this comment first.
+--
+-- Residual risk of the REVOKE alone (i.e. with no alter) is low: after it,
+-- anon/authenticated can no longer call handle_new_auth_user() directly as
+-- an RPC (they never legitimately needed to), and the search_path
+-- escalation path sketched above requires being supabase_auth_admin, which
+-- only GoTrue itself is.
+--
+-- ---------------------------------------------------------------------
+-- pg_temp -- why every pin below ends in `, pg_temp`
+-- ---------------------------------------------------------------------
+--
+-- Postgres searches the temp schema FIRST for relation names whenever
+-- pg_temp is not explicitly listed in search_path -- explicitly listing it
+-- is what moves it out of that automatic first position. `search_path =
+-- public` alone does NOT disable that; it is still searched before public.
+-- `search_path = public, pg_temp` makes it explicit and last, so a
+-- same-named temp relation can no longer shadow the real one.
+--
+-- Four of the ten functions in scope reference `users` unqualified --
+-- confirmed live via pg_get_functiondef before writing this fix:
+-- calculate_duration_and_cost() (`SELECT hourly_rate INTO rate FROM users
+-- WHERE id = NEW.user_id`), get_my_crew_id() (`SELECT crew_id FROM users
+-- WHERE id = auth.uid()`), get_my_role() (`SELECT role::TEXT FROM users
+-- WHERE id = auth.uid()`), and handle_new_auth_user() (`INSERT INTO users
+-- ...`, see "Fix 1" above). The first three are SECURITY DEFINER, owned by
+-- postgres, and ARE pinned by this migration below; handle_new_auth_user is
+-- deliberately excluded from the pin. (get_pay_period() and
+-- notify_airtable_on_archive() were also checked and do NOT reference
+-- `users` -- the latter's only relation touch is the schema-qualified
+-- `net.http_post` call, see the cleared-finding note further down.)
+-- Measured live:
+-- has_database_privilege('anon', 'postgres', 'TEMP') and the same for
+-- 'authenticated' are both TRUE, and both roles hold full
+-- SELECT/INSERT/UPDATE/DELETE on public.users, public.time_entries, and
+-- public.crews, with RLS policies as the only barrier (see "Fix 3").
+--
+-- So, before this migration, a session able to `CREATE TEMP TABLE
+-- users(...)` could seed role='admin' for its own auth.uid(), have
+-- get_my_role() (running SECURITY DEFINER, unpinned search_path) read the
+-- temp table instead of public.users, satisfy the live `admins_all` policy,
+-- and take all three tables. Worth saying plainly: this is NOT reachable
+-- through PostgREST / the anon key alone, since that surface offers no
+-- arbitrary DDL -- so this is hardening, not an open hole. But it is
+-- exactly the vector the header above claims to close, so every pin in
+-- this migration ends in `, pg_temp`, not just `public`.
+--
+-- ---------------------------------------------------------------------
+-- Fix 4 -- corrected trigger-execution reasoning
+-- ---------------------------------------------------------------------
+--
+-- Revoking EXECUTE does NOT disable trigger firing, but NOT for the reason
+-- an earlier draft of this comment gave. "Triggers execute as the table
+-- owner, not the calling role" is FALSE as a general statement -- a
+-- non-SECURITY-DEFINER trigger function runs as the CALLING role. The five
+-- legacy definer trigger functions here
+-- (calculate_duration_and_cost, handle_new_auth_user,
+-- notify_airtable_on_archive) plus the three Phase B ones
+-- (enforce_estimate_immutability, enforce_estimate_line_item_immutability,
+-- enforce_estimate_no_delete) keep firing after the REVOKE for the actual
+-- reason: EXECUTE privilege is checked at CREATE TRIGGER time, not at fire
+-- time. Once a trigger is attached, Postgres does not re-check the
+-- function's EXECUTE grant on every row event. The conclusion (triggers
+-- keep working) holds; the original reasoning did not, and is corrected
+-- here so nobody draws the wrong inference from it (e.g. that revoking
+-- EXECUTE from a SECURITY DEFINER function is somehow different from a
+-- plain one with respect to trigger firing -- it isn't, for this reason).
+--
+-- Safety net for handle_new_auth_user() specifically: the `revoke ... from
+-- public` above removes the only EXECUTE supabase_auth_admin holds on it --
+-- its ACL has no explicit grant to that role, only the PUBLIC `=X/postgres`
+-- grant being revoked. GoTrue connects AS supabase_auth_admin, and while
+-- the AFTER INSERT trigger firing itself does not re-check EXECUTE (per the
+-- paragraph above), there is no reason to leave this role worse off than
+-- before on a function its own trigger is wired to -- see the `grant`
+-- statement below, added as cheap insurance.
+--
+-- ---------------------------------------------------------------------
+-- Fix 3 -- get_my_role() / get_my_crew_id() are load-bearing in 7 live RLS
+-- policies, not standalone RPCs against an empty table
+-- ---------------------------------------------------------------------
+--
+--   public.users          foremen_select_crew, admins_all
+--   public.time_entries   foremen_select_crew_entries, admins_select_all_entries,
+--                          foremen_update_crew_entries, admins_all_entries
+--   public.crews           admins_manage_crews
+--
+-- RLS quals evaluate AS the querying role, and function EXECUTE is checked
+-- at expression init. So after the REVOKE in this migration, any
+-- anon/authenticated query against users, time_entries, or crews raises
+-- `permission denied for function get_my_role` (or get_my_crew_id) instead
+-- of quietly returning zero rows. Harmless today -- 0 rows in every one of
+-- those tables, no login in front of anything that queries them -- but
+-- Phase D (crew clock-in) is specced against time_entries.
+--
+-- Correct guidance for a future session, replacing any earlier language
+-- here that pointed away from this: the REVOKE in this migration is
+-- correct while there is no login. A Phase D login model must do ONE of:
+--   (a) re-grant EXECUTE on get_my_role()/get_my_crew_id() to
+--       `authenticated` (with search_path still pinned to `public, pg_temp`
+--       -- do not re-grant without also keeping that pin), or
+--   (b) replace these seven policies with something that doesn't depend on
+--       calling these functions as `authenticated`.
+-- Do NOT "fix" the resulting permission-denied errors by treating the
+-- REVOKE itself as the bug and rolling it back blind -- that would put
+-- anon/authenticated back where this migration found them.
+--
+-- ---------------------------------------------------------------------
+-- notify_airtable_on_archive() / trigger_push_to_airtable_on_archive --
+-- corrected description (Fix 6)
+-- ---------------------------------------------------------------------
+--
+-- trigger_push_to_airtable_on_archive is AFTER UPDATE ... FOR EACH ROW with
+-- NO WHEN clause -- the function BODY runs on EVERY update of `jobs`, not
+-- only on an archive transition. Only the net.http_post call inside the
+-- body is gated, by `IF NEW.status = 'archived' AND OLD.status <>
+-- 'archived'`. An earlier draft of this comment overstated this as "fires
+-- only on status -> archived"; that is wrong for the trigger, correct only
+-- for the HTTP call inside it. This matters here because it is the reason
+-- a bad pin on this function would be felt on every write to `jobs`, not
+-- just archive transitions.
+--
+-- Cleared finding, biggest suspected risk of pinning this one, and it does
+-- NOT materialize: notify_airtable_on_archive() calls net.http_post fully
+-- SCHEMA-QUALIFIED (`net.http_post(...)`, not a bare `http_post(...)`), so
+-- pinning search_path to `public, pg_temp` does not break that call --
+-- `net` is not on the pinned search_path and doesn't need to be, since the
+-- call already names its schema.
+--
+-- NO DROPS. This repo has an absolute standing rule against deleting
+-- anything without per-item owner approval; nothing here removes a
+-- function, a trigger, or a trigger's attachment.
+--
+-- Critical ACL fact verified live before writing this migration, and
+-- re-verified for the three Phase B additions during review:
+-- `service_role=X/postgres` is an EXPLICIT grant on every one of these ten
+-- functions, independent of the `=X/postgres` PUBLIC grant, and
+-- `postgres=X/postgres` is present on all ten too. So
+-- `revoke ... from public, anon, authenticated` leaves both service_role's
+-- and postgres's EXECUTE fully intact on all ten. This matters most for
+-- next_job_number(), which the live ghl-job-webhook edge function calls on
+-- every Quote Accepted -- if it lost EXECUTE, job minting would break.
+-- Target end-state ACL, matching the already-correct Phase B RPCs:
+--   postgres=X/postgres | service_role=X/postgres
+-- (handle_new_auth_user() additionally keeps an explicit
+-- supabase_auth_admin=X/postgres grant -- see the `grant` statement below.)
+--
+-- Also: this migration will FAIL on a from-scratch replay (e.g.
+-- `supabase db push` against an empty database), because the five legacy
+-- SECURITY DEFINER functions it ALTERs/REVOKEs are defined nowhere in
+-- supabase/migrations/ -- by design, since this migration targets the live
+-- database, not a reproducible schema. This is consistent with
+-- BUILD_LOG.md:426, which already records that `supabase db push` is
+-- broken repo-wide for unrelated reasons.
+
+-- Pin search_path on the five functions that don't already have it AND
+-- that this migration is pinning (handle_new_auth_user is deliberately
+-- excluded -- see "Fix 1" above). next_job_number() is also skipped here --
+-- already proconfig = {search_path=public} from an earlier migration, and
+-- out of scope for the pg_temp upgrade in this pass (it does not reference
+-- `users` unqualified). The three Phase B trigger functions in "Fix 5"
+-- below are likewise already proconfig = {search_path=public} and are not
+-- re-altered here -- confirmed live before writing this migration.
+alter function public.calculate_duration_and_cost() set search_path = public, pg_temp;
+alter function public.get_my_crew_id()              set search_path = public, pg_temp;
+alter function public.get_my_role()                 set search_path = public, pg_temp;
+alter function public.notify_airtable_on_archive()   set search_path = public, pg_temp;
+alter function public.get_pay_period(date)           set search_path = public, pg_temp;
+
+-- Revoke EXECUTE from public/anon/authenticated on all ten functions in
+-- scope. service_role's and postgres's explicit grants (see note above)
+-- are untouched by this -- neither is one of the roles named here.
+revoke all on function public.calculate_duration_and_cost() from public, anon, authenticated;
+revoke all on function public.get_my_crew_id()              from public, anon, authenticated;
+revoke all on function public.get_my_role()                 from public, anon, authenticated;
+revoke all on function public.handle_new_auth_user()         from public, anon, authenticated;
+revoke all on function public.notify_airtable_on_archive()   from public, anon, authenticated;
+revoke all on function public.next_job_number()              from public, anon, authenticated;
+revoke all on function public.get_pay_period(date)           from public, anon, authenticated;
+
+-- Fix 5: three Phase B trigger functions carrying the same exposed ACL as
+-- the legacy definers above (anon=X/authenticated=X), verified live before
+-- writing this migration. Their siblings audit_estimate_mutation() and
+-- enforce_estimate_mutations_audit_immutability() are already correctly
+-- {postgres, service_role}-only -- these three were the gap. Both already
+-- have proconfig = {search_path=public} pinned by an earlier migration, so
+-- no `alter` is needed here, only the revoke.
+revoke all on function public.enforce_estimate_immutability()           from public, anon, authenticated;
+revoke all on function public.enforce_estimate_line_item_immutability() from public, anon, authenticated;
+revoke all on function public.enforce_estimate_no_delete()              from public, anon, authenticated;
+
+-- Fix 4 safety net: the `revoke ... from public` above removes the only
+-- EXECUTE supabase_auth_admin holds on handle_new_auth_user() (its ACL has
+-- no explicit entry for that role, only the PUBLIC `=X/postgres` grant just
+-- revoked). GoTrue connects as supabase_auth_admin. Cheap insurance, added
+-- so this migration cannot regress that role's access to a function its
+-- own on_auth_user_created trigger is wired to fire.
+grant execute on function public.handle_new_auth_user() to supabase_auth_admin;
+
+-- Verification query -- paste into the SQL editor (or execute_sql) after
+-- applying, to confirm the end state on all ten functions:
+--
+-- select
+--   p.proname,
+--   pg_get_function_identity_arguments(p.oid) as args,
+--   has_function_privilege('anon', p.oid, 'EXECUTE')          as anon_can_execute,
+--   has_function_privilege('authenticated', p.oid, 'EXECUTE') as authenticated_can_execute,
+--   has_function_privilege('service_role', p.oid, 'EXECUTE')  as service_role_can_execute,
+--   has_function_privilege('postgres', p.oid, 'EXECUTE')      as postgres_can_execute,
+--   p.proconfig,
+--   p.proacl
+-- from pg_proc p
+-- join pg_namespace n on n.oid = p.pronamespace
+-- where n.nspname = 'public'
+--   and p.proname in (
+--     'calculate_duration_and_cost',
+--     'get_my_crew_id',
+--     'get_my_role',
+--     'handle_new_auth_user',
+--     'notify_airtable_on_archive',
+--     'next_job_number',
+--     'get_pay_period',
+--     'enforce_estimate_immutability',
+--     'enforce_estimate_line_item_immutability',
+--     'enforce_estimate_no_delete'
+--   )
+-- order by p.proname;
+--
+-- Expected, per group (NOT uniform across all ten -- check each group):
+--
+--   anon_can_execute = false and authenticated_can_execute = false for all
+--   TEN rows. service_role_can_execute = true and postgres_can_execute =
+--   true for all TEN rows -- if either ever reads false, stop and
+--   investigate before treating the migration as successful (postgres
+--   losing EXECUTE would be a sign something revoked more than intended;
+--   service_role losing it would break every edge function that calls
+--   these).
+--
+--   proconfig, by group:
+--     calculate_duration_and_cost, get_my_crew_id, get_my_role,
+--     notify_airtable_on_archive, get_pay_period
+--       -> {"search_path=public, pg_temp"}   (newly pinned by this migration)
+--     next_job_number
+--       -> {"search_path=public"}            (pinned earlier, unchanged --
+--                                                intentionally NOT pg_temp
+--                                                in this pass)
+--     handle_new_auth_user
+--       -> null                              (deliberately NOT pinned --
+--                                                see "Fix 1" above; a
+--                                                non-null value here would
+--                                                mean someone added the
+--                                                alter back without reading
+--                                                that block comment first)
+--     enforce_estimate_immutability, enforce_estimate_line_item_immutability,
+--     enforce_estimate_no_delete
+--       -> {"search_path=public"}            (pinned by an earlier
+--                                                migration, unchanged by
+--                                                this one)
+--
+--   proacl, all ten: postgres=X/postgres, service_role=X/postgres present;
+--   NO anon or authenticated entry; handle_new_auth_user additionally
+--   carries supabase_auth_admin=X/postgres (from the grant above). If any
+--   row's proacl shows a grantee you don't recognize (e.g. dashboard_user),
+--   stop and investigate -- that is a surprise grant this migration did not
+--   make and did not expect.
