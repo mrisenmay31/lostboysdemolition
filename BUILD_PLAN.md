@@ -360,10 +360,38 @@ Job Scope description
   `business_name`, `start_time`, or scope-description fields — populating them is part of the
   work, not just formatting.
 
+**BL-4 was built and shipped 2026-08-17.** See `BUILD_LOG.md` for that entry.
+
+### BL-5 — Strip pricing from crew Google Calendar events (Matt, 2026-08-17)
+
+**Backlogged by Matt during the BL-4 build.** Decided but deliberately not built in that session.
+
+BL-4 established a hard rule that **no pricing may reach a crew channel** — no total bid, quoted
+price, markup %, true margin %, hours, or dump counts. The crew Slack message honours it by
+construction. The crew **Google Calendar** does not: `buildCalendarDescription`
+(`ghl-job-webhook/handlers.ts`) emits an `Estimate: $X` line, and that same event body is posted to
+`GOOGLE_CALENDAR_CREW1`–`CREW4` as well as the main calendar. So the rule BL-4 wrote down is
+violated one channel over, by code that predates it.
+
+- **Decision already made:** strip the estimate value from **crew** calendar events only; keep it on
+  the **main** calendar, which Dane and Jackson use. Do not strip it from both — Dane may be relying
+  on the at-a-glance number.
+- **The actual work:** today one `eventBody` is built once and posted to both targets via
+  `Promise.allSettled`. This needs two descriptions — a main one that keeps the estimate line and a
+  crew one that omits it — without disturbing the per-target event-ID idempotency, which was
+  hard-won across two Phase A fix rounds.
+- **Why it's backlogged, not dropped:** it is a pre-existing behaviour, not a BL-4 regression, and
+  the calendar leg is the most idempotency-sensitive code in the function. It deserves its own
+  session rather than being tacked onto a build that was already mid-flight.
+- **⚠️ Until it lands, the inconsistency is KNOWN AND DELIBERATE.** Crew Slack carries no money;
+  crew calendars do. Do not "fix" either side blind, and do not treat the calendar line as evidence
+  that the Slack rule is negotiable.
+- **Depends on:** nothing. Can be picked up any time.
+
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
 Phase A. BL-3 should not be attempted before Phase F, and paying against it should not happen
-until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 is
-scheduled for the end of Phase B.
+until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 shipped
+2026-08-17. BL-5 is unblocked and can be picked up any time.
 
 ---
 
