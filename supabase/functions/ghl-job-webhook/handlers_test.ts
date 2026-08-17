@@ -1826,6 +1826,10 @@ Deno.test("handleJobScheduled Slack block: full — contact, business, phone, da
 Deno.test("handleJobScheduled Slack block: all optional fields null/empty -> only headline + date survive", async () => {
   const job = freshJobRow({
     client_contact_name: null,
+    // client_name must be nulled too, or the M1 fallback
+    // (client_contact_name ?? client_name) supplies it and this test's
+    // "everything optional is absent" intent no longer holds.
+    client_name: null,
     business_name: null,
     client_phone: null,
     job_address: null,
@@ -1888,6 +1892,9 @@ Deno.test("handleJobScheduled Slack block: businessName equal to contactName (ca
 Deno.test("handleJobScheduled Slack block: no contact name, business kept, startTime + address + multi-line scope", async () => {
   const job = freshJobRow({
     client_contact_name: null,
+    // See the note above: null client_name too, so this test still exercises
+    // "no contact name" rather than silently testing the M1 fallback.
+    client_name: null,
     business_name: "Morrison Construction",
     client_phone: null,
     job_address: "200 Elm",
@@ -1919,6 +1926,80 @@ Deno.test("handleJobScheduled Slack block: no contact name, business kept, start
     sentText,
     "🏗️ New job scheduled — JOB-1100\nMorrison Construction\n\nThu Aug 20\n8:00 AM\n200 Elm\n\nDemo\nHaul debris",
   );
+});
+
+// M1 (review): client_contact_name is written ONLY by the Quote Accepted leg, so a
+// job minted before BL-4 shipped and scheduled after it has it NULL. Without the
+// fallback those jobs get a crew message with no client on it at all. Mirrors the
+// same fallback in crew-night-before so both crew messages agree.
+Deno.test("handleJobScheduled Slack block: falls back to client_name when client_contact_name is null", async () => {
+  const job = freshJobRow({
+    client_contact_name: null,
+    client_name: "Contractor Company",
+    business_name: null,
+    client_phone: null,
+    job_address: "200 Elm",
+  });
+  const supabase = fakeScheduleSupabase({ job });
+  let sentText: string | null = null;
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      fetchOpportunity: () =>
+        Promise.resolve({
+          opportunity: {
+            customFields: [
+              { id: CREW_FIELD_ID, field_value: "Crew 1" },
+              { id: START_DATE_FIELD_ID, field_value: "2026-08-20" },
+            ],
+          },
+        }),
+      postSlackMessage: (_c: string, text: string) => {
+        sentText = text;
+        return Promise.resolve({ ok: true });
+      },
+    }),
+  };
+  await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(
+    sentText,
+    "🏗️ New job scheduled — JOB-1100\nContractor Company\n\nThu Aug 20\n200 Elm",
+  );
+});
+
+// The fallback must not print the same string twice: buildCrewJobBlock suppresses
+// the business line when it matches the contact line, which is exactly what a
+// company-only contact produces once client_name is used as the fallback.
+Deno.test("handleJobScheduled Slack block: client_name fallback equal to business_name renders once", async () => {
+  const job = freshJobRow({
+    client_contact_name: null,
+    client_name: "Contractor Company",
+    business_name: "Contractor Company",
+    client_phone: null,
+    job_address: null,
+  });
+  const supabase = fakeScheduleSupabase({ job });
+  let sentText: string | null = null;
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      fetchOpportunity: () =>
+        Promise.resolve({
+          opportunity: {
+            customFields: [
+              { id: CREW_FIELD_ID, field_value: "Crew 1" },
+              { id: START_DATE_FIELD_ID, field_value: "2026-08-20" },
+            ],
+          },
+        }),
+      postSlackMessage: (_c: string, text: string) => {
+        sentText = text;
+        return Promise.resolve({ ok: true });
+      },
+    }),
+  };
+  await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(sentText, "🏗️ New job scheduled — JOB-1100\nContractor Company\n\nThu Aug 20");
 });
 
 // ── resolveScopeSummary / three-tier hybrid scope source (BL-4 Task C) ──────

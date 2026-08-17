@@ -378,7 +378,16 @@ export async function promoteEstimateForJob(
       .from("ghl_push_state")
       .select("estimate_id, estimates(id, estimate_number, version, status, job_number, created_at)")
       .eq("ghl_opportunity_id", opportunityId)
-      .order("created_at", { ascending: false });
+      // NB: order on updated_at, NOT created_at — ghl_push_state has no
+      // created_at column (its columns are estimate_id, ghl_contact_id,
+      // ghl_opportunity_id, ghl_estimate_id, ghl_estimate_number,
+      // fields_pushed_at, doc_pushed_at, last_error, attempts, updated_at).
+      // Ordering on a non-existent column makes PostgREST reject the whole
+      // query, which broke BOTH promotion and scope tier 2 on the first live
+      // fire. Unit tests could not catch it: the mocks don't validate column
+      // names. The embedded estimates.created_at below IS real and is what the
+      // in-memory tie-break actually uses.
+      .order("updated_at", { ascending: false });
 
     if (error) {
       const msg = `Estimate lookup failed: ${error.message ?? String(error)}`;
@@ -1229,7 +1238,16 @@ export async function resolveScopeSummary(
       .from("ghl_push_state")
       .select("estimate_id, estimates(id, estimate_number, version, status, job_number, created_at)")
       .eq("ghl_opportunity_id", opportunityId)
-      .order("created_at", { ascending: false });
+      // NB: order on updated_at, NOT created_at — ghl_push_state has no
+      // created_at column (its columns are estimate_id, ghl_contact_id,
+      // ghl_opportunity_id, ghl_estimate_id, ghl_estimate_number,
+      // fields_pushed_at, doc_pushed_at, last_error, attempts, updated_at).
+      // Ordering on a non-existent column makes PostgREST reject the whole
+      // query, which broke BOTH promotion and scope tier 2 on the first live
+      // fire. Unit tests could not catch it: the mocks don't validate column
+      // names. The embedded estimates.created_at below IS real and is what the
+      // in-memory tie-break actually uses.
+      .order("updated_at", { ascending: false });
     if (error) {
       hadLookupError = true;
       console.error("[resolveScopeSummary] tier2 ghl_push_state lookup failed (non-fatal):", error.message ?? String(error));
@@ -1646,7 +1664,16 @@ export async function handleJobScheduled(
           // PRIOR fire, not this one.
           const message = buildCrewJobBlock({
             headline: `🏗️ New job scheduled — ${jobRow.job_number}`,
-            contactName: jobRow.client_contact_name,
+            // Fall back to client_name (review finding M1, applied to
+            // crew-night-before and mirrored here so both crew messages make the
+            // same choice). client_contact_name is written ONLY by the Quote
+            // Accepted leg, so any job minted before BL-4 shipped and scheduled
+            // after it has it NULL — without the fallback those jobs get a crew
+            // message with no client on it at all, while the populated
+            // client_name sits fetched and unread. buildCrewJobBlock suppresses
+            // the business line when it matches, so a company-only contact does
+            // not render twice.
+            contactName: jobRow.client_contact_name ?? jobRow.client_name,
             businessName: jobRow.business_name,
             clientPhone: jobRow.client_phone,
             startDate,
