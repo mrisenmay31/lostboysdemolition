@@ -303,6 +303,17 @@ All self-contained Deno/TypeScript. The 5 Airtable-era functions keep helpers in
 `sync_log`/`job_events` writers that check and log `supabase-js` errors). Supabase project:
 `eiqqqwajmcpcwhvxxnhx`.
 
+**`_shared/slack.ts`** (added 2026-08-17, BL-4) is the crew-message module, consolidating what had been
+three copies of `postSlackMessage`, two crew→channel maps, and two date formatters. Exports
+`postSlackMessage(botToken, channel, text)` (token is a **parameter**, not module-scope env),
+`resolveCrewEnvKey`, `resolveCrewChannelEnvVar`, `formatDateLabel`, `formatPhone`, `buildCrewJobBlock`,
+`BLOCK_DIVIDER` (`———`, 3× U+2014 — matches the approved brief; it briefly shipped as U+2500 and no test
+caught it because the assertion compared against the constant), and `joinCrewJobBlocks`. The crew maps
+are built on `Object.create(null)` so a prototype key like `"constructor"` can't resolve to a function.
+`formatDateLabel` **throws `RangeError`** on an unparseable date (both live callers are protected).
+**`buildCrewJobBlock` carries no pricing field by construction** — the invariant's weak point is whatever
+the caller puts in `scopeSummary`, which is why `ghl-job-webhook` strips currency from `job_details`.
+
 **`_shared/pricing.ts`** (added 2026-08-14, Phase B slice-1) is the estimating engine — an exact
 TypeScript port of the live Fillout calculator chain (`computeEstimate()`), not yet wired into any
 deployed function. True half-up cent rounding (`roundToCent`) and `requireRates` input validation
@@ -312,8 +323,13 @@ prove it reproduces all 321 live Airtable estimates to the cent — 309 exact, 1
 pinned deltas, 1 penny-tolerance — under the corrected rounding, i.e. the rounding fix moved no
 quoted price. **Run the whole `_shared` suite with `deno task test`** — the canonical form, via the
 repo-root `deno.json` task (the older `deno test --allow-all supabase/functions/_shared/` form
-still works but `deno task test` is what future sessions should reach for). 18/18 passing as of
-2026-08-14, including `job_test.ts`. Through the end of Phase B slice 2, the engine changed by
+still works but `deno task test` is what future sessions should reach for).
+
+**⚠️ The "18/18" figure was misleading and the task was widened 2026-08-17.** It ran
+`supabase/functions/_shared/` only, so it reported 18/18 while **139 real tests** in
+`ghl-job-webhook/handlers_test.ts` and `crew-night-before/handlers_test.ts` were never collected by it —
+those suites had never been gated by the canonical task since they were written. The task now runs
+`supabase/functions/`, and the count is **312 passing** as of 2026-08-17 (golden-321 gate intact). Through the end of Phase B slice 2, the engine changed by
 exactly one word — a `requireRates` export added for the web app's rates loader to import — so the
 golden gate held throughout. The engine still snapshots `DEFAULT_RATES` internally (the golden test
 depends on that); the **web app** reads rates from `pricing_variables` live at request time via
@@ -325,15 +341,15 @@ as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic
 
 | Function | Deploy ver | Purpose |
 |---|---|---|
-| `airtable-client-sync` | 19 | Airtable Clients → GHL Contacts. Handles GHL duplicate-blocked 400 via `meta.contactId`. |
+| `airtable-client-sync` | **28** | Airtable Clients → GHL Contacts. Search leg repaired + duplicate path now updates + name-erasure guarded (2026-08-17). Data-loss item open → BL-6. |
 | `ghl-contact-sync` | 27 | GHL Contacts → Airtable Clients (reverse). **Tags defect FIXED 2026-08-14** (commit `65cae85`): GHL workflow webhooks send `tags` as a comma-separated string; now normalized, and payload extraction moved inside the try so parse errors log to `sync_log` instead of escaping as unlogged 500s. Live-verified same day. Review found contacts with tags had *never* synced client type before this fix (all 590 logged payloads carried string tags). |
 | `airtable-job-created` | 21 | Jobs → GHL Opportunity at **Stage 3 only**. 15 custom fields via `buildCustomFields()` using `id:` format. Logs `job_events`. |
 | `airtable-job-scheduled` | 16 | Advances to Stage 6, creates Google Calendar events (main + crew). Slack still a placeholder. |
 | `airtable-job-completed` | 14 | Stage 8 → Stripe **draft** invoice, GHL Stage 9, task for Dane. Slack paused via `SLACK_NOTIFICATIONS_ENABLED = false`. |
 | `receive-airtable-webhook` | 11 | Writes Supabase `jobs` mirror. **No auth.** Only handles `Scheduled`/`Invoiced` — never `Completed`, so the mirror is permanently stale. Retirement queued. |
 | `push-to-airtable` | 11 | Aggregates `time_entries` → Airtable actuals. Never run. Latent bug: PATCHes a formula field. |
-| `ghl-job-webhook` | 6 | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. |
-| `crew-night-before` | 4 | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. |
+| `ghl-job-webhook` | **13** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. |
+| `crew-night-before` | **10** | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. **BL-4 (2026-08-17):** new format + `———` divider between job blocks, shared module, `client_name` fallback. Discharges the owed redeploy. |
 
 **Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
 sum is below Total Bid, a "Project Total" line is appended for the difference. Fallback with no
@@ -447,9 +463,31 @@ affected by the first one:
   contact and writes its ID back to Airtable but never PUTs the new field values. Airtable edits
   have therefore never propagated to existing GHL contacts.** That is data loss, not just a
   misleading `match_method`. Repairing the search alone is not sufficient; the duplicate-400 path
-  needs its own `updateGhlContact` call. Scheduled as part of the approved BL-4 brief
-  (`docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md`). Note it is a **live
-  behavior change on a daily-traffic function**.
+  needs its own `updateGhlContact` call.
+
+  **✅ CODE FIXED 2026-08-17 (v28), and the claim above is OVERSTATED — read this before repeating it.**
+  Live `sync_log` shows **313** rows of `match_method='ghl_contact_id'` / `action_taken='updated'`, so
+  once a contact's GHL ID is cached back into Airtable, every *later* edit genuinely does propagate.
+  The drop was **one-time per contact**, on the first sync of a contact that existed in GHL without an
+  ID in Airtable. 404 of 405 `client_sync_state` rows are already past that window.
+
+  **⚠️ But the data-loss item is NOT closed, and no code change to this function can close it → BL-6.**
+  The Airtable automation that invokes it (`wflSSK2Twr9Tqwgpq`, base `apptzp0IclCaAtOk2`) fires on
+  **`recordCreated` ONLY**. There is no `recordUpdated` automation on the Clients table, so the function
+  is never invoked when someone edits a client. All 1045 Clients rows already carry a GHL ID, so the two
+  repaired branches now only ever run for brand-new rows. Adding `recordUpdated` requires an **echo
+  guard first**: `ghl-contact-sync` writes to Airtable → `recordCreated` → `airtable-client-sync` → PUT
+  to GHL → GHL workflow → `ghl-contact-sync` → … which terminates today *only* because the trigger is
+  create-only.
+
+  Also fixed in v28, and worse than previously recorded: `ghlFields` sent `firstName`/`lastName`
+  unguarded, and they default to `''` which `JSON.stringify` keeps — so a blank Airtable name **erased
+  the name on the GHL contact** (87 of 1045 rows have a blank first name, 203 a blank last name).
+  And the duplicate path wrote `match_method='email_duplicate'` / `action_taken='matched_existing'`,
+  **both illegal** under the live CHECKs, so that `sync_log` insert had been **silently rejected for
+  3.5 months** — zero such rows exist. Migration `widen_sync_log_match_method` now allows
+  `'email_duplicate'` so the two match paths stay distinguishable. **Verify the repaired search leg
+  from edge-function console logs, never from `sync_log`.**
 
 ---
 
@@ -460,7 +498,7 @@ affected by the first one:
 | `sync_log` | 918+ | Audit trail of all sync operations. Every function writes here — no exceptions. |
 | `client_sync_state` | 280 | Email, Airtable record ID, GHL contact/company IDs, last sync direction/time |
 | `job_events` | growing | Stage-transition audit log |
-| `jobs` | 2 (JOB-1102, JOB-1104 — both cancelled test rows) | **Canonical Phase A job record** as of 2026-08-13 (migration `phase_a_jobs_keystone`). `job_number` (`JOB-XXXX`, minted via `next_job_number()`/`job_number_seq`, starting 1100) is the canonical key going forward — see Key Rules. Columns: `job_number`, `client_name`, `client_type`, `job_address`, `city`, `ghl_opportunity_id`, `ghl_contact_id`, `estimate_value`, `crew`, `start_date`, `end_date`, `status_v2` (`job_lifecycle` enum: accepted/scheduled/in_progress/completed/invoiced/paid/cancelled), `gcal_main_event_id`, `gcal_crew_event_id`, `slack_notified_at`, `night_before_sent_on`, `bill_job_code`, `updated_at`. Legacy columns (`airtable_job_id`, `airtable_status`, `estimated_hours`, `job_start_date`, `archived_at`, and the old `status` enum) are kept, nullable, for legacy readers during parallel running. RLS enabled, no policies by design (two stale clock-in-era policies were dropped in the fixups migration to restore that posture). |
+| `jobs` | 2 (JOB-1102, JOB-1104 — both cancelled test rows) | **Canonical Phase A job record** as of 2026-08-13 (migration `phase_a_jobs_keystone`). `job_number` (`JOB-XXXX`, minted via `next_job_number()`/`job_number_seq`, starting 1100) is the canonical key going forward — see Key Rules. Columns: `job_number`, `client_name`, `client_type`, `job_address`, `city`, `ghl_opportunity_id`, `ghl_contact_id`, `estimate_value`, `crew`, `start_date`, `end_date`, `status_v2` (`job_lifecycle` enum: accepted/scheduled/in_progress/completed/invoiced/paid/cancelled), `gcal_main_event_id`, `gcal_crew_event_id`, `slack_notified_at`, `night_before_sent_on`, `bill_job_code`, `updated_at`. **BL-4 added 5 nullable text columns 2026-08-17** (migration `bl4_job_crew_fields`): `client_contact_name`, `business_name`, `client_phone`, `start_time`, `scope_summary`. `client_contact_name` is deliberately **not** redundant with `client_name` — `_shared/job.ts`'s `clientLabel()` collapses a contact to `companyName || lastName || firstName`, so for a company contact `client_name` IS the business name and the person's name is lost; both crew messages fall back to `client_name` when `client_contact_name` is null. `start_time` is free text mirroring GHL's TEXT field and is GHL-authoritative (overwritten every fire). **`scope_summary` MUST NOT contain pricing**, and unlike the others it is *not* overwritten when a scope lookup errors, so a transient failure can't wipe it. Legacy columns (`airtable_job_id`, `airtable_status`, `estimated_hours`, `job_start_date`, `archived_at`, and the old `status` enum) are kept, nullable, for legacy readers during parallel running. RLS enabled, no policies by design (two stale clock-in-era policies were dropped in the fixups migration to restore that posture). |
 | `jobs_legacy_backup` | 7 | Archived copy of the pre-Phase-A `jobs` rows (May-2026 test mirrors), created before `jobs` was reset. RLS enabled, no policies. |
 | `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
 | `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding (created by migration 002) |
@@ -504,12 +542,39 @@ in the repo defines them, so they cannot be enumerated from git. Live:
 `notify_airtable_on_archive`. None pin `search_path`; all are `anon`-EXECUTE-able. **Three are
 trigger functions**; only `get_my_role`/`get_my_crew_id` are genuinely callable RPCs, and both read
 a 0-row `users` table keyed by `auth.uid()` (NULL for anon), so **real data exposure today is
-none** — the risk is the unpinned `search_path`, not a leak. Separately, `next_job_number()` is not
-`SECURITY DEFINER` but *is* `anon`-executable with no revoke, so an anon caller could burn job
-numbers. A revoke + `search_path` pass is part of the approved BL-4 brief; **no drops** (standing
-delete rule).
+none** — the risk is the unpinned `search_path`, not a leak.
 
-RLS is enabled on all of the above with **no policies by design** — `service_role` has
+**✅ HARDENED 2026-08-17** (migration `security_revoke_legacy_definers`). `search_path` is now pinned
+as `public, pg_temp` — **`pg_temp` last, deliberately**: Postgres searches the temp schema *first* for
+relation names when `pg_temp` is unlisted, and `anon`/`authenticated` both hold TEMP on this database,
+so an unpinned definer referencing `users` unqualified was a genuine escalation vector (not reachable
+through PostgREST alone, since that surface offers no arbitrary DDL). EXECUTE is revoked from
+`public, anon, authenticated` on **10** functions — the 5 definers, `next_job_number()`,
+`get_pay_period(date)`, and 3 Phase B trigger functions that had the same posture. Verified live: all
+10 deny anon and authenticated; `service_role` and `postgres` retain EXECUTE, so
+`next_job_number()` still mints. Triggers keep firing because **EXECUTE is checked at `CREATE TRIGGER`
+time, not at fire time** (*not* "triggers run as the table owner" — that is false in general). No drops.
+
+**⚠️ `handle_new_auth_user()` is deliberately NOT pinned — this is BL-7, an open decision.** GoTrue
+connects as `supabase_auth_admin`, whose `search_path` is `auth`, so the function's unqualified
+`INSERT INTO users` resolves to **`auth.users`**, collides with the row that just landed, and is
+swallowed by `ON CONFLICT DO NOTHING`. **It has always been a silent no-op.** Live proof: `auth.users`
+has 1 row, `public.users` has 0 — *that*, not "the clock-in schema was never used", is why
+`public.users` is empty. Pinning it would flip it into a real insert and activate the RLS policies
+noted below, so it was not done as a side effect of a security pass.
+
+**⚠️ CORRECTED 2026-08-17 — `users`, `crews` and `time_entries` are NOT policy-free.** They carry
+**7 live RLS policies** between them, all calling `get_my_role()`/`get_my_crew_id()`: `users` →
+`foremen_select_crew`, `admins_all`; `time_entries` → `foremen_select_crew_entries`,
+`admins_select_all_entries`, `foremen_update_crew_entries`, `admins_all_entries`; `crews` →
+`admins_manage_crews`. The 2026-08-17 revoke means an `anon`/`authenticated` query against those three
+tables now raises `permission denied for function get_my_role` instead of returning zero rows. That is
+correct while there is no login — but **Phase D clock-in is specced against `time_entries`** and must
+either re-grant EXECUTE on those two functions to `authenticated` (with `pg_temp` pinned) or replace
+the policies. Tracked as part of BL-7.
+
+RLS is enabled on all of the above with **no policies by design** (except the three tables just
+noted) — `service_role` has
 `rolbypassrls = true`, so edge functions are unaffected and anon is denied. The views
 `recent_sync_activity` and `sync_errors` are `security_invoker = on` for the same reason.
 
@@ -673,7 +738,8 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **F — Profitability** | Not started. Variance, job report on the GHL opportunity, change orders, callbacks. |
 | **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
-| **BL-4 — crew Slack message format** | 🟡 **Planned and APPROVED 2026-08-14, not built.** Build brief: `docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md` — **the next session executes it.** Bundles the three repo-level fixes. Bigger than formatting: `jobs` has no `client_phone`, business name, time-of-day, or scope column, and the hybrid scope decision means it builds the **estimate→job promotion** that has never existed (`estimates.job_number` has zero writers). |
+| **BL-4 — crew Slack message format** | 🟢 **SHIPPED and merged to main 2026-08-17.** Both crew messages reformatted; 5 new `jobs` columns; the **estimate→job promotion now exists and is live-proven** (it had zero writers before). 4-tier scope source. 2 of 3 repo fixes done — the third became BL-6. Suite 312. See the 2026-08-17 `BUILD_LOG.md` entry. |
+| **BL-5 / BL-6 / BL-7** | ⚪ **Captured 2026-08-17, not scheduled.** BL-5 strip pricing from crew *calendar* events (BL-4's no-money rule is violated one channel over — **known and deliberate** until fixed). BL-6 close the `airtable-client-sync` data loss (needs an echo guard before a `recordUpdated` trigger). BL-7 decide `handle_new_auth_user()`'s fate + the 7 RLS policies before Phase D. See `BUILD_PLAN.md`. |
 | **Backlog (BL-1/2/3)** | ⚪ Captured 2026-07-31, **not scheduled.** Equipment maintenance, tool inventory, crew-level P&L + foreman incentive comp. See `BUILD_PLAN.md` → "Backlog — captured, not scheduled". |
 
 Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening.

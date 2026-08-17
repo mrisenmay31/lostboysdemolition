@@ -18,18 +18,19 @@ shipped.
 
 | Function / Component | Stage | Status | Last touched |
 |---|---|---|---|
-| `airtable-client-sync` | — | 🟢 Live (v19) | 2026-07-30 |
+| `airtable-client-sync` | — | 🟢 Live (**v28**) — search leg repaired, duplicate path now updates, name-erasure guarded 2026-08-17. **Data-loss item NOT closed → BL-6** (automation is `recordCreated`-only) | 2026-08-17 |
 | `ghl-contact-sync` | — | 🟢 Live (v27+) — tags crash FIXED 2026-08-14, live-verified | 2026-08-14 |
 | `airtable-job-created` | 3 | 🟡 In Progress (v21) — **GHL UI verification still pending since 2026-05-15** | 2026-07-30 |
 | `airtable-job-scheduled` | 6 | 🟢 Live (v16) — verified end to end | 2026-05-15 |
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
-| `ghl-job-webhook` | A | 🟢 Live (v7) — Phase A keystone, live E2E verified; v7 = final-review fix wave | 2026-08-13 |
-| `crew-night-before` | — | 🟢 Live (v4) — nightly crew digest, Slack E2E verified live via synthetic job (see below) | 2026-08-13 |
+| `ghl-job-webhook` | A | 🟢 Live (**v13**) — Phase A keystone + BL-4: estimate→job promotion (chain-pivot, live-proven), 4-tier scope, new crew Slack format | 2026-08-17 |
+| `crew-night-before` | — | 🟢 Live (**v10**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lbd-estimates.vercel.app** — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
-| BL-4 crew Slack + repo fixes | — | 🟡 **Planned and approved, NOT built** — brief at `docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md`; next session executes it | 2026-08-14 |
+| BL-4 crew Slack + repo fixes | — | 🟢 **SHIPPED and merged to main 2026-08-17** — both crew messages reformatted, estimate→job promotion built and live-proven, 2 of 3 repo fixes done (3rd → BL-6). Suite 312. New backlog: BL-5/BL-6/BL-7 | 2026-08-17 |
+| `deno task test` gate | — | 🟢 **Widened 2026-08-17** — was `_shared/` only and reported 18/18 while **139 real tests were never collected**; now `supabase/functions/`, 312 passing | 2026-08-17 |
 | `stripe-webhook` | 9–11 | 🔴 Not Built | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
@@ -39,6 +40,130 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-17 — BL-4 SHIPPED: crew Slack format + estimate→job promotion; 2 repo fixes; 3 new backlog items
+
+**Executed the approved brief** `docs/superpowers/plans/2026-08-14-bl4-crew-slack-and-repo-fixes.md`.
+Everything below is merged to `main` and live. Suite: **312 passing**, golden-321 gate intact.
+
+#### Deployed
+| Function | Version | What changed |
+|---|---|---|
+| `ghl-job-webhook` | **13** | Contact fields persisted at Quote Accepted; estimate→job promotion; 4-tier scope; new Slack format; `SLACK_TEST_CHANNEL_OVERRIDE` |
+| `crew-night-before` | **10** | Same format + divider; shared module; override no longer stamps `night_before_sent_on` |
+| `airtable-client-sync` | **28** | Repaired search, duplicate-path update, name-erasure guard |
+
+Migrations applied: `bl4_job_crew_fields` (5 nullable text columns on `jobs`),
+`widen_sync_log_match_method` (adds `'email_duplicate'`), `security_revoke_legacy_definers`.
+
+#### The estimate→job promotion now exists
+`estimates.job_number` had **zero writers** before today. Quote Accepted now back-writes it and flips
+the estimate to `accepted` via the two mutation RPCs, non-fatally (a job with no estimate is the
+ordinary Path A case), and re-runs on the skip path so a re-fire self-heals.
+
+**⚠️ The single most important fix in this build (review finding F2).** The first implementation
+resolved a *row*, not a *chain*, which meant the **ordinary quote cycle silently produced nothing**:
+revising an estimate supersedes v1, the GHL push is a manual button so v2 often has no
+`ghl_push_state` row, leaving only a superseded v1 to match → `not_found` → no `job_number` → then all
+scope tiers empty. Now it identifies the `estimate_number` from the push-state row (deliberately
+**not** filtering superseded, because a superseded row still names its chain) and resolves that
+chain's current version. **Live-proven** against exactly that shape: chain read
+`1424 v1 superseded job=- | 1424 v2 accepted job=JOB-1104`, scope resolved via tier
+`estimate_by_job_number` with 3 line items, exactly 2 `estimate_mutations_audit` rows.
+
+#### Scope is a 4-tier hybrid
+1. `estimate_by_job_number` → line items (`name — description`)
+2. `estimate_by_push_state` → chain pivot → line items
+3. `estimate_job_details` — **Matt's decision**: quick-mode estimates have no line items, and **12 of
+   16 live estimates have zero**, so this is the common shape, not an edge case. It is the only scope
+   source that can contain money, so `stripCurrencyFromScopeText` removes `$`-amounts, percentages
+   and bare money decimals.
+4. `ghl_fallback` → GHL `Job Scope` names
+Plus `none` (genuinely empty) and `error` (a lookup failed) as distinct outcomes.
+
+**🚨 No pricing may reach a crew channel.** GHL `Scope Notes` is never read — it carries total bid,
+quoted price, markup % and true margin %. Line-item selects are `name, description, sort_order` only.
+
+#### Two defects the live E2E caught that no unit test could
+1. **`ghl_push_state` has no `created_at` column.** The F6 review fix added `.order("created_at")` to
+   both queries on that table; PostgREST rejects the whole query, so the first live fire returned
+   `promotion:"failed"` and scope tier `error`. The mocks don't validate column names. Fixed to
+   `updated_at`. **This is the second time this project has been bitten by "mocks can't see the DB" —
+   live-probe every deploy.**
+2. **The schedule leg lacked the `client_name` fallback** that `crew-night-before` was given, so the
+   two crew messages disagreed and any job minted before BL-4 would render with no client at all.
+
+#### Review findings fixed before deploy (none catchable by tests)
+- **F1** — `scope_summary` was written unconditionally, and "lookup errored" collapsed into the same
+  `null` as "no scope", so one PostgREST blip on a reschedule would permanently wipe scope text no
+  other writer can restore. The key is now **omitted** rather than nulled.
+- **F3** — new `conflict` outcome refuses to overwrite a *different* non-null `job_number`, preventing
+  ping-pong between two opportunities sharing a chain and the audit-table pollution that follows.
+- **H1** (`crew-night-before`) — the test override redirected Slack **and still stamped**
+  `night_before_sent_on`, so an E2E would have consumed real crews' digests with `sync_log` reading
+  success and **no retry by design**. Now gated.
+- Divider was shipping as 10× U+2500 instead of the brief's `———` (3× U+2014), and **no test could
+  catch it** because the assertion compared against the constant, not a literal.
+- `formatPhone` turned `+49 30 123456` into `(801)`-style nonsense; crew maps rebuilt on
+  `Object.create(null)` (`resolveCrewEnvKey("constructor")` returned the `Object` constructor).
+
+#### `airtable-client-sync` — fixed, but the data-loss item is NOT closed
+Repaired the `POST /contacts/search` leg, added the missing `updateGhlContact` on the duplicate-400
+path, and **stopped blank names erasing GHL contact names** (`firstName`/`lastName` were sent as `""`;
+87 of 1045 Clients rows have a blank first name, 203 a blank last name).
+
+Also found: the old code wrote `match_method='email_duplicate'` / `action_taken='matched_existing'`,
+**both illegal** under the live CHECKs, so that insert had been **silently rejected for 3.5 months** —
+zero such rows exist. Widened the constraint so the two match paths stay distinguishable.
+
+**Corrections to what this repo believed:** the data-loss claim was overstated. 313 live rows show
+`ghl_contact_id`/`updated`, so once a contact's GHL ID is cached in Airtable every later edit *does*
+propagate. More importantly the automation (`wflSSK2Twr9Tqwgpq`) fires on **`recordCreated` only**, so
+edits never invoke the function at all and no code change can fix that. → **BL-6**, which must design
+an echo guard first (`ghl-contact-sync` → Airtable → `airtable-client-sync` → GHL → … terminates today
+*only* because the trigger is create-only).
+
+#### Security hardening
+Pinned `search_path` (with **`pg_temp` last** — `anon`/`authenticated` both hold TEMP) and revoked
+EXECUTE from `public, anon, authenticated` on 10 functions. Verified: all 10 now deny anon and
+authenticated, `service_role` and `postgres` retain it, so `next_job_number()` still mints.
+
+**`handle_new_auth_user()` deliberately left unpinned → BL-7.** GoTrue connects as
+`supabase_auth_admin` (`search_path=auth`), so its unqualified `INSERT INTO users` resolves to
+`auth.users`, collides, and is swallowed by `ON CONFLICT DO NOTHING`. **It has always been a silent
+no-op** — `auth.users` 1 row, `public.users` 0. *That*, not "never used", is why `public.users` is
+empty. Pinning it would flip it into a real insert and activate the RLS policies below.
+
+**⚠️ Doc drift found:** CLAUDE.md says `users`/`crews`/`time_entries` have "RLS enabled, no policies by
+design". They carry **7 live policies** calling `get_my_role()`/`get_my_crew_id()`. The revoke turns
+"0 rows" into "permission denied" for anon/authenticated — fine with no login, but **Phase D is
+specced against `time_entries`** and must re-grant or replace them.
+
+#### Decisions taken
+- **Scope source for quick mode:** wire `job_details` **and** have Dane tick GHL `Job Scope`.
+- **Crew calendar pricing → BL-5.** Crew calendar events carry `Estimate: $X`, contradicting the rule
+  BL-4 just wrote down, one channel over. Decision made (strip from crew only, keep on main), work
+  deferred — it needs two event descriptions without disturbing the per-target calendar idempotency.
+  **Until then the inconsistency is KNOWN AND DELIBERATE.**
+- **Parallel agent execution is now a Standing Instruction** in CLAUDE.md (Matt: "run agents in
+  parallel as much as possible; quality first, efficiency second" — ordered, not traded off).
+
+#### Test residue left live, deliberately
+`estimate_number` 1424 v2 is `accepted` with `job_number = JOB-1104` — real promotion residue on a
+TEST estimate, left as evidence. JOB-1104 carries `TEST`-prefixed identity values. The fabricated
+`ghl_push_state` row was deleted (back to 10 rows). `SLACK_TEST_CHANNEL_OVERRIDE` was **unset and
+confirmed absent**.
+
+#### Process note
+One deploy went out while 2 tests were red, because the exit code was masked by `| tail` in the
+pipeline that ran the suite. The code was correct and the suite is green at 312, but the gate did not
+hold — check `PIPESTATUS` when gating a deploy on a piped test run.
+
+#### Still owed
+- **Matt's phone smoke + the one-real-bid Fillout parallel check** on the estimate builder — outstanding
+  since 2026-08-14, untouched by this session.
+- Eyeball the #ops-test message rendering.
+- Dane habit items: populate GHL **Job Start Time** and **Job Scope**.
 
 ### 2026-08-14 (night, second) — BL-4 + repo fixes PLANNED and APPROVED (planning only, nothing built)
 
