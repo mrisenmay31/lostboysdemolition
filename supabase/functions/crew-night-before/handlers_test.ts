@@ -114,12 +114,28 @@ const fullJob: JobRow = {
   client_name: "Ann Morrison",
   start_date: "2026-08-20",
   crew: "Crew 1",
+  client_contact_name: "Ann Morrison",
+  business_name: "Morrison Construction",
+  client_phone: "(801) 555-0142",
+  start_time: "8:00 AM",
+  scope_summary: "Kitchen Demo — Remove and haul off all kitchen cabinets, countertops, and backsplash.",
 };
 
-Deno.test("formatJobLine: full job matches the exact 4-line spec format", () => {
+Deno.test("formatJobLine: full job matches the exact BL-4 block format", () => {
   assertEquals(
     formatJobLine(fullJob),
-    "⏰ Tomorrow: JOB-1100 – Morrison – Holladay\n📅 Thu Aug 20\n📍 4285 S 300 W, Murray\n👤 Ann Morrison",
+    [
+      "⏰ Tomorrow — JOB-1100",
+      "Ann Morrison",
+      "Morrison Construction",
+      "(801) 555-0142",
+      "",
+      "Thu Aug 20",
+      "8:00 AM",
+      "4285 S 300 W, Murray",
+      "",
+      "Kitchen Demo — Remove and haul off all kitchen cabinets, countertops, and backsplash.",
+    ].join("\n"),
   );
 });
 
@@ -127,27 +143,152 @@ Deno.test("formatJobLine: omits the address line when job_address is null", () =
   const job = { ...fullJob, job_address: null };
   assertEquals(
     formatJobLine(job),
-    "⏰ Tomorrow: JOB-1100 – Morrison – Holladay\n📅 Thu Aug 20\n👤 Ann Morrison",
+    [
+      "⏰ Tomorrow — JOB-1100",
+      "Ann Morrison",
+      "Morrison Construction",
+      "(801) 555-0142",
+      "",
+      "Thu Aug 20",
+      "8:00 AM",
+      "",
+      "Kitchen Demo — Remove and haul off all kitchen cabinets, countertops, and backsplash.",
+    ].join("\n"),
   );
 });
 
-Deno.test("formatJobLine: omits the client line when client_name is null", () => {
-  const job = { ...fullJob, client_name: null };
+// M1 fix (BL-4 adversarial review): formatJobLine now falls back to
+// client_name when client_contact_name is null, so genuinely omitting the
+// identity-name line requires BOTH to be null (client_name null too) — see
+// the dedicated M1 fallback tests above for the "falls back" case.
+Deno.test("formatJobLine: omits the contact-name line when client_contact_name AND client_name are both null", () => {
+  const job = { ...fullJob, client_contact_name: null, client_name: null };
   assertEquals(
     formatJobLine(job),
-    "⏰ Tomorrow: JOB-1100 – Morrison – Holladay\n📅 Thu Aug 20\n📍 4285 S 300 W, Murray",
+    [
+      "⏰ Tomorrow — JOB-1100",
+      "Morrison Construction",
+      "(801) 555-0142",
+      "",
+      "Thu Aug 20",
+      "8:00 AM",
+      "4285 S 300 W, Murray",
+      "",
+      "Kitchen Demo — Remove and haul off all kitchen cabinets, countertops, and backsplash.",
+    ].join("\n"),
   );
 });
 
-Deno.test("formatJobLine: omits both optional lines when both are null", () => {
-  const job = { ...fullJob, job_address: null, client_name: null };
+Deno.test("formatJobLine: all five new fields (plus client_name) null degrades to headline + date + address block, no blank-line artifacts", () => {
+  const job = {
+    ...fullJob,
+    client_contact_name: null,
+    client_name: null, // M1 fallback source — must also be null to truly omit identity
+    business_name: null,
+    client_phone: null,
+    start_time: null,
+    scope_summary: null,
+  };
   assertEquals(
     formatJobLine(job),
-    "⏰ Tomorrow: JOB-1100 – Morrison – Holladay\n📅 Thu Aug 20",
+    ["⏰ Tomorrow — JOB-1100", "", "Thu Aug 20", "4285 S 300 W, Murray"].join("\n"),
   );
 });
 
-Deno.test("buildCrewDigest: two jobs joined with a blank line between them (exact expected message)", () => {
+Deno.test("formatJobLine: scope_summary present renders as its own trailing group", () => {
+  const job = {
+    ...fullJob,
+    client_contact_name: null,
+    client_name: null, // M1 fallback source — must also be null to truly omit identity
+    business_name: null,
+    client_phone: null,
+    start_time: null,
+    job_address: null,
+  };
+  assertEquals(
+    formatJobLine(job),
+    [
+      "⏰ Tomorrow — JOB-1100",
+      "",
+      "Thu Aug 20",
+      "",
+      "Kitchen Demo — Remove and haul off all kitchen cabinets, countertops, and backsplash.",
+    ].join("\n"),
+  );
+});
+
+Deno.test("formatJobLine: start_time present but client_phone null", () => {
+  const job = { ...fullJob, client_phone: null, scope_summary: null, business_name: null };
+  assertEquals(
+    formatJobLine(job),
+    [
+      "⏰ Tomorrow — JOB-1100",
+      "Ann Morrison",
+      "",
+      "Thu Aug 20",
+      "8:00 AM",
+      "4285 S 300 W, Murray",
+    ].join("\n"),
+  );
+});
+
+// M1 fix (BL-4 adversarial review): client_contact_name/business_name are
+// written only by ghl-job-webhook's Quote Accepted leg; a job minted before
+// that column existed and scheduled after has both NULL while client_name
+// (the older, always-populated column) is not. formatJobLine must fall back
+// to client_name so the client doesn't silently vanish from the digest.
+Deno.test("formatJobLine: all five new columns NULL but client_name populated — client_name fills the identity line", () => {
+  const job: JobRow = {
+    id: "33333333-3333-3333-3333-333333333333",
+    job_number: "JOB-1102",
+    job_name: null,
+    job_address: null,
+    client_name: "Contractor Company",
+    start_date: "2026-08-20",
+    crew: "Crew 1",
+    client_contact_name: null,
+    business_name: null,
+    client_phone: null,
+    start_time: null,
+    scope_summary: null,
+  };
+  assertEquals(
+    formatJobLine(job),
+    ["⏰ Tomorrow — JOB-1102", "Contractor Company", "", "Thu Aug 20"].join("\n"),
+  );
+});
+
+// buildCrewJobBlock's identical-string suppression (businessName vs
+// contactName, case-insensitive) must still hold once contactName is
+// resolved via the client_name fallback rather than client_contact_name —
+// otherwise "Contractor Company" would print twice (once as the fallback
+// identity line, once as the business line).
+Deno.test("formatJobLine: client_name fallback equals business_name — no duplicate business line", () => {
+  const job: JobRow = {
+    ...fullJob,
+    client_contact_name: null,
+    client_name: "Contractor Company",
+    business_name: "Contractor Company",
+  };
+  const line = formatJobLine(job);
+  assertEquals(line.includes("Contractor Company"), true);
+  // Exactly one occurrence — proves the business line was suppressed as a
+  // duplicate of the client_name-derived identity line, not printed twice.
+  assertEquals(line.split("Contractor Company").length - 1, 1);
+});
+
+// client_contact_name still wins over client_name when both are present —
+// the fallback must not shadow the primary field.
+Deno.test("formatJobLine: client_contact_name present takes precedence over client_name", () => {
+  const job = { ...fullJob, client_name: "Some Other Legal Name" };
+  assertEquals(formatJobLine(job).split("\n")[1], "Ann Morrison");
+});
+
+Deno.test("buildCrewDigest: single job — no divider", () => {
+  assertEquals(buildCrewDigest([fullJob]), formatJobLine(fullJob));
+});
+
+Deno.test("buildCrewDigest: two jobs joined by the divider, exactly once, never trailing", () => {
   const jobTwo: JobRow = {
     id: "22222222-2222-2222-2222-222222222222",
     job_number: "JOB-1101",
@@ -156,18 +297,37 @@ Deno.test("buildCrewDigest: two jobs joined with a blank line between them (exac
     client_name: null,
     start_date: "2026-08-20",
     crew: "Crew 1",
+    client_contact_name: null,
+    business_name: null,
+    client_phone: null,
+    start_time: null,
+    scope_summary: null,
   };
   const expected = [
-    "⏰ Tomorrow: JOB-1100 – Morrison – Holladay",
-    "📅 Thu Aug 20",
-    "📍 4285 S 300 W, Murray",
-    "👤 Ann Morrison",
+    "⏰ Tomorrow — JOB-1100",
+    "Ann Morrison",
+    "Morrison Construction",
+    "(801) 555-0142",
     "",
-    "⏰ Tomorrow: JOB-1101 – Sunline Landscape",
-    "📅 Thu Aug 20",
-    "📍 812 E 900 S, Salt Lake City",
+    "Thu Aug 20",
+    "8:00 AM",
+    "4285 S 300 W, Murray",
+    "",
+    "Kitchen Demo — Remove and haul off all kitchen cabinets, countertops, and backsplash.",
+    "",
+    "———",
+    "",
+    "⏰ Tomorrow — JOB-1101",
+    "",
+    "Thu Aug 20",
+    "812 E 900 S, Salt Lake City",
   ].join("\n");
-  assertEquals(buildCrewDigest([fullJob, jobTwo]), expected);
+  const actual = buildCrewDigest([fullJob, jobTwo]);
+  assertEquals(actual, expected);
+  // Divider proves it separates blocks, and appears exactly once for 2 jobs —
+  // never after the last block.
+  assertEquals(actual.split("———").length, 2);
+  assertEquals(actual.endsWith("———"), false);
 });
 
 // ── groupJobsByCrew ──────────────────────────────────────────────────────────
@@ -439,6 +599,80 @@ Deno.test("runNightBeforeDigest: a throw building one crew's digest is isolated 
   assertEquals(posted, ["#crew2"]);
   assertEquals(logs.some((l) => l.action_taken === "error"), true);
   assertEquals(logs.some((l) => l.action_taken === "created"), true);
+});
+
+// ── H1 fix (BL-4 adversarial review): testChannelOverride ─────────────────────
+// SLACK_TEST_CHANNEL_OVERRIDE routes every crew's post to a scratch channel;
+// without this fix, updateSentOn still stamped night_before_sent_on as if
+// the real crew had been notified, so the real 4pm send would silently skip
+// that job (no retry exists once the date window moves on).
+
+Deno.test("runNightBeforeDigest: testChannelOverride true — posts, but does NOT call updateSentOn", async () => {
+  const posted: Array<{ channel: string; text: string }> = [];
+  let updateSentOnCalled = false;
+  const logs: any[] = [];
+  const jobs: JobRow[] = [{ ...fullJob, id: "a", crew: "Crew 1" }];
+  const deps = makeDeps({
+    fetchScheduledJobs: async () => jobs,
+    getChannelEnv: (name: string) => (name === "SLACK_CREW1_CHANNEL" ? "#scratch-test" : undefined),
+    postSlackMessage: async (channel: string, text: string) => {
+      posted.push({ channel, text });
+      return { ok: true };
+    },
+    updateSentOn: async (ids: string[], sentOn: string) => {
+      updateSentOnCalled = true;
+      return { error: null };
+    },
+    writeLog: async (entry) => { logs.push(entry); },
+    testChannelOverride: true,
+  });
+  const result = await runNightBeforeDigest(deps);
+  assertEquals(result.status, 200);
+  // The post itself still happens — only the stamp is suppressed.
+  assertEquals(posted.length, 1);
+  assertEquals(updateSentOnCalled, false);
+});
+
+Deno.test("runNightBeforeDigest: testChannelOverride true — logs status:success, action_taken:created, payload_in marks stamped:false with a reason", async () => {
+  const logs: any[] = [];
+  const jobs: JobRow[] = [{ ...fullJob, id: "a", crew: "Crew 1" }];
+  const deps = makeDeps({
+    fetchScheduledJobs: async () => jobs,
+    getChannelEnv: (name: string) => (name === "SLACK_CREW1_CHANNEL" ? "#scratch-test" : undefined),
+    postSlackMessage: async () => ({ ok: true }),
+    writeLog: async (entry) => { logs.push(entry); },
+    testChannelOverride: true,
+  });
+  const result = await runNightBeforeDigest(deps);
+  assertEquals(result.status, 200);
+  assertEquals(logs.length, 1);
+  // The post genuinely succeeded, so status stays success — action_taken
+  // stays within the CHECK-constrained enum ('created'), never a new value.
+  assertEquals(logs[0].action_taken, "created");
+  assertEquals(logs[0].status, "success");
+  // But payload_in must make the un-stamped state unmistakable.
+  assertEquals(logs[0].payload_in.stamped, false);
+  assertEquals(typeof logs[0].payload_in.skip_reason, "string");
+  assertEquals(logs[0].payload_in.skip_reason.length > 0, true);
+});
+
+Deno.test("runNightBeforeDigest: testChannelOverride false/undefined — updateSentOn IS still called (no behavior change on the real path)", async () => {
+  let updateSentOnCalled = false;
+  const logs: any[] = [];
+  const jobs: JobRow[] = [{ ...fullJob, id: "a", crew: "Crew 1" }];
+  const deps = makeDeps({
+    fetchScheduledJobs: async () => jobs,
+    getChannelEnv: (name: string) => (name === "SLACK_CREW1_CHANNEL" ? "#crew1" : undefined),
+    postSlackMessage: async () => ({ ok: true }),
+    updateSentOn: async () => { updateSentOnCalled = true; return { error: null }; },
+    writeLog: async (entry) => { logs.push(entry); },
+    // testChannelOverride intentionally omitted — must default to the
+    // pre-H1 behavior.
+  });
+  const result = await runNightBeforeDigest(deps);
+  assertEquals(result.status, 200);
+  assertEquals(updateSentOnCalled, true);
+  assertEquals(logs[0].payload_in, { crew: "Crew 1", job_count: 1 });
 });
 
 Deno.test("runNightBeforeDigest: Slack post throws is caught, logged as error, does not throw", async () => {

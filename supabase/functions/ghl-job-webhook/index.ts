@@ -22,6 +22,7 @@ import {
 } from "./handlers.ts";
 import { createCalendarEvent, getGoogleAccessToken } from "../_shared/google.ts";
 import { writeSyncLog } from "../_shared/log.ts";
+import { postSlackMessage } from "../_shared/slack.ts";
 
 const GHL_API_KEY          = Deno.env.get("GHL_API_KEY")!;
 const GHL_LOCATION_ID      = Deno.env.get("GHL_LOCATION_ID")!;
@@ -41,6 +42,17 @@ const SLACK_CREW1_CHANNEL   = Deno.env.get("SLACK_CREW1_CHANNEL")    ?? "";
 const SLACK_CREW2_CHANNEL   = Deno.env.get("SLACK_CREW2_CHANNEL")    ?? "";
 const SLACK_CREW3_CHANNEL   = Deno.env.get("SLACK_CREW3_CHANNEL")    ?? "";
 const SLACK_CREW4_CHANNEL   = Deno.env.get("SLACK_CREW4_CHANNEL")    ?? "";
+
+// Test-only escape hatch, gating pattern mirrors BILL_API_TOKEN (empty string
+// treated the same as unset). When set, ALL FOUR crew Slack channels resolve
+// to this one channel instead — must never be set in normal operation.
+const SLACK_TEST_CHANNEL_OVERRIDE = Deno.env.get("SLACK_TEST_CHANNEL_OVERRIDE") || "";
+if (SLACK_TEST_CHANNEL_OVERRIDE) {
+  console.warn(
+    `[startup] SLACK_TEST_CHANNEL_OVERRIDE is set (${SLACK_TEST_CHANNEL_OVERRIDE}) — ALL crew Slack ` +
+      "messages will be redirected to this one channel. This must NOT be set in normal operation.",
+  );
+}
 
 // Empty string is treated the same as "unset" — a blank secret should gate
 // the BILL leg off ('skipped'), not attempt calls with an empty apiToken.
@@ -107,7 +119,7 @@ try {
     console.log("[startup] Resolved pipeline:", JSON.stringify(PIPELINE));
   }
 } catch (err: any) {
-  STARTUP_ERROR = `Pipeline resolution failed: ${err.message ?? String(err)}`;
+  STARTUP_ERROR = `Pipeline resolution failed: ${err?.message ?? String(err)}`;
   console.error("[startup]", STARTUP_ERROR);
 }
 
@@ -154,20 +166,6 @@ function json(status: number, body: Record<string, unknown>): Response {
 
 async function getAccessTokenReal(): Promise<string> {
   return getGoogleAccessToken(GOOGLE_SERVICE_ACCOUNT_KEY);
-}
-
-async function postSlackMessage(channel: string, text: string): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch("https://slack.com/api/chat.postMessage", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${SLACK_BOT_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ channel, text }),
-  });
-  const data = await res.json();
-  console.log("[slack] post message response:", JSON.stringify(data));
-  return { ok: data.ok === true, error: data.error };
 }
 
 // ── BILL Spend & Expense v3 — job-code custom field (gated on BILL_API_TOKEN) ──
@@ -231,7 +229,7 @@ async function ensureBillJobCodeReal(jobName: string): Promise<{ status: "succes
 
     return { status: "success" };
   } catch (err: any) {
-    const msg = err.message ?? String(err);
+    const msg = err?.message ?? String(err);
     console.error("[bill] ensureBillJobCode failed (non-fatal):", msg);
     return { status: "error", error: msg };
   }
@@ -321,12 +319,12 @@ Deno.serve(async (req) => {
           crew3: GOOGLE_CALENDAR_CREW3,
           crew4: GOOGLE_CALENDAR_CREW4,
         },
-        postSlackMessage,
+        postSlackMessage: (channel: string, text: string) => postSlackMessage(SLACK_BOT_TOKEN, channel, text),
         slackChannels: {
-          crew1: SLACK_CREW1_CHANNEL,
-          crew2: SLACK_CREW2_CHANNEL,
-          crew3: SLACK_CREW3_CHANNEL,
-          crew4: SLACK_CREW4_CHANNEL,
+          crew1: SLACK_TEST_CHANNEL_OVERRIDE || SLACK_CREW1_CHANNEL,
+          crew2: SLACK_TEST_CHANNEL_OVERRIDE || SLACK_CREW2_CHANNEL,
+          crew3: SLACK_TEST_CHANNEL_OVERRIDE || SLACK_CREW3_CHANNEL,
+          crew4: SLACK_TEST_CHANNEL_OVERRIDE || SLACK_CREW4_CHANNEL,
         },
         billApiToken:     BILL_API_TOKEN,
         ensureBillJobCode: ensureBillJobCodeReal,
@@ -352,7 +350,7 @@ Deno.serve(async (req) => {
     // and handleJobScheduled each have their own outer catch, so this only
     // fires for failures outside them (req.json/parseWebhookBody edge cases,
     // deps construction, etc).
-    const msg = `Unexpected error in ghl-job-webhook: ${err.message ?? String(err)}`;
+    const msg = `Unexpected error in ghl-job-webhook: ${err?.message ?? String(err)}`;
     console.error("[handler]", msg);
     await writeSyncLog(supabase, {
       direction:     "ghl_to_supabase",
