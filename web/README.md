@@ -3,9 +3,10 @@
 The Lost Boys Demolition estimate builder — Phase B slice 2. Mobile-first Next 16 App Router app
 for Dane, Jackson, and Matt to build, revise, and push estimates to GHL.
 
-**Live:** https://lbd-estimates.vercel.app (Vercel project `lostboysdemolition` — renamed from
-`lbd-estimates` 2026-08-18; the production URL did **not** change with the rename. Root directory
-`web`, include-outside-root ON, production branch `main`)
+**Live:** https://lostboysdemolition.vercel.app (Vercel project `lostboysdemolition` — project
+renamed and URL switched from `lbd-estimates` 2026-08-18; the old `lbd-estimates.vercel.app`
+domain is deleted and 404s. Root directory `web`, include-outside-root ON, production branch
+`main`)
 
 > **There is no login.** Identity is a device-remembered "Who's estimating?" picker validated
 > server-side against a fixed 3-name allowlist (`src/lib/estimator.ts`). The deployment ships

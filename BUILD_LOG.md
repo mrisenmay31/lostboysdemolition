@@ -27,7 +27,7 @@ shipped.
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A | 🟢 Live (**v19**) — Phase A keystone + BL-4 + **BL-5: crew calendar events carry no pricing** (audience-aware calendar bodies, live-probed) | 2026-08-20 |
 | `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
-| Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lbd-estimates.vercel.app** — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
+| Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lostboysdemolition.vercel.app** (URL changed 2026-08-18; old `lbd-estimates.vercel.app` deleted, now 404s) — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
 | BL-4 crew Slack + repo fixes | — | 🟢 **SHIPPED and merged to main 2026-08-17** — both crew messages reformatted, estimate→job promotion built and live-proven, 2 of 3 repo fixes done (3rd → BL-6). Suite 312. New backlog: BL-5/BL-6/BL-7 | 2026-08-17 |
 | `deno task test` gate | — | 🟢 **Widened 2026-08-17** — was `_shared/` only and reported 18/18 while **139 real tests were never collected**; now `supabase/functions/`, 312 passing | 2026-08-17 |
@@ -41,17 +41,24 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
-### 2026-08-18 — Vercel project renamed `lbd-estimates` → `lostboysdemolition` (Matt, in the Vercel UI)
+### 2026-08-18 — Vercel project renamed AND production URL changed: `lbd-estimates` → `lostboysdemolition` (Matt, in the Vercel UI)
 
-Docs-only session. Matt renamed the Vercel project; same project ID
-(`prj_hCH0ZxkpeuRaOWLFjCaZ9wz5KKKm`, team `matt-risenmays-projects`). **The production URL did
-NOT change:** `lbd-estimates.vercel.app` is still the attached live domain (verified 200 via
-`/estimates`), and `lostboysdemolition.vercel.app` is **not** attached — it 404s. Vercel renames
-don't touch existing `.vercel.app` domains. If Matt wants the URL to match the new name, the
-domain must be added to the project in Vercel separately. `web/.vercel/project.json` still says
-`"projectName":"lbd-estimates"` — harmless, the CLI links by project ID and will refresh it.
-Updated name references in `CLAUDE.md`, `web/README.md`, `NEXT_SESSION_PROMPT.md`; all URL
-references were left as-is because they remain correct.
+Docs-only session, in two steps. Matt first renamed the Vercel project (same project ID
+`prj_hCH0ZxkpeuRaOWLFjCaZ9wz5KKKm`, team `matt-risenmays-projects`); a rename alone does not touch
+`.vercel.app` domains, so the old URL initially stayed live. Matt then added the matching domain
+and **deleted the old one**. Final state, verified by probe:
+
+- **Production URL is now https://lostboysdemolition.vercel.app** — 200, `/` → `/estimates`,
+  title "LBD Estimates".
+- **`lbd-estimates.vercel.app` is deleted and 404s — no redirect.** Anyone with the old URL
+  bookmarked or saved to a phone home screen (Dane/Jackson) must be given the new one; nothing
+  server-side pointed at the app, so that is the only breakage surface.
+- `web/.vercel/project.json` still says `"projectName":"lbd-estimates"` — harmless, the CLI links
+  by project ID and will refresh it on next use.
+
+Updated the current-state references in `CLAUDE.md`, `web/README.md`, `NEXT_SESSION_PROMPT.md`,
+and this file's status table to the new URL. Entries below dated 2026-08-14 keep the old URL —
+true when written.
 
 ### 2026-08-20 — BL-5 SHIPPED: crew calendar events stripped of pricing; BL-6 design draft; concurrency directive strengthened
 

@@ -3,6 +3,14 @@ truth), then BUILD_PLAN.md (official plan, phases A–G + Track B).
 
 ## What just happened — BL-5 SHIPPED (2026-08-20) + BL-6 design draft ready
 
+**Then, 2026-08-18: the estimate builder's URL changed.** Matt renamed the Vercel project
+`lbd-estimates` → `lostboysdemolition` and switched the domain: production is now
+**https://lostboysdemolition.vercel.app** (verified 200, `/` → `/estimates`). The old
+`lbd-estimates.vercel.app` is **deleted and 404s — no redirect** — so any old bookmark or
+phone home-screen shortcut (Dane/Jackson) breaks; give them the new URL. No code or env var
+referenced the old domain (verified by grep), so docs were the only thing to update — done,
+committed. Older BUILD_LOG/memory entries keep the old URL as history.
+
 BL-5 (strip pricing from crew calendar events) was planned, approved, built, opus-reviewed
 (0 findings), deployed, live-probed, verified by Matt, and merged to `main` (`ac58673`,
 fast-forward). Read the `2026-08-20` entry in `BUILD_LOG.md` before planning anything.
@@ -42,7 +50,7 @@ disjoint file ownership per task, interfaces first, per-task notes on what runs 
 ## 🔴 Still owed
 
 - **Matt's phone smoke + the one-real-bid Fillout parallel check** on
-  https://lbd-estimates.vercel.app — outstanding since 2026-08-14. First real estimate ≥ 1426.
+  https://lostboysdemolition.vercel.app — outstanding since 2026-08-14. First real estimate ≥ 1426.
 - Eyeball the BL-4 message rendering in #ops-test (`C0BPPG8997Z`) — still unverified; the session
   Slack MCP is on the wrong workspace (CTA Integrity), so this is Matt's 30-second look.
 - Dane habit items: populate GHL **Job Start Time** and **Job Scope**.
@@ -66,9 +74,9 @@ disjoint file ownership per task, interfaces first, per-task notes on what runs 
 
 ## State that hasn't changed
 
-Phase B slice 2 LIVE at https://lbd-estimates.vercel.app (Vercel project renamed
-`lbd-estimates` → `lostboysdemolition` 2026-08-18; the URL did NOT change — the old domain is still
-the live one), no login (estimator picker),
+Phase B slice 2 LIVE at https://lostboysdemolition.vercel.app (Vercel project renamed AND URL
+switched from `lbd-estimates` 2026-08-18; the old `lbd-estimates.vercel.app` domain is deleted
+and 404s — no redirect, so old bookmarks/home-screen shortcuts break), no login (estimator picker),
 network-layer open. Two known limitations: superseded-version protection is UI-only; no concurrency
 guard on the GHL push. Test residue: estimates ≤1425 TEST-labeled; JOB-1102/JOB-1104 cancelled TEST
 jobs. **No test artifacts remain on any calendar** (Matt deleted the two BL-5 probe events
