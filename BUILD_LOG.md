@@ -41,6 +41,18 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-18 — Vercel project renamed `lbd-estimates` → `lostboysdemolition` (Matt, in the Vercel UI)
+
+Docs-only session. Matt renamed the Vercel project; same project ID
+(`prj_hCH0ZxkpeuRaOWLFjCaZ9wz5KKKm`, team `matt-risenmays-projects`). **The production URL did
+NOT change:** `lbd-estimates.vercel.app` is still the attached live domain (verified 200 via
+`/estimates`), and `lostboysdemolition.vercel.app` is **not** attached — it 404s. Vercel renames
+don't touch existing `.vercel.app` domains. If Matt wants the URL to match the new name, the
+domain must be added to the project in Vercel separately. `web/.vercel/project.json` still says
+`"projectName":"lbd-estimates"` — harmless, the CLI links by project ID and will refresh it.
+Updated name references in `CLAUDE.md`, `web/README.md`, `NEXT_SESSION_PROMPT.md`; all URL
+references were left as-is because they remain correct.
+
 ### 2026-08-20 — BL-5 SHIPPED: crew calendar events stripped of pricing; BL-6 design draft; concurrency directive strengthened
 
 **Executed** `docs/superpowers/plans/2026-08-18-bl5-crew-calendar-no-pricing.md` (approved 2026-08-18)

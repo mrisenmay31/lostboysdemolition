@@ -66,7 +66,9 @@ disjoint file ownership per task, interfaces first, per-task notes on what runs 
 
 ## State that hasn't changed
 
-Phase B slice 2 LIVE at https://lbd-estimates.vercel.app, no login (estimator picker),
+Phase B slice 2 LIVE at https://lbd-estimates.vercel.app (Vercel project renamed
+`lbd-estimates` → `lostboysdemolition` 2026-08-18; the URL did NOT change — the old domain is still
+the live one), no login (estimator picker),
 network-layer open. Two known limitations: superseded-version protection is UI-only; no concurrency
 guard on the GHL push. Test residue: estimates ≤1425 TEST-labeled; JOB-1102/JOB-1104 cancelled TEST
 jobs. **No test artifacts remain on any calendar** (Matt deleted the two BL-5 probe events
