@@ -41,9 +41,6 @@ disjoint file ownership per task, interfaces first, per-task notes on what runs 
 
 ## 🔴 Still owed
 
-- **Matt: delete the two BL-5 probe events** — main + Crew 1 calendars, Wed 2026-08-20, both named
-  "JOB-1104 – Contractor Company" (event IDs `d2nqvpvj6o1p8vg808re7n98o4` main,
-  `9p88u9p07cjr9hq57h2qjsitm4` crew). Sessions have no access to those calendars.
 - **Matt's phone smoke + the one-real-bid Fillout parallel check** on
   https://lbd-estimates.vercel.app — outstanding since 2026-08-14. First real estimate ≥ 1426.
 - Eyeball the BL-4 message rendering in #ops-test (`C0BPPG8997Z`) — still unverified; the session
@@ -72,7 +69,9 @@ disjoint file ownership per task, interfaces first, per-task notes on what runs 
 Phase B slice 2 LIVE at https://lbd-estimates.vercel.app, no login (estimator picker),
 network-layer open. Two known limitations: superseded-version protection is UI-only; no concurrency
 guard on the GHL push. Test residue: estimates ≤1425 TEST-labeled; JOB-1102/JOB-1104 cancelled TEST
-jobs (JOB-1104's gcal IDs point at the two probe events pending Matt's deletion).
+jobs. **No test artifacts remain on any calendar** (Matt deleted the two BL-5 probe events
+2026-08-20); both jobs' gcal ID columns stay stamped, pointing at deleted events by design, so a
+re-fire can't create duplicates.
 
 ## Standing instructions (unchanged unless noted)
 

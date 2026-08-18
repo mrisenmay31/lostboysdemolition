@@ -99,8 +99,9 @@ awaits Matt's review; its claim that a CLAUDE.md tags line needs correcting is *
 edit docs from the draft alone.**
 
 #### Still owed / carried forward
-- **Matt: delete the two probe events** on the main + Crew 1 calendars (Aug 20, "JOB-1104 –
-  Contractor Company") — I have no access to those calendars in-session.
+- ~~Matt: delete the two probe events~~ — **done 2026-08-20, confirmed by Matt.** No BL-5 test
+  artifacts remain on any calendar. JOB-1104's `gcal_main_event_id`/`gcal_crew_event_id` stay
+  stamped (pointing at the deleted events, same pattern as JOB-1102) so a re-fire can't duplicate.
 - Matt's phone smoke + one-real-bid Fillout parallel check on the estimate builder (outstanding
   since 2026-08-14).
 - BL-6 draft review is the natural next session.
