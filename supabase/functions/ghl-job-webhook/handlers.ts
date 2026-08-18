@@ -1024,18 +1024,26 @@ export interface ScheduleJobInput {
   end_date: string | null;
 }
 
-/** Client, estimate value, crew, address — omit any line whose value is
- *  null/empty. No scope/line-items section (that arrives in Phase B). */
-export function buildCalendarDescription(job: ScheduleJobInput): string {
+// BL-5: which calendar this body is for. "crew" omits the Estimate line —
+// no pricing may reach a crew channel (same rule as the Slack messages,
+// see the scope-summary section below). REQUIRED with no default, so every
+// caller must decide rather than silently inheriting the pricing form.
+export type CalendarAudience = "main" | "crew";
+
+/** Client, estimate value (main audience only — BL-5), crew, address —
+ *  omit any line whose value is null/empty. No scope/line-items section. */
+export function buildCalendarDescription(job: ScheduleJobInput, audience: CalendarAudience): string {
   const lines: string[] = [];
   if (job.client_name) lines.push(`Client: ${job.client_name}`);
-  if (job.estimate_value != null) lines.push(`Estimate: ${formatCurrency(job.estimate_value)}`);
+  if (audience === "main" && job.estimate_value != null) {
+    lines.push(`Estimate: ${formatCurrency(job.estimate_value)}`);
+  }
   if (job.crew) lines.push(`Crew: ${job.crew}`);
   if (job.job_address) lines.push(`Address: ${job.job_address}`);
   return lines.join("\n");
 }
 
-export function buildCalendarEventBody(job: ScheduleJobInput): {
+export function buildCalendarEventBody(job: ScheduleJobInput, audience: CalendarAudience): {
   summary: string;
   description: string;
   start: { date: string };
@@ -1044,7 +1052,7 @@ export function buildCalendarEventBody(job: ScheduleJobInput): {
   const effectiveEnd = job.end_date || job.start_date;
   return {
     summary: job.job_name,
-    description: buildCalendarDescription(job),
+    description: buildCalendarDescription(job, audience),
     start: { date: job.start_date },
     end: { date: addOneDay(effectiveEnd) },
   };
@@ -1521,7 +1529,7 @@ export async function handleJobScheduled(
     if (!needsMain && !needsCrew) {
       calendarStatus = "skipped";
     } else {
-      const eventBody = buildCalendarEventBody({
+      const calendarJobInput: ScheduleJobInput = {
         job_name: jobRow.job_name,
         client_name: jobRow.client_name,
         job_address: jobRow.job_address,
@@ -1529,12 +1537,20 @@ export async function handleJobScheduled(
         crew: fields.crew,
         start_date: startDate,
         end_date: fields.endDate,
-      });
+      };
 
-      const targets: Array<{ label: "main" | "crew"; calendarId: string }> = [];
+      const targets: Array<{
+        label: "main" | "crew";
+        calendarId: string;
+        body: ReturnType<typeof buildCalendarEventBody>;
+      }> = [];
       const mainConfigMissing = needsMain && !deps.calendarIds.main;
       if (needsMain && deps.calendarIds.main) {
-        targets.push({ label: "main", calendarId: deps.calendarIds.main });
+        targets.push({
+          label: "main",
+          calendarId: deps.calendarIds.main,
+          body: buildCalendarEventBody(calendarJobInput, "main"),
+        });
       }
 
       // I1: a crew value that maps to a known crew (Crew 1-4) but whose
@@ -1548,7 +1564,11 @@ export async function handleJobScheduled(
         if (crewEnvKey) {
           const crewCalId = deps.calendarIds[crewEnvKey];
           if (crewCalId) {
-            targets.push({ label: "crew", calendarId: crewCalId });
+            targets.push({
+              label: "crew",
+              calendarId: crewCalId,
+              body: buildCalendarEventBody(calendarJobInput, "crew"),
+            });
           } else {
             crewMisconfigured = true;
             console.warn(
@@ -1566,7 +1586,7 @@ export async function handleJobScheduled(
         try {
           const accessToken = await deps.getAccessToken();
           const results = await Promise.allSettled(
-            targets.map((t) => deps.createCalendarEvent(t.calendarId, accessToken, eventBody)),
+            targets.map((t) => deps.createCalendarEvent(t.calendarId, accessToken, t.body)),
           );
           results.forEach((r, i) => {
             const t = targets[i];

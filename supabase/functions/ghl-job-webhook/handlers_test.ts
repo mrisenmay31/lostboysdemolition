@@ -1,4 +1,4 @@
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { buildCrewJobBlock } from "../_shared/slack.ts";
 import {
   parseWebhookBody,
@@ -1394,7 +1394,7 @@ Deno.test("buildCalendarDescription: all fields present", () => {
     crew: "Crew 1",
     start_date: "2026-08-20",
     end_date: null,
-  });
+  }, "main");
   assertEquals(
     desc,
     "Client: Ann Morrison\nEstimate: $4,200.00\nCrew: Crew 1\nAddress: 4285 S 300 W, Murray",
@@ -1410,7 +1410,7 @@ Deno.test("buildCalendarDescription: omits null lines", () => {
     crew: "Crew 1",
     start_date: "2026-08-20",
     end_date: null,
-  });
+  }, "main");
   assertEquals(desc, "Crew: Crew 1");
 });
 
@@ -1423,7 +1423,7 @@ Deno.test("buildCalendarEventBody: title is full job_name, no scope section", ()
     crew: "Crew 1",
     start_date: "2026-08-20",
     end_date: null,
-  });
+  }, "main");
   assertEquals(body.summary, "JOB-1100 – Morrison – Holladay");
   assertEquals(body.start, { date: "2026-08-20" });
   // No end_date on the job -> falls back to start_date, then addOneDay (exclusive end).
@@ -1439,9 +1439,47 @@ Deno.test("buildCalendarEventBody: end_date present uses addOneDay(end_date), no
     crew: null,
     start_date: "2026-08-20",
     end_date: "2026-08-22",
-  });
+  }, "main");
   assertEquals(body.start, { date: "2026-08-20" });
   assertEquals(body.end, { date: "2026-08-23" });
+});
+
+// ── BL-5: crew audience omits the Estimate line ─────────────────────────────
+
+Deno.test('buildCalendarDescription: crew audience omits the Estimate line (BL-5)', () => {
+  const desc = buildCalendarDescription({
+    job_name: "JOB-1100 – Morrison – Holladay",
+    client_name: "Ann Morrison",
+    job_address: "4285 S 300 W, Murray",
+    estimate_value: 4200,
+    crew: "Crew 1",
+    start_date: "2026-08-20",
+    end_date: null,
+  }, "crew");
+  assertEquals(desc, "Client: Ann Morrison\nCrew: Crew 1\nAddress: 4285 S 300 W, Murray");
+});
+
+Deno.test("buildCalendarDescription: crew and main identical when estimate_value is null", () => {
+  const input = {
+    job_name: "JOB-1100", client_name: "Ann Morrison", job_address: null,
+    estimate_value: null, crew: "Crew 1", start_date: "2026-08-20", end_date: null,
+  };
+  assertEquals(buildCalendarDescription(input, "crew"), buildCalendarDescription(input, "main"));
+});
+
+Deno.test('buildCalendarEventBody: crew description carries no "Estimate:" line while main does', () => {
+  const input = {
+    job_name: "JOB-1100", client_name: null, job_address: null,
+    estimate_value: 4200, crew: "Crew 1", start_date: "2026-08-20", end_date: null,
+  };
+  const main = buildCalendarEventBody(input, "main");
+  const crew = buildCalendarEventBody(input, "crew");
+  assert(main.description.includes("Estimate: $4,200.00"));
+  assert(!crew.description.includes("Estimate:"));
+  // Everything except the description is audience-independent.
+  assertEquals(main.summary, crew.summary);
+  assertEquals(main.start, crew.start);
+  assertEquals(main.end, crew.end);
 });
 
 // ── normalizeStartTime (BL-4 Task C) ────────────────────────────────────────
@@ -2565,6 +2603,57 @@ Deno.test("handleJobScheduled: C2 — crew ID already set, main ID null -> re-fi
   assertEquals(result.body.calendar, "success");
   const jobsUpdates = supabase._updates.filter((u: any) => u.table === "jobs");
   assertEquals(jobsUpdates[0].payload, { gcal_main_event_id: "gcal-evt-main-cal" });
+});
+
+// ── BL-5: crew calendar events carry no pricing ─────────────────────────────
+
+Deno.test("handleJobScheduled calendar: main body carries Estimate line, crew body does not (BL-5)", async () => {
+  const job = freshJobRow({ estimate_value: 4200, client_name: "Ann Morrison" });
+  const supabase = fakeScheduleSupabase({ job });
+  const bodies: Record<string, any> = {};
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      createCalendarEvent: (calendarId: string, _tok: string, eventBody: any) => {
+        bodies[calendarId] = eventBody;
+        return Promise.resolve({ id: `gcal-evt-${calendarId}` });
+      },
+    }),
+  };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(result.body.calendar, "success");
+  assert(bodies["main-cal"].description.includes("Estimate: $4,200.00"));
+  assert(!bodies["crew1-cal"].description.includes("Estimate:"));
+  // Same event otherwise — title and dates identical across targets.
+  assertEquals(bodies["main-cal"].summary, bodies["crew1-cal"].summary);
+  assertEquals(bodies["main-cal"].start, bodies["crew1-cal"].start);
+  assertEquals(bodies["main-cal"].end, bodies["crew1-cal"].end);
+});
+
+Deno.test("handleJobScheduled calendar: main already stamped -> only crew created, still without Estimate (BL-5 x C1 gate)", async () => {
+  const job = freshJobRow({
+    // crew/dates match HAPPY_OPP exactly so this isn't also read as a
+    // reschedule (I3) — purely exercising the per-target audience wiring.
+    crew: "Crew 1",
+    start_date: "2026-08-20",
+    end_date: "2026-08-21",
+    estimate_value: 4200,
+    gcal_main_event_id: "already-there",
+  });
+  const supabase = fakeScheduleSupabase({ job });
+  const bodies: Record<string, any> = {};
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      createCalendarEvent: (calendarId: string, _tok: string, eventBody: any) => {
+        bodies[calendarId] = eventBody;
+        return Promise.resolve({ id: `gcal-evt-${calendarId}` });
+      },
+    }),
+  };
+  await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(bodies["main-cal"], undefined);       // C1 per-target gate intact
+  assert(!bodies["crew1-cal"].description.includes("Estimate:"));
 });
 
 // ── Fix round 1: I1 — mapped crew, unset calendar env ──────────────────────────
