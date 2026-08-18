@@ -86,6 +86,13 @@ output (pass/fail for each of a–d), the migration-table head, before/after row
 touched table, the red pgTAP output, the green pgTAP output, and the post-apply `get_advisors`
 (security) result.
 
+⚠️ **Auth-schema caveat (learned 2026-08-18, BL-7 migration):** any migration touching an object in
+the `auth` schema MUST be validated with the production single-transaction dry-run regardless of
+branch results. A branch cannot reproduce production's `auth` ownership conditions — the BL-7
+`drop trigger` ran green on a faithful branch and would have failed 42501 on production (postgres
+holds TRIGGER privilege on auth.users but does not own it). Branch validation is insufficient by
+construction for auth-schema DDL.
+
 ## 4. Production post-apply verification
 
 Because pgTAP is never installed on production, post-apply verification against production (Step 8

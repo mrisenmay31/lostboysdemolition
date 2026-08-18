@@ -52,6 +52,14 @@ The v2 plan's Task 0B text is refined in eight ways — each necessary or strict
 7. **No `updated_at` trigger**: repo convention is app-maintained `updated_at` (zero such triggers in `supabase/migrations/`); Task 8's activation action sets it explicitly.
 8. **Explicit table grants + anon revoke**: Supabase default privileges would grant anon table rights (RLS-gated to 0 rows); explicit revoke yields permission-denied instead, and makes the migration branch-independent.
 
+### Execution amendments (2026-08-18, recorded during the build — see SDD ledger + BUILD_LOG)
+
+- Deviation 1 amended: Section 6 uses a single `create or replace trigger` instead of drop+create — DROP TRIGGER requires auth.users ownership, which postgres lacks on production (42501); the branch masked this. Intent of deviation 1 unchanged.
+- Deviation 9 (new): the v2 spec's verbatim assertions for has_table/has_column/policy_cmd_is omit description args and resolve to wrong pgTAP overloads (can never pass); descriptions added.
+- Deviation 10 (new): display_name expressions made total (NULL-email/blank-metadata safe) in trigger + backfill — a NULL would have aborted real signups.
+- Test extended plan(17) → plan(19): table-privilege assertions pin the deviation-8 ACL posture.
+- Task 3's "Expected: 13 fail, 3 pass" was an arithmetic slip: 14 fail / 3 pass (17-assertion file); with 19 assertions the pre-migration expectation is 16 fail / 3 pass.
+
 ## Concurrency map
 
 Per Matt's standing directive, lanes are designed in up front:
