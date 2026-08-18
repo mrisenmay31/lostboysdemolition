@@ -1,9 +1,16 @@
 # Live Job Profitability Health Dashboard — Approved Design
 
-**Status:** Approved by Matt Risenmay on 2026-08-18  
+**Status:** Approved by Matt Risenmay on 2026-08-18, then reduced to **design input** later the
+same day: the Version 2 plan's decision ledger
+(`docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`) supersedes
+this file wherever they conflict. Known conflict: §2 below gives GHL invoice ownership — that is
+**reversed**; direct Stripe invoicing + Synder→QBO are reaffirmed and GHL receives stages and
+deep links only. The v2 GHL transition contract also refines §3's lifecycle stage names to the
+live 12-stage pipeline.  
 **Project:** Lost Boys Demolition  
 **Primary user:** Dane, CEO and owner  
-**Implementation source of truth:** This document and the implementation plan that cites it supersede older job-creation and profitability assumptions where they conflict.
+**Implementation source of truth:** The Version 2 plan and its decision ledger; this document is
+design input where not contradicted.
 
 ## 1. Objective
 

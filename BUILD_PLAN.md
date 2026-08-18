@@ -17,6 +17,52 @@
 > wrong; they cancel. **No pricing input may be corrected in isolation, and no quoted price may
 > move.** See `DISCOVERY_2026-07-31.md` §7.
 
+## ⚠️ AMENDED 2026-08-18 — Profitability Program v2 ratified
+
+Matt reconciled two Codex-authored program documents against this plan and ratified the result.
+**The canonical implementation program for the profitability build is now
+`docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`** (landed with
+five approved adjustments folded in; Version 1 is archived at
+`docs/archive/2026-08-18-live-job-profitability-health-dashboard.md`). The design spec it cites
+(`docs/superpowers/specs/2026-08-18-live-job-profitability-health-dashboard-design.md`) is input,
+superseded by the v2 decision ledger where they conflict. The v2 program absorbs and re-specifies
+Phases C, E, F, and G below, and Phase D per the decision that follows. Decisions ratified today:
+
+1. **Job-creation authority moves to app-side scheduling.** Quote Accepted becomes pre-job;
+   scheduling in the estimator app mints `JOB-XXXX` and freezes budget v1. Phase A's GHL
+   Quote-Accepted minting stays **live** until v2 Task 4 ships, then is flag-disabled
+   (`ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false`) and never re-enabled, including during rollback.
+   Precondition on the v2 Phase 1 gate: Matt's phone smoke + one real estimate through the builder.
+2. **Two-way Google Calendar sync is a real requirement** (not descoped). It ships with a full
+   channel lifecycle — registry, expiration timestamps, renewal before expiry, overlap
+   deduplication, renewal-failure alerts, periodic reconciliation fallback — as its own gated
+   sub-slice of v2 Phase 1.
+3. **Phase D is DECIDED — split D1/D2** (verbatim wording below; closes the last 🔴 blocking
+   decision).
+4. **Scoped auth returns.** Real Supabase Auth for foremen + Dane's financial routes via an
+   isolated `workforce_profiles` boundary (BL-7 resolved by v2 Task 0B before any account
+   exists); the estimate tool keeps the no-login picker; `actor_assurance` records which kind of
+   identity performed each action.
+5. **Direct Stripe invoicing + Synder→QBO reaffirmed.** GHL receives pipeline stages and deep
+   links only — never invoice authority. Stripe native auto-reminders + the weekly AR digest are
+   **deferred, not dropped**: owner Matt (CFO — chases AR personally today); activation once
+   `stripe-webhook` is live with real invoices flowing (v2 Phase 5 gate).
+
+### Phase D decision (Matt, 2026-08-18, verbatim)
+
+> Phase D1 — Unblocked: canonical job-time schema, manual/CSV import, foreman approval, Dane
+> override, labor-cost attribution, audit history, and provider-neutral adapter contract.
+> Phase D2 — Deferred: vendor evaluation and production connector.
+> Any future vendor must automatically accept JOB-XXXX and return corrected/approved job-coded
+> time. ClockShark, busybusy, a custom application, and other providers may be evaluated against
+> the same contract. Gusto remains payroll, while the Gusto timekeeping/add-on question stays
+> parked until vendor evaluation.
+
+The 2026-08-18 landing pass executed only the documentation portion (this amendment, the v2 plan
+landing, CLAUDE.md updates). **v2 Task 0A is not yet complete** (its runbook is unwritten) **and
+Task 0B — the BL-7 auth migration — is not implemented or verified.** No production migration or
+application code shipped in that pass.
+
 ## Context
 
 Lost Boys wants a closed loop: accurate estimate → tracked actuals → job-level profitability → calibrated back into pricing. Today none of that exists in software.
@@ -223,10 +269,14 @@ trigger it.
 - Split hauling services (Blue Collar, Chew It Up, Local Dumpster, Intermountain Dumpsters) out of
   `Dump Fees` — *pending Dane's confirmation of what those vendors do.*
 
-### Phase D — Time tracking ⚠️ BLOCKED ON DECISION
+### Phase D — Time tracking ✅ DECIDED 2026-08-18, split D1/D2
 **Gusto has no project-creation API** — `POST /time_tracking/time_sheets` requires a pre-existing
 `job_uuid`. Crews already clock in reliably; the failure is that the project must exist and cannot
-be created programmatically. Options in "The one open decision" below.
+be created programmatically. **Resolved 2026-08-18** (see the amendment above for the verbatim
+decision): **Phase D1 (unblocked)** — canonical job-time schema, manual/CSV import, foreman
+approval, Dane override, labor-cost attribution, audit history, provider-neutral adapter contract
+(v2 Task 13). **Phase D2 (deferred)** — vendor evaluation and production connector against that
+contract; Gusto add-on question parked until then.
 
 ### Phase E — Invoicing
 - Direct Stripe draft on completion; port the proven two-step rendering from
@@ -238,6 +288,9 @@ be created programmatically. Options in "The one open decision" below.
 - **Synder → QBO.** Priority raised: invoice-level detail never reaches QuickBooks today, so books
   are reconciled from bank activity and there is no job- or client-level revenue in the ledger.
 - **Go-live gate:** `STRIPE_SECRET_KEY` is a *test* key. Confirm the Lost Boys live account.
+- **2026-08-18:** this phase's Stripe scope is absorbed by v2 Task 15 (Stripe + Synder→QBO
+  reaffirmed; GHL never becomes invoice authority). Auto-reminders + AR digest deferred, not
+  dropped — owner Matt; activate once `stripe-webhook` is live with real invoices (v2 Phase 5 gate).
 
 ### Phase F — Profitability
 - Variance vs. the accepted estimate: labor (efficiency + rate, using real `users.hourly_rate`),
@@ -457,9 +510,12 @@ against is now live-proven, not hypothetical.
 
 ---
 
-## The one open decision — Phase D
+## The one open decision — Phase D ✅ RESOLVED 2026-08-18
 
-Everything else is decided. Time tracking cannot be designed around until Matt chooses.
+**Resolved as the D1/D2 split** (see the 2026-08-18 amendment for the verbatim decision):
+manual/import-first with a provider-neutral adapter contract now; vendor evaluation deferred to
+D2, with ClockShark, busybusy, a custom application, and others judged against the same contract.
+The four options below are kept for provenance.
 
 1. **Foreman confirms crew + hours on the existing Job Completed form.** Near-zero build, no new
    app, no subscription, no habit change. Job-level hours × real pay rates, cross-checked against
@@ -482,8 +538,8 @@ Everything else is decided. Time tracking cannot be designed around until Matt c
 | 2 | Dump Fee Buffer | ✅ **Resolved** — $300/load is a **pricing rate**, not a cost. Priced in as-is; real per-load cost tracked separately from BILL. The field never existed in the base. |
 | 3 | Deposit policy | ⚪ Open, now decidable — 39 jobs over $5,000 = **21% of jobs but 57% of revenue.** A $5k threshold would be well-targeted. |
 | 4 | Scope calibration rules | ⚪ Open — proposed defaults: min 5 `measured` jobs; median until n≥8 then trimmed mean; exclude Path B initially. Phase G. |
-| 5 | Gusto add-on | ⚪ Verify, don't decide — the add-on may be required to *accept* timesheet pushes. Confirm before cancelling. |
-| 6 | **Phase D — time tracking** | 🔴 **BLOCKING** (above) |
+| 5 | Gusto add-on | ⚪ Parked until Phase D2 vendor evaluation (2026-08-18). |
+| 6 | **Phase D — time tracking** | ✅ **Resolved 2026-08-18** — D1/D2 split (see amendment above) |
 | 7 | Lead intake — Grasshopper vs. port into GHL | ⚪ Open (Track B) |
 
 ---
@@ -530,7 +586,7 @@ then this section is the only record that they were ever decided.
 | **Client sign-off at completion** | ⚪ Still wanted (Matt). A client-approval checkbox already exists on the Job Completed form. Answer was ambiguous — **needs clarification.** Folded into Phase A/E. |
 | **Callback tracking** | ✅ **Keep.** Not tracked today; happens often enough to matter to job profitability. Folded into **Phase F**, and a `callbacks` table must be in the initial schema — cheap now, expensive to retrofit. |
 | **Stripe native invoice reminders** | ✅ **Keep, plus AR digest.** $61,150 currently overdue across 18 invoices. Folded into **Phase E**. |
-| **ClockShark vs. in-house clock-in** | 🔴 **Reopened and now blocking** — see "The one open decision". An earlier recommendation to skip ClockShark assumed clock-in could be cheaply rebuilt; the Gusto project-API constraint kills that assumption. |
+| **ClockShark vs. in-house clock-in** | ✅ **Resolved 2026-08-18** — Phase D1/D2 split. Neither is chosen up front: D1 ships manual/CSV-first behind a provider-neutral adapter contract; ClockShark (and busybusy, a custom app, others) are evaluated against that contract in D2. |
 | **Airtable-centric source of truth** | ✅ Superseded — Postgres, unchanged. |
 | **Weekly Divvy CSV import** | ✅ Superseded — BILL v3 webhooks (Phase C), unchanged. |
 

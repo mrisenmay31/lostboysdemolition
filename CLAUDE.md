@@ -75,6 +75,15 @@ loss); no retry/backoff exists, so treat bulk imports with care.
 - **Time tracking:** crews already clock in/out in the Gusto app daily. The friction is manual
   project creation and selection, so it doesn't get done. Feeding Gusto for payroll is a
   benefit, not a requirement — manual entry is acceptable.
+- **2026-08-18 — Profitability Program v2 ratified** (see `BUILD_PLAN.md` → 2026-08-18 amendment;
+  canonical program: `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`):
+  **app-side scheduling will mint `JOB-XXXX`** — Quote Accepted becomes pre-job; Phase A's GHL
+  minting stays live until v2 Task 4 ships, then is flag-disabled permanently. **Two-way Google
+  Calendar sync** is a requirement (full channel lifecycle specified). **Scoped Supabase Auth
+  returns** for foremen + Dane's financial routes via an isolated `workforce_profiles` boundary
+  (BL-7 resolved by v2 Task 0B); the estimator picker stays for estimates. **Direct Stripe +
+  Synder→QBO reaffirmed** — GHL never becomes invoice authority. **Phase D decided** (D1/D2
+  split — see Open decisions row 3).
 
 ## Open decisions blocking work
 
@@ -84,10 +93,10 @@ Updated 2026-07-31. Decisions 1 and 2 are **resolved**; a new blocker replaced t
 |---|---|---|
 | 1 | Credit-card fee | ✅ **Resolved** — 3.5%, booked as a cost line, prices held constant. The Airtable `Pricing Variables` row at 3% is stale and read by nothing. |
 | 2 | Dump Fee Buffer | ✅ **Resolved** — $300/load is a **pricing rate**, not a cost; priced in as-is, real per-load cost tracked separately from BILL. The field never existed in the live base. |
-| 3 | **Phase D — time tracking** | 🔴 **BLOCKING.** Gusto has **no project-creation API** (`time_tracking/time_sheets` requires a pre-existing `job_uuid`). Crews already clock in reliably; the project is what's missing. Four options in `BUILD_PLAN.md`. |
+| 3 | **Phase D — time tracking** | ✅ **Resolved 2026-08-18** — split **D1** (unblocked: canonical job-time schema, manual/CSV import, foreman approval, Dane override, labor-cost attribution, audit history, provider-neutral adapter contract) / **D2** (deferred: vendor evaluation + production connector; any vendor must auto-accept `JOB-XXXX` and return corrected/approved job-coded time). See `BUILD_PLAN.md` → 2026-08-18 amendment. |
 | 4 | Deposit policy | ⚪ Open, now decidable — 39 jobs over $5,000 = **21% of jobs, 57% of revenue.** |
 | 5 | Scope calibration rules | ⚪ Open — Phase G. Proposed: min 5 `measured`; median until n≥8 then trimmed mean. |
-| 6 | Gusto add-on | ⚪ Verify, don't decide — may be required to *accept* timesheet pushes. |
+| 6 | Gusto add-on | ⚪ Parked until Phase D2 vendor evaluation (2026-08-18). Gusto remains payroll. |
 | 7 | Lead intake — route Grasshopper into GHL, or port it | ⚪ Open (Track B) |
 
 Also pending: whether to add the missing `x-webhook-secret` check to `receive-airtable-webhook`
@@ -744,11 +753,12 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **A — The job record (keystone)** | 🟢 **Substantially complete 2026-08-13** — job record + GHL workflows + calendar/Slack live; BILL leg gated; night-before digest live. See `BUILD_LOG.md`. |
 | **B — Estimate builder** | 🟢 **Slices 1 AND 2 MERGED TO MAIN and LIVE, 2026-08-14. Slice 2 merged as `dd6cc87` (Matt's explicit instruction, same session) and deployed to production, now at **https://lostboysdemolition.vercel.app** (Vercel project `lostboysdemolition` — project renamed and URL switched from `lbd-estimates` by Matt 2026-08-18; the old `lbd-estimates.vercel.app` domain is **deleted and 404s, no redirect**. Root `web`, include-outside-root ON, prod branch `main`). All 14 build tasks + a mid-session no-login scope change + a final whole-branch review + fix wave done and reviewed. Matt's phone smoke + the one-real-bid Fillout parallel check were still outstanding at session close — confirm before treating the builder as validated for daily use. Slice 1 = pricing engine + schema + seeds (golden-verified to the cent). Slice 2 shipped the first Next.js app in `web/`: a mobile-first estimate builder (`/estimates/new`, live client-side recalc, quick/itemized modes, Path B toggle), a list + detail + revise flow with lifecycle actions (sent/accepted/declined, quote override with required reason, version chains, audit history), and GHL push (per-target idempotent via `ghl_push_state`, opportunity fields + draft estimate doc). **There is no login** — see "No-login estimate tool" below. Vercel deploy: see BUILD_LOG. Golden gate held throughout (engine changed by one word). |
 | **C — Expenses + dump counts (BILL)** | Not started. One transaction = one dump load, so this delivers cost *and* count. |
-| **D — Time tracking** | 🔴 **Blocked** on the open decision. |
+| **D — Time tracking** | ✅ **Decided 2026-08-18, split D1/D2** — D1 unblocked (manual/CSV-first + provider-neutral adapter contract; v2 Task 13), D2 deferred (vendor evaluation against that contract). |
 | **E — Invoicing** | Not started. Direct Stripe, `stripe-webhook`, AR digest, Synder→QBO. |
 | **F — Profitability** | Not started. Variance, job report on the GHL opportunity, change orders, callbacks. |
 | **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
+| **Profitability Program v2** | 🟡 **Ratified + docs landed 2026-08-18.** Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (Tasks 0A/0B + 1–17, phases 0–6) — absorbs/re-specifies C, E, F, G and Phase D1. Version 1 archived. Decisions: app scheduling mints jobs (Phase A minting stays live until v2 Task 4); two-way calendar sync; scoped auth + BL-7 via Task 0B; Stripe/Synder/QBO reaffirmed. **Docs only so far — Task 0A incomplete (runbook unwritten), Task 0B NOT implemented, no code or migrations.** |
 | **BL-4 — crew Slack message format** | 🟢 **SHIPPED and merged to main 2026-08-17.** Both crew messages reformatted; 5 new `jobs` columns; the **estimate→job promotion now exists and is live-proven** (it had zero writers before). 4-tier scope source. 2 of 3 repo fixes done — the third became BL-6. Suite 312. See the 2026-08-17 `BUILD_LOG.md` entry. |
 | **BL-5** | 🟢 **SHIPPED 2026-08-20** (`ghl-job-webhook` v19). Crew calendar events no longer carry `Estimate: $X`; main calendar keeps it. Live-probed on JOB-1104, Matt eyeballed both events. The no-pricing-to-crew-channels rule now holds on Slack AND crew calendars. Residual, consciously accepted: legacy `airtable-job-scheduled` still emits `Estimated Revenue` to crew calendars (retirement-bound path). |
 | **BL-6 / BL-7** | ⚪ **Not scheduled.** BL-6 close the `airtable-client-sync` data loss — **design draft ready for Matt's review**: `docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md` (echo loop live-proven: 100% of A→G syncs echo back G→A in ~2–5s; whole-tuple hash guard would loop forever because `tags` arrives empty in 620/624 payloads). BL-7 decide `handle_new_auth_user()`'s fate + the 7 RLS policies before Phase D. See `BUILD_PLAN.md`. |

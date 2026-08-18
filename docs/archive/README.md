@@ -18,7 +18,7 @@ Filenames are unchanged from when these lived at the repo root, so older BUILD_L
 session transcripts that cite them by name still resolve — the path is now
 `docs/archive/<name>` rather than `<name>`.
 
-Archived 2026-08-14.
+First archive pass 2026-08-14; later additions are dated in their rows.
 
 ---
 
@@ -34,6 +34,7 @@ Archived 2026-08-14.
 | `jobs_schema_prompt.txt` | Chat fragment: the Scope Library schema addition plus a paste-into-Claude-Code prompt | — | April-era build scaffolding. Referenced only by `LostBoys_PricingEngine_ProjectBrief.md`, itself archived here. |
 | `lostboys_demolition_airtable_prompt.txt` | The original "build the Airtable backend" mega-prompt | — | The prompt that started the Airtable build. Zero references anywhere in the repo. |
 | `prompt.md` | One-off May-2026 session prompt: populate all GHL opportunity custom fields at job creation | — | That work shipped as `airtable-job-created` v21 (commit `0dd5103`). The prompt also instructs the reader to treat `schema_overview.md` as the schema reference, which is wrong (see above). |
+| `2026-08-18-live-job-profitability-health-dashboard.md` | **Version 1** of the Codex-authored profitability program implementation plan (17 tasks) | `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` | Superseded by Version 2, which Matt ratified 2026-08-18 with five adjustments after reconciliation against `BUILD_PLAN.md` (Task 0A/0B split, Stripe/Synder/QBO reaffirmed over v1's GHL-invoice model, estimate-immutability wording, `estimate_identity_links` authority + backfill, calendar channel lifecycle, AR items deferred-with-owner). Archived 2026-08-18. |
 
 ---
 

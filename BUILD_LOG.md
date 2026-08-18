@@ -31,15 +31,89 @@ shipped.
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
 | BL-4 crew Slack + repo fixes | — | 🟢 **SHIPPED and merged to main 2026-08-17** — both crew messages reformatted, estimate→job promotion built and live-proven, 2 of 3 repo fixes done (3rd → BL-6). Suite 312. New backlog: BL-5/BL-6/BL-7 | 2026-08-17 |
 | `deno task test` gate | — | 🟢 **Widened 2026-08-17** — was `_shared/` only and reported 18/18 while **139 real tests were never collected**; now `supabase/functions/`, 312 passing | 2026-08-17 |
-| `stripe-webhook` | 9–11 | 🔴 Not Built | — |
+| `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
+| Profitability Program v2 (plan) | 0–6 | 🟡 **Ratified + landed 2026-08-18 — DOCS ONLY.** Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`; v1 archived. Task 0A incomplete (runbook unwritten); **Task 0B (BL-7 auth boundary) NOT implemented**; no code, no migrations, no deploys | 2026-08-18 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-18 — Profitability Program v2 reconciled, ratified, and landed (docs only)
+
+Brainstorming/reconciliation session with Matt. Two Codex-authored program documents — a 17-task
+"Live Job Profitability Health Dashboard" implementation plan (v1) and its design spec — were
+reconciled against `BUILD_PLAN.md`. The v1 reconciliation surfaced five structural conflicts
+(job-creation authority, GHL-owned invoicing silently replacing Stripe/Synder/QBO, blindness to
+BL-7, a nonexistent local `supabase db reset`/pgTAP harness, mega-plan packaging violating
+amend-don't-rival). Codex's **Version 2** resolved nearly all of them; Matt ratified it with four
+decisions and five adjustments, all landed this session.
+
+#### Decisions (Matt, 2026-08-18)
+1. **App-side scheduling mints `JOB-XXXX`** — Quote Accepted becomes pre-job. Phase A's GHL
+   minting stays **live** until v2 Task 4 ships, then is flag-disabled permanently (rollback never
+   re-enables it). Precondition on the v2 Phase 1 gate: Matt's phone smoke + one real estimate
+   through the builder. Consequence accepted explicitly: after launch, every job requires an
+   app-created estimate with financial details — no GHL-only or Fillout-only jobs.
+2. **Two-way Google Calendar sync confirmed as a real requirement**, with the full channel
+   lifecycle now specified (registry, expiry, renewal-before-expiry, overlap dedup, failure
+   alerts, reconciliation fallback — Google watch channels expire in days; v2 originally omitted
+   renewal entirely).
+3. **Phase D RESOLVED — the last 🔴 blocking decision.** Split D1 (unblocked: job-time schema,
+   manual/CSV import, foreman approval, Dane override, labor-cost attribution, audit,
+   provider-neutral adapter contract = v2 Task 13) / D2 (deferred: vendor evaluation + connector;
+   ClockShark/busybusy/custom judged against the same contract; Gusto stays payroll; add-on
+   question parked). Verbatim wording in the `BUILD_PLAN.md` 2026-08-18 amendment.
+4. **Scoped auth returns**: Supabase Auth for foremen + Dane's financial routes via the isolated
+   `workforce_profiles` boundary (BL-7 resolved by Task 0B before any account exists); the
+   no-login estimator picker stays, with `actor_assurance` recording which identity kind acted.
+
+Also reaffirmed: **direct Stripe invoicing + Synder→QBO; GHL never becomes invoice authority**
+(reverses the design spec's §2, which is now flagged in the spec itself).
+
+#### The five adjustments folded into the landed v2
+1. Estimate immutability: no "presentation freezes the chain" — every persisted version's inputs
+   stay immutable under the existing trigger; presentation pins + hashes the exact version; the
+   four limited mutable fields are preserved.
+2. `estimate_identity_links` = canonical family→GHL identity; `ghl_push_state` = per-version
+   delivery bookkeeping only; deterministic, idempotent backfill rule specified (disagreeing
+   families → manual review, never guessed).
+3. Task 0 split into **0A (canonical documentation and plan landing)** and **0B (BL-7 auth
+   boundary)** — 0A completion must never be read as the auth migration existing.
+4. Calendar channel lifecycle fully specified (see decision 2).
+5. Stripe native reminders + weekly AR digest: deferred **with owner (Matt) and activation
+   criterion** (`stripe-webhook` live with real invoices — v2 Phase 5 gate), recorded in both the
+   v2 non-goals and BUILD_PLAN Phase E.
+
+#### Files changed (all docs)
+- `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` — landed with
+  all amendments (provenance note at top lists them).
+- v1 plan → `docs/archive/2026-08-18-live-job-profitability-health-dashboard.md` (git rename,
+  nothing deleted; archive README row added).
+- `BUILD_PLAN.md` — new "⚠️ AMENDED 2026-08-18" section (the five decisions + verbatim Phase D),
+  Phase D section resolved, open-decisions rows 5/6 updated, ClockShark carried-over conflict
+  resolved, Phase E absorption note.
+- `CLAUDE.md` — Direction bullet for the ratification, open-decisions rows 3/6, roadmap Phase D
+  row + new Profitability Program v2 row.
+- Design spec — status reduced to design input; §2 invoice-ownership conflict flagged inline.
+- `NEXT_SESSION_PROMPT.md` regenerated.
+
+#### Explicitly NOT done this session
+No production migrations, no application code, no deploys, no Supabase changes. v2 **Task 0A is
+incomplete** — `docs/runbooks/profitability-schema-validation.md` is unwritten. **Task 0B (the
+`workforce_profiles`/BL-7 migration) is not implemented or verified.** Phase A behavior is
+unchanged and live. Estimates ≤1425 remain TEST-labeled; JOB-1102/1104 remain cancelled.
+
+#### Next session
+Execute the v2 Task 0A remainder (runbook) and Task 0B under the standing build rules — the v2
+plan is the approved program plan, but every phase still gates on adversarial review, live-probe,
+and Dane/Matt sign-off. Independently: the BL-6 echo-guard draft still awaits Matt's review, and
+Matt's phone smoke + one-real-bid Fillout check are still owed (now also a hard precondition of
+the v2 Phase 1 gate). Note for BL-6 prioritization: the v2 program shortens the remaining life of
+the Airtable↔GHL sync pair — weigh the echo-guard investment against that horizon.
 
 ### 2026-08-18 — Vercel project renamed AND production URL changed: `lbd-estimates` → `lostboysdemolition` (Matt, in the Vercel UI)
 
