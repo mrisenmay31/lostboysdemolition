@@ -34,13 +34,116 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟡 **Ratified + landed 2026-08-18 — DOCS ONLY.** Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`; v1 archived. Task 0A incomplete (runbook unwritten); **Task 0B (BL-7 auth boundary) NOT implemented**; no code, no migrations, no deploys | 2026-08-18 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18** — Task 0A runbook + doc corrections done; **Task 0B BL-7 `workforce_profiles` migration APPLIED TO PRODUCTION** (19/19 assertions green, live-verified). BL-7 CLOSED. Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`; v1 archived. Next: v2 Phase 1 (Tasks 1–5), gated on Matt's phone smoke + one real estimate | 2026-08-18 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-18 — Profitability v2 Phase 0 SHIPPED: Task 0A docs + Task 0B BL-7 boundary APPLIED TO PRODUCTION
+
+Executed `docs/superpowers/plans/2026-08-18-profitability-v2-phase0.md` (approved plan, branch
+`v2-phase0`) via subagent-driven development: Sonnet implemented both lanes, Opus adversarially
+reviewed the SQL lane before production application, and a final whole-branch review is dispatched.
+**Both halves of Phase 0 are done, and the BL-7 migration is live on production** — Matt approved
+the production apply this session rather than leaving it committed-but-unapplied.
+
+**Task 0A (docs lane):** `docs/runbooks/profitability-schema-validation.md` created — an 8-step
+validation sequence (disposable branch → fidelity probe → migration → assertions → full test
+suites → commit → production apply → post-apply read-only verification), a branch-fidelity
+decision tree (probe the 5 live-only definers, the `on_auth_user_created` trigger, and the
+policy count before trusting a branch; fall back to a production single-transaction dry-run if a
+branch is unfaithful), the auth-schema dry-run caveat (below), and the exact two-command
+`ghl-job-webhook --no-verify-jwt` deploy-invariant block. CLAUDE.md and BUILD_PLAN.md both got the
+7→12 RLS policy-count correction (the 7 `get_my_role()`/`get_my_crew_id()`-based policies plus 5
+plain `auth.uid()`-based ones that were previously undercounted).
+
+**Task 0B (SQL lane):** migration `20260818143000_workforce_auth_boundary.sql` plus the repo's
+**first pgTAP SQL test**, `supabase/tests/workforce_auth_boundary_test.sql` (19 assertions).
+Creates `workforce_profiles` (RLS, 2 policies — `workforce_self_read`/`workforce_owner_all`, the
+system's first policies on any new-schema table), a `SECURITY DEFINER` helper
+`is_workforce_owner()` (search_path pinned, `authenticated` EXECUTE — required for RLS qual
+evaluation, no cross-user surface), and a rewritten `handle_new_auth_user()` (search_path pinned,
+now inserts into `workforce_profiles` with a total `display_name` expression so a NULL-email/
+phone-only signup can never abort the insert).
+
+**Validation chain, full red/green record:**
+- Disposable branch (`cwmabtgjvwetswvsfiuh`, schema-only clone, N=0 auth users), fidelity-probed
+  FAITHFUL (26 migrations, 5 live-only definers with matching ACL/proconfig, the trigger, 12
+  legacy policies all matched).
+- Branch RED (pre-migration): 14 fail / 3 pass, exactly as the corrected prediction (17-assertion
+  file at that point; the plan's "13 fail" was an arithmetic slip caught and corrected in the SDD
+  ledger before the run).
+- Branch GREEN (post-migration): 12 pass / 5 fail — **not** the expected 17/17. Root-caused to a
+  test-file defect, not a migration defect: 5 pgTAP assertions (`has_table`, `has_column`,
+  `policy_cmd_is`) were missing their trailing `description` argument, so Postgres resolved the
+  wrong overload and the calls silently checked for a table literally named `public` instead of
+  the schema-qualified form. Direct catalog queries independently proved the migration was 100%
+  correct (table, 7 columns, RLS, both policies with correct SELECT/ALL commands all present) — the
+  files were correctly left uncommitted per the task's own gate ("commit only on 17/17") pending a
+  fix round.
+- GoTrue simulation on the branch: PASS — inserting a probe row into `auth.users` produced exactly
+  one `workforce_profiles` row (`pending`/`inactive`), `public.users` stayed at 0.
+- Fix round added the 5 missing description args (test file only, migration untouched) and
+  extended `plan(17)` → `plan(19)` with two new table-privilege assertions pinning the ACL posture.
+- **Production single-transaction dry-run made MANDATORY** (new runbook caveat, below) because a
+  branch cannot reproduce `auth.users` ownership. Prod RED dry-run: 16 fail / 3 pass, exact match.
+  Prod GREEN dry-run (first pass): 18/19 — assertion 19 caught a **real security gap**:
+  `authenticated` had retained default-ACL REFERENCES/TRIGGER/TRUNCATE on `workforce_profiles`
+  (TRUNCATE is not RLS-gated) because the revoke list omitted `authenticated`. Fixed (one line);
+  prod GREEN dry-run rerun: **19/19**, rolled back.
+- Real `apply_migration` to production, then post-apply verification: all 6 catalog booleans TRUE,
+  `backfill_rows=1` (the one existing `auth.users` row got its `workforce_profiles` row —
+  pending/inactive, name Matt), `public.users` still 0, 12 legacy policies untouched, `get_my_role`
+  ACL unchanged, helper ACL exactly postgres/service_role/authenticated, table ACL for
+  `authenticated` exactly `arwd` (no TRUNCATE), pgTAP not installed on prod (0 as expected).
+- Suites at validation time: `deno task test` 317/317, `cd web && npx vitest run` 261/261.
+
+**Three review-caught defects that matter for the record (the hard-won facts):**
+1. **Auth-schema DDL is branch-blind.** The plan's original Section 6 was `drop trigger` +
+   `create trigger` on `auth.users`. `DROP TRIGGER` requires table *ownership*; `postgres` holds
+   only the TRIGGER privilege on `auth.users`, not ownership — so the drop would 42501 on
+   production while passing cleanly on a branch (branches apparently don't reproduce this
+   ownership gap). Fixed to a single `CREATE OR REPLACE TRIGGER` (needs only TRIGGER privilege,
+   same end state, atomic). **This is now a standing runbook rule: any migration touching an
+   auth-schema object requires the production single-transaction dry-run regardless of branch
+   results** — a branch-green result is not sufficient evidence for auth-schema DDL.
+2. **The v2 spec's verbatim pgTAP assertions carried a latent, unfixable-by-migration bug** — see
+   the branch GREEN root-cause above. `has_table('public', 'x')` and friends silently resolve to
+   the wrong 2/3/4-arg overload without a trailing description string. Fixed by adding
+   descriptions; no assertion of this shape should ever be written without one going forward.
+3. **Supabase's default privileges pre-grant `authenticated` more than expected**, including
+   TRUNCATE, which RLS does not gate. An explicit revoke list must include `authenticated`
+   explicitly, not just `anon` — this was the gap the production GREEN dry-run's new assertion 19
+   caught before it ever reached a real apply.
+
+**Accepted advisor finding:** one new WARN post-apply — `authenticated` can EXECUTE
+`is_workforce_owner()` via PostgREST RPC. Accepted as intentional: EXECUTE is required for RLS
+qual evaluation (the "authenticated evaluates RLS as itself" lesson from 2026-08-17), the function
+returns only a boolean about the calling user (`auth.uid()`), and there is no cross-user read
+surface. All other advisor items are pre-existing baseline.
+
+**BL-7 IS NOW CLOSED.** `handle_new_auth_user()` is no longer a silent no-op — see the CLAUDE.md
+paragraph rewrite in this commit for the new live state. Owner promotion (flipping Matt's row from
+`pending`/`inactive` to an active owner role) is deliberately deferred to v2 Task 8's launch
+runbook, not done here.
+
+Full deviation record: plan doc `docs/superpowers/plans/2026-08-18-profitability-v2-phase0.md` →
+"Spec deviations" (8 original) + "Execution amendments (2026-08-18)" (3 more, recorded during the
+build — the trigger fix above, the pgTAP description fix, and a `display_name` total-expression
+fix so a NULL-email/phone-only signup can never abort).
+
+**What remains:** v2 Phase 1 planning (Tasks 1–5) is next. **Phase 1 gate precondition still
+outstanding, unrelated to this session's work**: Matt's phone smoke test + one real estimate
+through the builder (outstanding since 2026-08-14; first real estimate will be ≥1426). BL-6
+echo-guard design draft still awaits Matt's review. No edge function was touched this session — no
+status-table function rows changed.
+
+Commits on `v2-phase0` (not yet merged to `main` — controller merges after the whole-branch
+review): `27f95c3` (plan landed), `4597b5b` (Task 0A docs), `67cff95` (Task 0B SQL — migration +
+pgTAP test), `c50a5d6` (execution amendments + runbook caveat recorded in the plan copy).
 
 ### 2026-08-18 — Profitability Program v2 reconciled, ratified, and landed (docs only)
 

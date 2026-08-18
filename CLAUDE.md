@@ -371,6 +371,17 @@ as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic
 | `ghl-job-webhook` | **19** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. **BL-5 (2026-08-20):** calendar builders take a required `audience: "main" \| "crew"` param — crew calendar events carry NO `Estimate:` line, main keeps it. ⚠️ CLI deploys of this function MUST pass `--no-verify-jwt` and read back `verify_jwt` after (a bare deploy silently flips it to true → 401s every GHL call). |
 | `crew-night-before` | **11** | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. **BL-4 (2026-08-17):** new format + `———` divider between job blocks, shared module, `client_name` fallback. Discharges the owed redeploy. |
 
+**Deploy invariant (recorded per v2 Task 0A):**
+
+```bash
+supabase functions deploy ghl-job-webhook --project-ref eiqqqwajmcpcwhvxxnhx --no-verify-jwt
+supabase functions list --project-ref eiqqqwajmcpcwhvxxnhx
+```
+
+Expected: the readback reports `ghl-job-webhook` with JWT verification disabled. Any deployment
+lacking the explicit flag is a failed deployment and must not receive production traffic.
+Full workflow: `docs/runbooks/profitability-schema-validation.md`.
+
 **Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
 sum is below Total Bid, a "Project Total" line is appended for the difference. Fallback with no
 line items: one "Demolition Services" line at Total Bid.
@@ -521,6 +532,7 @@ affected by the first one:
 | `jobs` | 2 (JOB-1102, JOB-1104 — both cancelled test rows) | **Canonical Phase A job record** as of 2026-08-13 (migration `phase_a_jobs_keystone`). `job_number` (`JOB-XXXX`, minted via `next_job_number()`/`job_number_seq`, starting 1100) is the canonical key going forward — see Key Rules. Columns: `job_number`, `client_name`, `client_type`, `job_address`, `city`, `ghl_opportunity_id`, `ghl_contact_id`, `estimate_value`, `crew`, `start_date`, `end_date`, `status_v2` (`job_lifecycle` enum: accepted/scheduled/in_progress/completed/invoiced/paid/cancelled), `gcal_main_event_id`, `gcal_crew_event_id`, `slack_notified_at`, `night_before_sent_on`, `bill_job_code`, `updated_at`. **BL-4 added 5 nullable text columns 2026-08-17** (migration `bl4_job_crew_fields`): `client_contact_name`, `business_name`, `client_phone`, `start_time`, `scope_summary`. `client_contact_name` is deliberately **not** redundant with `client_name` — `_shared/job.ts`'s `clientLabel()` collapses a contact to `companyName || lastName || firstName`, so for a company contact `client_name` IS the business name and the person's name is lost; both crew messages fall back to `client_name` when `client_contact_name` is null. `start_time` is free text mirroring GHL's TEXT field and is GHL-authoritative (overwritten every fire). **`scope_summary` MUST NOT contain pricing**, and unlike the others it is *not* overwritten when a scope lookup errors, so a transient failure can't wipe it. Legacy columns (`airtable_job_id`, `airtable_status`, `estimated_hours`, `job_start_date`, `archived_at`, and the old `status` enum) are kept, nullable, for legacy readers during parallel running. RLS enabled, no policies by design (two stale clock-in-era policies were dropped in the fixups migration to restore that posture). |
 | `jobs_legacy_backup` | 7 | Archived copy of the pre-Phase-A `jobs` rows (May-2026 test mirrors), created before `jobs` was reset. RLS enabled, no policies. |
 | `users`, `crews`, `time_entries` | 0 | Complete clock-in schema, never used |
+| `workforce_profiles` | 1 | **Profitability v2 Task 0B / BL-7, migration `20260818143000_workforce_auth_boundary.sql`, APPLIED TO PRODUCTION 2026-08-18.** The new, isolated scoped-auth boundary for foremen + Dane's financial routes — deliberately a separate table from the legacy `users` schema, not a rehab of it. Columns: `auth_user_id` (PK, FK → `auth.users` `on delete cascade`), `display_name`, `role` (`not null default 'pending'`), `crew_external_id`, `active` (`not null default false`), `created_at`, `updated_at`. Trigger-fed: `handle_new_auth_user()` (rewritten this migration, `search_path` pinned) inserts a row on every new `auth.users` signup via `on_auth_user_created`, with a total `display_name` expression so a NULL-email/phone-only signup can't abort the insert. RLS enabled with **2 policies — the system's first policies on any new-schema table**: `workforce_self_read` (SELECT, own row) and `workforce_owner_all` (ALL, gated by the `SECURITY DEFINER` helper `is_workforce_owner()` — subquerying the table from its own policy would be infinite recursion, so the helper exists specifically to break that cycle; `search_path` pinned, `authenticated` EXECUTE granted because RLS quals evaluate as the querying role). One live row: the backfilled pre-existing `auth.users` user (Matt), `role='pending'`, `active=false`. **Owner promotion (flipping that row to an active owner role) is deliberately deferred to v2 Task 8's launch runbook** — nothing in Task 0B activates it. Does not touch the legacy `users`/`crews`/`time_entries` tables or their 12 policies. |
 | `labor_actuals`, `expense_actuals`, `invoice_reminders` | 0 | Empty scaffolding (created by migration 002) |
 | `estimates` | 16 | **Phase B slice-1 schema, LIVE 2026-08-14; slice-2 write path + UI LIVE same day.** Canonical versioned estimate header — inputs, rate snapshot, and `computeEstimate()` outputs (`labor_cost`, `dump_fees`, `total_direct`, `overhead`, `profit`, `cc_fee`, `total_bid`, `true_margin_pct`), plus `quoted_price`/`quote_override_reason` for when Dane discounts off the calculated number. `dump_count` is `numeric(6,2)` (widened from `numeric(5,1)` by `fixups2` so real fractional loads like 0.25/0.35/1.25 store exactly instead of rounding). `estimate_number` (`estimate_number_seq`, starting 1400; 1001–1321 reserved for the deferred Airtable backfill) + `version` are unique together; `supersedes_estimate_id` chains corrections, and a `version_chain` check constraint (added by `fixups2`) enforces the writer contract — any row with `version > 1` must set `supersedes_estimate_id` to the parent row's id (and must supply the parent's `estimate_number` explicitly, since the `nextval` default is only correct for new version-1 rows). **Immutable by trigger** (`enforce_estimate_immutability`, `search_path` pinned): the trigger is a **watched-column blacklist**, not a mutable-column whitelist — it raises if any column on its list changes, and the four columns deliberately left off that list (`status`, `quoted_price`, `quote_override_reason`, `job_number`) are the only ones the mutation RPCs are allowed to touch after insert. `is_path_b` (added by slice-2's `phase_b2_path_b_flag` migration) is **on the watched list, DB-enforced immutable after insert** — the same class as `created_by`/`created_by_name`, not a fifth mutable column; a mis-set flag needs a new version row, same as any other correction. (An earlier draft of this migration left `is_path_b` off the watched list on the reasoning that it was "immutable in practice" because no RPC writes it post-insert — rejected in review: that reasoning applies equally to `created_by`/`created_by_name`, which get the stronger DB-level guarantee instead, so `is_path_b` does too.) **DELETE is also blocked** (`enforce_estimate_no_delete`, added by the fixups migration) — there is no delete path, by design. RLS enabled, no policies. **Phase B slice-2** added `created_by uuid → auth.users` + `created_by_name text` (both immutable, in the guard list) and the write path: all inserts/mutations go through service-role-only RPCs — `create_estimate_with_items(p_estimate jsonb, p_line_items jsonb)` (one transaction, honors the writer contract, flips parent to superseded), `update_estimate_status`, `update_estimate_quote` (insert-path override-reason enforced by the `quote_override_reason_required` CHECK from the fixups migration), `update_estimate_job_number` — each takes `p_actor`/`p_actor_name` feeding `estimate_mutations_audit`. **No login gates these RPCs or the server actions in front of them** — see "No-login estimate tool" below; `created_by` is `NULL` on every row created under the no-login model, `created_by_name` carries the self-declared picker name. **One exception, not zero:** estimate 1416 v1 (the T11 first-real-create smoke) was created *before* the no-login scope change merged and still carries a real `auth.users` id in `created_by` — that one row is FK-pinned (`ON DELETE NO ACTION`) to a real auth user; every row created after the scope change has `created_by IS NULL`. **Live rows (16, all TEST-labeled, all `declined` or `superseded`):** `estimate_number` 1414 (v1+v2, the permanent test chain, live), 1416 (T11 first-real-create smoke), 1417–1420 (T12 E2E), 1421–1423 (T12 fix-round E2E), 1424 (v1 `is_path_b=true` smoke, superseded by v2), 1425 (v1 override/revise smoke, superseded by v2) — **first real estimate will be ≥ 1426.** 1400–1413 were burned earlier by dev rollbacks; 1415 was burned by a negative-CHECK test. |
 | `estimate_line_items` | — | Child rows of `estimates` (FK `on delete cascade`, though the parent can't be deleted). Snapshots a Scope Library item's name/hours/dump/materials onto the estimate at creation time. **Fully immutable by trigger** (`enforce_estimate_line_item_immutability`, added by the fixups migration) — UPDATE and DELETE both raise unconditionally; a correction means a new estimate version with new line item rows. RLS enabled, no policies. |
@@ -556,8 +568,10 @@ legacy `status` column without expecting this to fire.
 
 **Legacy `SECURITY DEFINER` functions — the live count is 5, not 6** (verified 2026-08-14;
 `SYSTEM_AUDIT_2026-07-30.md` was right, `BUILD_LOG.md`/`NEXT_SESSION_PROMPT.md` were wrong before
-this date). They predate the migrations directory and exist **only in the live database** — nothing
-in the repo defines them, so they cannot be enumerated from git. Live:
+this date). They predate the migrations directory and exist only in the live database — nothing in
+the repo defined them until 2026-08-18, when `handle_new_auth_user` gained a repo definition via
+`20260818143000_workforce_auth_boundary.sql` (rewritten, pinned); the other 4 remain live-only and
+cannot be enumerated from git. Live:
 `calculate_duration_and_cost`, `get_my_crew_id`, `get_my_role`, `handle_new_auth_user`,
 `notify_airtable_on_archive`. None pin `search_path`; all are `anon`-EXECUTE-able. **Three are
 trigger functions**; only `get_my_role`/`get_my_crew_id` are genuinely callable RPCs, and both read
@@ -575,13 +589,26 @@ through PostgREST alone, since that surface offers no arbitrary DDL). EXECUTE is
 `next_job_number()` still mints. Triggers keep firing because **EXECUTE is checked at `CREATE TRIGGER`
 time, not at fire time** (*not* "triggers run as the table owner" — that is false in general). No drops.
 
-**⚠️ `handle_new_auth_user()` is deliberately NOT pinned — this is BL-7, an open decision.** GoTrue
-connects as `supabase_auth_admin`, whose `search_path` is `auth`, so the function's unqualified
-`INSERT INTO users` resolves to **`auth.users`**, collides with the row that just landed, and is
-swallowed by `ON CONFLICT DO NOTHING`. **It has always been a silent no-op.** Live proof: `auth.users`
-has 1 row, `public.users` has 0 — *that*, not "the clock-in schema was never used", is why
-`public.users` is empty. Pinning it would flip it into a real insert and activate the RLS policies
-noted below, so it was not done as a side effect of a security pass.
+**✅ RESOLVED 2026-08-18 — BL-7 is CLOSED.** `handle_new_auth_user()` was deliberately left unpinned
+from 2026-08-17 through 2026-08-18 while BL-7 was an open decision. Historical mechanism, preserved
+for the record: GoTrue connects as `supabase_auth_admin`, whose `search_path` is `auth`, so the
+function's unqualified `INSERT INTO users` resolved to **`auth.users`**, collided with the row that
+just landed, and was swallowed by `ON CONFLICT DO NOTHING` — **it was always a silent no-op**. Live
+proof at the time: `auth.users` had 1 row, `public.users` had 0 — *that*, not "the clock-in schema
+was never used", was why `public.users` was empty.
+
+**Migration `20260818143000_workforce_auth_boundary.sql` (v2 Task 0B, applied to production
+2026-08-18) rewrote the function.** It is now `search_path`-pinned (`public, pg_temp`) and inserts
+into the new, isolated `workforce_profiles` table instead of the legacy `users` table — a total
+`display_name` expression (nullif/coalesce chain, final fallback `'user-'||left(id,8)`) means a
+NULL-email/phone-only signup can no longer abort the insert. A one-time backfill covered the 1
+pre-existing `auth.users` row. Live-verified post-apply: all 6 catalog booleans TRUE,
+`backfill_rows=1` (role `pending`, `active=false`, name `Matt`), `public.users` still 0 (the legacy
+table remains untouched and still empty — this migration does not touch it), 12 legacy policies on
+`users`/`crews`/`time_entries` untouched. Owner promotion (flipping the backfilled row from
+`pending`/`inactive` to an active owner role) is deliberately deferred to v2 Task 8's launch
+runbook — not done by this migration. See the 2026-08-18 "Profitability v2 Phase 0 SHIPPED"
+`BUILD_LOG.md` entry for the full red/green validation chain.
 
 **⚠️ CORRECTED 2026-08-17 — `users`, `crews` and `time_entries` are NOT policy-free.** They carry
 **7 live RLS policies** between them, all calling `get_my_role()`/`get_my_crew_id()`: `users` →
@@ -592,6 +619,16 @@ tables now raises `permission denied for function get_my_role` instead of return
 correct while there is no login — but **Phase D clock-in is specced against `time_entries`** and must
 either re-grant EXECUTE on those two functions to `authenticated` (with `pg_temp` pinned) or replace
 the policies. Tracked as part of BL-7.
+
+**⚠️ CORRECTED AGAIN 2026-08-18 (v2 Task 0A branch-fidelity probe) — the "7 live RLS policies" count
+above was incomplete, not wrong: it covered only the `get_my_role()`/`get_my_crew_id()` policies.**
+The three tables actually carry **12 policies total**: the 7 above (broken for `anon`/`authenticated`
+since the 2026-08-17 revoke, as described) **plus 5 plain `auth.uid()`-based policies that still
+function** — `users_select_own`; `employees_insert_own`, `employees_select_own`,
+`employees_update_own_open`; `authenticated_select_crews`. **Task 0B (applied to production
+2026-08-18) did not touch any of the 12** — it added its own isolated `workforce_profiles` table
+with 2 new policies instead of modifying these; see the `workforce_profiles` row below and the
+`handle_new_auth_user()` paragraph above.
 
 RLS is enabled on all of the above with **no policies by design** (except the three tables just
 noted) — `service_role` has
@@ -758,10 +795,10 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **F — Profitability** | Not started. Variance, job report on the GHL opportunity, change orders, callbacks. |
 | **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
-| **Profitability Program v2** | 🟡 **Ratified + docs landed 2026-08-18.** Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (Tasks 0A/0B + 1–17, phases 0–6) — absorbs/re-specifies C, E, F, G and Phase D1. Version 1 archived. Decisions: app scheduling mints jobs (Phase A minting stays live until v2 Task 4); two-way calendar sync; scoped auth + BL-7 via Task 0B; Stripe/Synder/QBO reaffirmed. **Docs only so far — Task 0A incomplete (runbook unwritten), Task 0B NOT implemented, no code or migrations.** |
+| **Profitability Program v2** | 🟢 **Phase 0 (Tasks 0A + 0B) COMPLETE 2026-08-18.** Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (Tasks 0A/0B + 1–17, phases 0–6) — absorbs/re-specifies C, E, F, G and Phase D1. Version 1 archived. Task 0A: `docs/runbooks/profitability-schema-validation.md` written + CLAUDE.md/BUILD_PLAN.md doc corrections landed. Task 0B: `workforce_profiles` BL-7 boundary migration **APPLIED TO PRODUCTION** (branch red/green → production dry-run red/green → real apply, all live-verified). **BL-7 is CLOSED.** Next: v2 Phase 1 (Tasks 1–5), gated on Matt's phone smoke + one real estimate through the builder (outstanding since 2026-08-14). |
 | **BL-4 — crew Slack message format** | 🟢 **SHIPPED and merged to main 2026-08-17.** Both crew messages reformatted; 5 new `jobs` columns; the **estimate→job promotion now exists and is live-proven** (it had zero writers before). 4-tier scope source. 2 of 3 repo fixes done — the third became BL-6. Suite 312. See the 2026-08-17 `BUILD_LOG.md` entry. |
 | **BL-5** | 🟢 **SHIPPED 2026-08-20** (`ghl-job-webhook` v19). Crew calendar events no longer carry `Estimate: $X`; main calendar keeps it. Live-probed on JOB-1104, Matt eyeballed both events. The no-pricing-to-crew-channels rule now holds on Slack AND crew calendars. Residual, consciously accepted: legacy `airtable-job-scheduled` still emits `Estimated Revenue` to crew calendars (retirement-bound path). |
-| **BL-6 / BL-7** | ⚪ **Not scheduled.** BL-6 close the `airtable-client-sync` data loss — **design draft ready for Matt's review**: `docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md` (echo loop live-proven: 100% of A→G syncs echo back G→A in ~2–5s; whole-tuple hash guard would loop forever because `tags` arrives empty in 620/624 payloads). BL-7 decide `handle_new_auth_user()`'s fate + the 7 RLS policies before Phase D. See `BUILD_PLAN.md`. |
+| **BL-6 / BL-7** | BL-6 ⚪ **Not scheduled.** Close the `airtable-client-sync` data loss — **design draft ready for Matt's review**: `docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md` (echo loop live-proven: 100% of A→G syncs echo back G→A in ~2–5s; whole-tuple hash guard would loop forever because `tags` arrives empty in 620/624 payloads). BL-7 🟢 **RESOLVED AND IMPLEMENTED 2026-08-18** — `workforce_profiles` migration applied to production (v2 Task 0B); `handle_new_auth_user()` rewritten and pinned, no longer a silent no-op. Owner promotion still deferred to v2 Task 8. See the `workforce_profiles` Supabase Tables entry and the `handle_new_auth_user()` paragraph above. |
 | **Backlog (BL-1/2/3)** | ⚪ Captured 2026-07-31, **not scheduled.** Equipment maintenance, tool inventory, crew-level P&L + foreman incentive comp. See `BUILD_PLAN.md` → "Backlog — captured, not scheduled". |
 
 Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening.

@@ -63,6 +63,14 @@ landing, CLAUDE.md updates). **v2 Task 0A is not yet complete** (its runbook is 
 Task 0B — the BL-7 auth migration — is not implemented or verified.** No production migration or
 application code shipped in that pass.
 
+**⚠️ Superseded same day — Phase 0 SHIPPED 2026-08-18 (later session).** Task 0A is complete
+(`docs/runbooks/profitability-schema-validation.md` written; deploy invariant recorded in
+`CLAUDE.md`) and Task 0B is implemented, branch- and production-dry-run-verified, and **applied to
+production** (migration `20260818143000_workforce_auth_boundary.sql`; `workforce_profiles` live
+with RLS + 2 policies; `handle_new_auth_user()` pinned and rewritten — **BL-7 is CLOSED**). See the
+2026-08-18 Phase 0 entry in `BUILD_LOG.md`. The paragraph above describes the docs-only landing
+pass earlier that day and is kept for provenance.
+
 ## Context
 
 Lost Boys wants a closed loop: accurate estimate → tracked actuals → job-level profitability → calibrated back into pricing. Today none of that exists in software.
@@ -480,6 +488,14 @@ only ever run for brand-new rows.
 
 ### BL-7 — Decide `handle_new_auth_user()`'s fate (Matt, 2026-08-17)
 
+**✅ RESOLVED AND IMPLEMENTED 2026-08-18** — v2 Task 0B shipped and applied to production:
+`handle_new_auth_user()` is search_path-pinned and rewritten to insert into the new isolated
+`workforce_profiles` table (pending/inactive; owner promotion deferred to v2 Task 8's launch
+runbook). The open-decision framing below is provenance. **One sub-question outlived BL-7 and is
+re-homed to Phase D / v2 Task 8 design:** whether to re-grant `get_my_role()`/`get_my_crew_id()` to
+`authenticated` (with `pg_temp` pinned) or replace the 7 legacy policies that call them — the
+migration header's "stays open, tracked under BL-7" means THIS item, now tracked there.
+
 **Backlogged by Matt during the BL-4 build.** Inert today; needs a decision before Phase D.
 
 The 2026-08-17 hardening pass pinned `search_path` on every legacy `SECURITY DEFINER` function
@@ -499,6 +515,12 @@ schema was never used", is why `public.users` is empty.
   EXECUTE from `anon`/`authenticated`, which turns "0 rows" into "permission denied" for those roles.
   Correct while there is no login, but **Phase D clock-in is specced against `time_entries`** and must
   either re-grant EXECUTE to `authenticated` (with `pg_temp` pinned) or replace those policies.
+  ⚠️ **CORRECTED 2026-08-18 (v2 Task 0A branch-fidelity probe):** the "7 live RLS policies" figure
+  above was incomplete, not wrong — it counted only the `get_my_role()`/`get_my_crew_id()` policies.
+  The three tables actually carry **12 policies total**: those 7 (broken for `anon`/`authenticated`
+  since the 2026-08-17 revoke) plus **5 plain `auth.uid()`-based policies that still function**
+  (`users_select_own`; `employees_insert_own`/`employees_select_own`/`employees_update_own_open`;
+  `authenticated_select_crews`). Task 0B does not touch any of the 12.
 - **Depends on:** nothing. Should be settled as part of Phase D's design, not before.
 
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
@@ -506,7 +528,7 @@ Phase A. BL-3 should not be attempted before Phase F, and paying against it shou
 until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 shipped
 2026-08-17. BL-5 shipped 2026-08-20. BL-6 has a design draft awaiting Matt's review
 (`docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md`) — the echo loop it guards
-against is now live-proven, not hypothetical.
+against is now live-proven, not hypothetical. BL-7 shipped 2026-08-18 (v2 Task 0B; see above).
 
 ---
 
