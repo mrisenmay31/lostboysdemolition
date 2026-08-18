@@ -41,6 +41,72 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-18 — Job cockpit design brainstorm (DRAFT); repo/live state re-verified; Deno runnable in Claude-web
+
+Design-only session. **Nothing built, nothing deployed, no schema touched.** Produced
+`docs/superpowers/plans/2026-08-18-job-cockpit-design-DRAFT.md` — a design direction for the job
+record Matt asked for: prefilled from GHL, updatable for change orders and schedule changes, and
+showing estimate-vs-actual profitability while a job is still running. Awaiting Matt's review plus
+the remaining Fillout screenshots (foreman checklists especially).
+
+#### State re-verified against live (all matched the docs)
+- Edge functions: `ghl-job-webhook` **v19** sha `024cc198…`, `crew-night-before` v11,
+  `airtable-client-sync` v29. **`verify_jwt` false on all 9** — the v17 hazard is not present.
+- `deno task test` → **317 passing**; `cd web && npx vitest run` → **261/261**.
+- JOB-1102 and JOB-1104 both still `cancelled` — no drift back to `scheduled` since the BL-5 probe.
+- **`max(estimate_number)` is 1425 and all 16 estimates are TEST rows dated 2026-08-14** — so the
+  builder still has **zero real usage**, and "first real estimate ≥ 1426" remains literally true
+  four days on. Matt's phone smoke + the one-real-bid Fillout parallel check are still owed, and
+  Dane/Jackson need the new URL before either can happen.
+
+#### ⚙️ Deno IS runnable in the Claude-web container (new, worth keeping)
+`deno` is not installed and **`deno.land`, `jsr.io` and `github.com` are all 403 by network policy**,
+so `deno task test` fails out of the box. Workaround that worked: install the Deno binary from the
+**npm registry** (which is allowed) via `npm i --prefix /tmp/denopkg deno` → Deno 2.9.5, then map
+`https://deno.land/std@0.224.0/assert/mod.ts` to a local shim with `--import-map`. The repo's only
+remote test import is that one std/assert module. Nothing in the repo was modified. Full suite ran
+clean at 317.
+
+#### Decisions Matt made (captured in the draft, not yet acted on)
+1. **Labor: replace the Gusto app for field time** — buy a timekeeping app or build one. Supersedes
+   the four Phase D options in `BUILD_PLAN.md` and closes the **ClockShark-vs-in-house conflict**
+   that OPS_ROADMAP left unresolved. Buy-vs-build still open.
+2. **Change orders** → deferred to recommendation. Draft recommends a **separate `change_orders`
+   table**, which **contradicts `BUILD_PLAN.md` design decision 1** ("a change order writes a new
+   version"). If accepted, BUILD_PLAN must be amended explicitly, not diverged from quietly.
+3. **Cockpit home: both** — full page in the web app + headline numbers and a deep link on the GHL
+   opportunity.
+4. **Client prefill: mirror GHL contacts into Supabase** and search locally. `client_sync_state` is
+   insufficient (no phone, company or address) — needs a proper `clients` table.
+
+#### The finding that most constrains any future build
+The estimate produces a **price** from charge rates; variance needs a **cost** baseline, and they
+are different numbers. Comparing actual dump cost (**$65 median**) against the estimate's dump fee
+(**$300**) yields a fake ~78% favorable variance on every job. Since the dump pad (+$221k/yr) has
+been financing the labor-hours shortfall (−$246k/yr), a cockpit built on the estimate's dollar
+outputs would report every job as a triumph while hiding the one gap it exists to find. **The cost
+budget must derive from the estimate's quantities priced at cost rates, never from its dollar
+outputs** — and quantity variance must stay separate from cost variance.
+
+Also load-bearing for any build: `estimates` is **blacklist-immutable** (only `status`,
+`quoted_price`, `quote_override_reason`, `job_number` mutable), so no actuals or variance number can
+live on an estimate row — and a new column not added to the watched list becomes **silently
+mutable**.
+
+#### Defects/risks noted, none fixed
+- BL-7 blocks clock-in: 7 RLS policies on `time_entries`/`users`/`crews` currently **raise**.
+- BL-6 means GHL contact data may be **staler than Airtable's** — matters if GHL becomes the prefill
+  source of truth; needs a one-time reconciliation first.
+- Doc drift (not corrected): CLAUDE.md says the 16 estimates are "all `declined` or `superseded`"
+  but **1424 v2 is `accepted`**; `estimate_mutations_audit` is **29** rows not 27;
+  `client_sync_state` is **409** not 280.
+
+#### Next session
+Matt reviews the draft and answers the 6 open questions in §9 — sharpest are buy-vs-build on
+timekeeping, and whether overhead in the actuals column applies to actual hours or stays at budget
+(decides whether an over-hours job is penalized twice). Then it becomes a build brief. Remaining
+Fillout screenshots still to come.
+
 ### 2026-08-18 — Vercel project renamed AND production URL changed: `lbd-estimates` → `lostboysdemolition` (Matt, in the Vercel UI)
 
 Docs-only session, in two steps. Matt first renamed the Vercel project (same project ID
