@@ -95,7 +95,8 @@ construction for auth-schema DDL.
 
 ## 4. Production post-apply verification
 
-Because pgTAP is never installed on production, post-apply verification against production (Step 8
+Because pgTAP is never *persistently* installed on production (the §3 dry-run creates it only
+inside a transaction that always rolls back), post-apply verification against production (Step 8
 of the sequence, and the closing step of the production dry-run fallback) uses **plain-SQL catalog
 assertions** — direct queries against `information_schema`/`pg_catalog` and the task's own row
 counts — not pgTAP.
@@ -112,8 +113,8 @@ supabase functions list --project-ref eiqqqwajmcpcwhvxxnhx
 Expected: the readback reports `ghl-job-webhook` with JWT verification disabled. **Any deployment
 lacking the explicit flag is a failed deployment and must not receive production traffic.** This is
 recorded because a bare `supabase functions deploy ghl-job-webhook` (no flag) silently flips
-`verify_jwt` to `true`, which 401s every GHL call — see `BUILD_LOG.md:162` for the incident this
-invariant was written to prevent.
+`verify_jwt` to `true`, which 401s every GHL call — see BUILD_LOG.md, 2026-08-20 BL-5 entry, hard-won
+facts (the bare-deploy verify_jwt flip), for the incident this invariant was written to prevent.
 
 ## 6. Standing prohibitions
 

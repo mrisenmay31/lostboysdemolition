@@ -568,8 +568,10 @@ legacy `status` column without expecting this to fire.
 
 **Legacy `SECURITY DEFINER` functions — the live count is 5, not 6** (verified 2026-08-14;
 `SYSTEM_AUDIT_2026-07-30.md` was right, `BUILD_LOG.md`/`NEXT_SESSION_PROMPT.md` were wrong before
-this date). They predate the migrations directory and exist **only in the live database** — nothing
-in the repo defines them, so they cannot be enumerated from git. Live:
+this date). They predate the migrations directory and exist only in the live database — nothing in
+the repo defined them until 2026-08-18, when `handle_new_auth_user` gained a repo definition via
+`20260818143000_workforce_auth_boundary.sql` (rewritten, pinned); the other 4 remain live-only and
+cannot be enumerated from git. Live:
 `calculate_duration_and_cost`, `get_my_crew_id`, `get_my_role`, `handle_new_auth_user`,
 `notify_airtable_on_archive`. None pin `search_path`; all are `anon`-EXECUTE-able. **Three are
 trigger functions**; only `get_my_role`/`get_my_crew_id` are genuinely callable RPCs, and both read

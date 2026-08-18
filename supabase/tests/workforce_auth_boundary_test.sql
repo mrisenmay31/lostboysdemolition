@@ -1,5 +1,7 @@
--- BL-7 assertions (v2 Task 0B). Assertions 1-7 are the v2 spec's original
--- seven, verbatim. 4, 5, 6 pass PRE-migration on a faithful live clone:
+-- BL-7 assertions (v2 Task 0B). Assertions 1-7 correspond to the v2 spec's
+-- original seven (1-3 carry added description args and 6 carries added
+-- tgrelid/tgfoid pins -- see the fix-round comments below); 4, 5, 6 pass
+-- PRE-migration on a faithful live clone:
 -- they are regression pins (no re-grant of the legacy definers; trigger
 -- not lost), not red/green targets. 8-19 are the red-phase teeth: they
 -- fail until the migration lands, and 8-9 specifically prove the
