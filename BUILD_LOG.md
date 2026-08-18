@@ -25,7 +25,7 @@ shipped.
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
-| `ghl-job-webhook` | A | 🟢 Live (**v16**) — Phase A keystone + BL-4: estimate→job promotion (chain-pivot, live-proven), 4-tier scope, new crew Slack format | 2026-08-17 |
+| `ghl-job-webhook` | A | 🟢 Live (**v19**) — Phase A keystone + BL-4 + **BL-5: crew calendar events carry no pricing** (audience-aware calendar bodies, live-probed) | 2026-08-20 |
 | `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lbd-estimates.vercel.app** — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
@@ -40,6 +40,70 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 ---
 
 ## Entries
+
+### 2026-08-20 — BL-5 SHIPPED: crew calendar events stripped of pricing; BL-6 design draft; concurrency directive strengthened
+
+**Executed** `docs/superpowers/plans/2026-08-18-bl5-crew-calendar-no-pricing.md` (approved 2026-08-18)
+via subagent-driven development: sonnet implemented, opus adversarially reviewed (Approved, 0
+Critical/Important), merged to `main` as fast-forward `ac58673`. Suite: **317 passing** (312 + 5 new),
+golden-321 gate intact.
+
+#### Deployed
+| Function | Version | What changed |
+|---|---|---|
+| `ghl-job-webhook` | **19** (sha `024cc198…`, was `da43aada…`) | `buildCalendarDescription`/`buildCalendarEventBody` take a **required** `audience: "main" \| "crew"` param — crew omits the `Estimate: $X` line, main is byte-identical to before (locked by unchanged test literals). Schedule leg builds per-target bodies paired structurally with their calendarId; needsMain/needsCrew gates, I1/I2/I3, and error aggregation untouched. |
+
+#### Live probe (2026-08-18, verified by Matt 2026-08-20)
+JOB-1104: set TEST `estimate_value=4200`, nulled both gcal IDs, Matt re-dragged the test opportunity
+to Job Scheduled. v19 created main `d2nqvpvj6o1p8vg808re7n98o4` + crew `9p88u9p07cjr9hq57h2qjsitm4`
+in one fire, zero errors, both IDs stamped. **Matt eyeballed both events: main showed
+`Estimate: $4,200.00`, crew showed none.** Row restored after (cancelled, estimate 0, IDs stamped).
+`slack_notified_at` stayed stamped throughout so no crew Slack ping was possible.
+
+#### ⚠️ Two live hazards caught this session (neither about BL-5's code)
+1. **JOB-1104 had drifted back to `status_v2='scheduled'`** (BL-4's E2E re-drag; `handleJobScheduled`
+   writes it unconditionally and has no cancelled-guard) with `start_date=2026-08-20` and no
+   night-before stamp — the Aug-19 digest would have pinged the REAL Crew 1 channel with TEST data.
+   Re-cancelled before it could, and again immediately after the probe. Lesson: **any test re-drag
+   revives the job row — re-cancel as part of cleanup, every time.**
+2. **A bare `supabase functions deploy` silently flipped `verify_jwt` to `true`** (v17), which would
+   have 401'd every GHL webhook call. Caught by reading back `list_edge_functions` immediately after
+   deploy; fixed with `--no-verify-jwt` (v18/v19 — the extra versions are this correction, same
+   bundle sha all three). **Always pass `--no-verify-jwt` for the webhook functions and always read
+   back `verify_jwt` after a CLI deploy.**
+
+#### Consciously accepted residual
+Legacy `airtable-job-scheduled` still emits `Estimated Revenue` into descriptions posted to crew
+calendars. Out of BL-5's scope by decision (Airtable-era path, retirement-bound, and touching it
+forces a live-function redeploy under the parity rule) — recorded in the plan's Global Constraints
+and flagged by the opus review as a ⚠️; resolved as deferred-by-design.
+
+#### Review minors deferred (ledger'd, none blocking)
+Derive per-target body from the label in a helper to make a main-body-on-crew-calendar
+unrepresentable; pin the literal in the null-estimate equivalence test; note that
+`buildCalendarEventBody` is now evaluated only when a target is actually pushed (strictly more
+robust); second integration test doesn't restate `calendar:"success"` (covered by neighbours).
+
+#### Parallel lane: BL-6 echo-guard design DRAFT (Matt's strengthened directive, first application)
+**Matt strengthened the concurrency standing directive this session (2026-08-18):** concurrency is
+now *required* when it doesn't impact quality/integrity, and **plans must be written for concurrent
+execution up front** — CLAUDE.md's Standing Instruction updated. Applied immediately: an opus design
+lane ran alongside BL-5's serial tail and produced
+`docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md` (design only, nothing built).
+Key live-proven findings: the A→G→A echo loop is **real** (100% of `airtable_to_ghl` syncs since
+June are followed by a `ghl_to_airtable` sync of the same email, p50 1.68s); GHL fires its workflow
+even on no-op PUTs; `tags` arrives empty in 620/624 logged payloads, so a whole-tuple hash guard
+would mismatch forever — the draft recommends a field-wise `last_synced_values` jsonb snapshot on
+`client_sync_state`, guard in `ghl-contact-sync` first, fail-open, plus a hop-rate breaker. Draft
+awaits Matt's review; its claim that a CLAUDE.md tags line needs correcting is **unverified — do not
+edit docs from the draft alone.**
+
+#### Still owed / carried forward
+- **Matt: delete the two probe events** on the main + Crew 1 calendars (Aug 20, "JOB-1104 –
+  Contractor Company") — I have no access to those calendars in-session.
+- Matt's phone smoke + one-real-bid Fillout parallel check on the estimate builder (outstanding
+  since 2026-08-14).
+- BL-6 draft review is the natural next session.
 
 ### 2026-08-17 — BL-4 SHIPPED: crew Slack format + estimate→job promotion; 2 repo fixes; 3 new backlog items
 

@@ -145,11 +145,21 @@ nowhere in git and a fourth was a generation stale, so redeploying from the repo
 regressed live behavior. **Any function deployed to Supabase must be committed here in the same
 session.** Verify with `mcp__Supabase__list_edge_functions` before assuming the repo is current.
 
-### Parallel agent execution — the default, not the exception
+### Parallel agent execution — required, not just the default
 
-**Matt's directive (2026-08-17): run agents in parallel as much as possible. Code integrity and
-quality is the first priority; efficiency is the second.** Those two are ordered, not traded off —
+**Matt's directive (2026-08-17, strengthened 2026-08-18): code quality and integrity are priority
+one, always. Efficiency is priority two. Running agents concurrently is a must — REQUIRED whenever
+it does not impact quality or integrity.** The two priorities are ordered, not traded off —
 parallelism buys speed by removing *idle waiting*, never by removing a review or a test gate.
+Serializing work is legitimate **only** for the quality/integrity boundaries listed below; any other
+reason for serial dispatch violates this directive.
+
+**Write plans for concurrency (2026-08-18).** Concurrency is designed in at plan-writing time, not
+discovered at dispatch time. Every implementation plan must structure its tasks so multiple agents
+can be deployed concurrently where it makes sense: disjoint file ownership per task, shared
+interfaces built first so lanes can fan out against them, and a per-task note naming which other
+tasks it can run alongside. A plan whose tasks could have been made independent but weren't is a
+defective plan.
 
 **Default to concurrent.** Before dispatching anything, ask "what else could be running right now?"
 and launch all of it in a single message with multiple tool calls. Serial dispatch of independent
@@ -171,7 +181,8 @@ work is a defect in the plan, not a safe choice. What made this work in practice
   to report findings about files it doesn't own.
 - **Fix rounds parallelize too.** Two independent review-fix rounds are two lanes, not a queue.
 
-**Do NOT parallelize when:**
+**Serialize ONLY at these quality/integrity boundaries** (the exhaustive list — nothing else
+justifies serial dispatch):
 - One task's output *defines the other's interface.* Wiring against a shared module that is still
   being written wastes both agents' work. Build the interface, then fan out against it.
 - Two agents would edit the same file. There is no safe version of this.
@@ -348,7 +359,7 @@ as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic
 | `airtable-job-completed` | 14 | Stage 8 → Stripe **draft** invoice, GHL Stage 9, task for Dane. Slack paused via `SLACK_NOTIFICATIONS_ENABLED = false`. |
 | `receive-airtable-webhook` | 11 | Writes Supabase `jobs` mirror. **No auth.** Only handles `Scheduled`/`Invoiced` — never `Completed`, so the mirror is permanently stale. Retirement queued. |
 | `push-to-airtable` | 11 | Aggregates `time_entries` → Airtable actuals. Never run. Latent bug: PATCHes a formula field. |
-| `ghl-job-webhook` | **16** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. |
+| `ghl-job-webhook` | **19** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. **BL-5 (2026-08-20):** calendar builders take a required `audience: "main" \| "crew"` param — crew calendar events carry NO `Estimate:` line, main keeps it. ⚠️ CLI deploys of this function MUST pass `--no-verify-jwt` and read back `verify_jwt` after (a bare deploy silently flips it to true → 401s every GHL call). |
 | `crew-night-before` | **11** | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. **BL-4 (2026-08-17):** new format + `———` divider between job blocks, shared module, `client_name` fallback. Discharges the owed redeploy. |
 
 **Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
@@ -739,7 +750,8 @@ The canonical structure is now **A–G + Track B** in `BUILD_PLAN.md` → "Revis
 | **G — Feedback loop & reporting** | Not started. Seeds `default_materials_cost` here, from actuals. |
 | **Track B — Lead intake** | Config only, runs in parallel, **start now.** |
 | **BL-4 — crew Slack message format** | 🟢 **SHIPPED and merged to main 2026-08-17.** Both crew messages reformatted; 5 new `jobs` columns; the **estimate→job promotion now exists and is live-proven** (it had zero writers before). 4-tier scope source. 2 of 3 repo fixes done — the third became BL-6. Suite 312. See the 2026-08-17 `BUILD_LOG.md` entry. |
-| **BL-5 / BL-6 / BL-7** | ⚪ **Captured 2026-08-17, not scheduled.** BL-5 strip pricing from crew *calendar* events (BL-4's no-money rule is violated one channel over — **known and deliberate** until fixed). BL-6 close the `airtable-client-sync` data loss (needs an echo guard before a `recordUpdated` trigger). BL-7 decide `handle_new_auth_user()`'s fate + the 7 RLS policies before Phase D. See `BUILD_PLAN.md`. |
+| **BL-5** | 🟢 **SHIPPED 2026-08-20** (`ghl-job-webhook` v19). Crew calendar events no longer carry `Estimate: $X`; main calendar keeps it. Live-probed on JOB-1104, Matt eyeballed both events. The no-pricing-to-crew-channels rule now holds on Slack AND crew calendars. Residual, consciously accepted: legacy `airtable-job-scheduled` still emits `Estimated Revenue` to crew calendars (retirement-bound path). |
+| **BL-6 / BL-7** | ⚪ **Not scheduled.** BL-6 close the `airtable-client-sync` data loss — **design draft ready for Matt's review**: `docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md` (echo loop live-proven: 100% of A→G syncs echo back G→A in ~2–5s; whole-tuple hash guard would loop forever because `tags` arrives empty in 620/624 payloads). BL-7 decide `handle_new_auth_user()`'s fate + the 7 RLS policies before Phase D. See `BUILD_PLAN.md`. |
 | **Backlog (BL-1/2/3)** | ⚪ Captured 2026-07-31, **not scheduled.** Equipment maintenance, tool inventory, crew-level P&L + foreman incentive comp. See `BUILD_PLAN.md` → "Backlog — captured, not scheduled". |
 
 Foundation work already done (2026-07-30): repo/production reconciliation and RLS hardening.

@@ -1,130 +1,84 @@
 Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (business ground
 truth), then BUILD_PLAN.md (official plan, phases A–G + Track B).
 
-## What just happened — BL-4 SHIPPED (2026-08-17)
+## What just happened — BL-5 SHIPPED (2026-08-20) + BL-6 design draft ready
 
-The approved BL-4 brief was executed, reviewed, deployed, live-verified, and merged to `main`.
-**There is no build brief waiting for you this time.** Read the `2026-08-17` entry in `BUILD_LOG.md`
-before planning anything.
+BL-5 (strip pricing from crew calendar events) was planned, approved, built, opus-reviewed
+(0 findings), deployed, live-probed, verified by Matt, and merged to `main` (`ac58673`,
+fast-forward). Read the `2026-08-20` entry in `BUILD_LOG.md` before planning anything.
 
-Live now: **`ghl-job-webhook` v16**, **`crew-night-before` v11**, **`airtable-client-sync` v29**.
-Three migrations applied. `deno task test` → **312 passing** (golden-321 gate intact). NB version counters read higher than the number of real deploys — the CLI bumps unrelated already-deployed functions as a side effect, so `sha256` is what proves a redeploy, not the counter.
+Live now: **`ghl-job-webhook` v19** (sha `024cc198…`). The calendar builders take a **required**
+`audience: "main" | "crew"` param — crew calendar events carry NO `Estimate:` line, main keeps it,
+byte-identical to before. Suite: **317 passing** (`deno task test`), golden-321 gate intact.
 
-**The estimate→job promotion now exists.** `estimates.job_number` had zero writers before this
-session. Quote Accepted back-writes it and flips the estimate to `accepted`, non-fatally.
+**The no-pricing-to-crew-channels rule now holds on crew Slack AND crew calendars.** One residual,
+consciously accepted: legacy `airtable-job-scheduled` (retirement-bound) still emits
+`Estimated Revenue` to crew calendars. Deferred by recorded decision, not missed.
 
-**Both crew messages use the new format** — client, business, phone, date, time, address, scope —
-with a `———` divider between job blocks in the night-before digest.
+## 🚨 Hard-won facts from 2026-08-18/20 — don't rediscover these
 
-### The single most important thing to understand about the promotion
+- **A bare `supabase functions deploy` silently flips `verify_jwt` to TRUE** — which 401s every GHL
+  webhook call. Always pass `--no-verify-jwt` for the webhook functions and ALWAYS read back
+  `verify_jwt` via `list_edge_functions` after any CLI deploy. (Caught live on v17; corrected v19.)
+- **Test re-drags revive job rows.** `handleJobScheduled` writes `status_v2='scheduled'`
+  unconditionally, no cancelled-guard. JOB-1104 had drifted back to scheduled from BL-4's E2E and
+  was one evening from pinging the REAL Crew 1 channel with TEST data via the night-before digest.
+  It is re-cancelled now. **Any future probe: re-cancel the test job as part of cleanup, every time.**
+- **The A→G→A sync echo loop is live-proven, not hypothetical** (BL-6 draft): 100% of
+  `airtable_to_ghl` syncs since June are followed by a `ghl_to_airtable` sync of the same email
+  (p50 1.68s). GHL fires its workflow even on no-op PUTs. Only the create-only Airtable trigger
+  breaks the chain today.
+- **`tags` arrives empty in 620/624 logged GHL payloads** → a whole-tuple hash echo guard would
+  mismatch permanently and CAUSE the infinite loop. The draft's claim that a CLAUDE.md tags line
+  needs correcting is **unverified** — verify before editing docs.
 
-It pivots on the **chain**, not the row, and that distinction is the whole feature. The first
-implementation resolved a row and therefore **silently produced nothing on the ordinary quote
-cycle**: revising an estimate supersedes v1, the GHL push is a manual button so v2 often has no
-`ghl_push_state` row, leaving only a superseded v1 to match → `not_found` → no `job_number` → all
-scope tiers empty. If you touch this code, keep the chain pivot: identify `estimate_number` from the
-push-state row (**deliberately not filtering superseded**, because a superseded row still names its
-chain), then resolve that chain's current version.
+## ⚡ Standing directive STRENGTHENED 2026-08-18 (in CLAUDE.md)
 
-Live-proven: chain read `1424 v1 superseded job=- | 1424 v2 accepted job=JOB-1104`.
+Quality/integrity #1 always; efficiency #2. **Concurrency is REQUIRED when it doesn't impact
+quality** — serializing is legitimate only at the three integrity boundaries (shared file,
+interface dependency, contingent task). **Write plans structured for concurrent agents up front**:
+disjoint file ownership per task, interfaces first, per-task notes on what runs alongside.
 
-### 🚨 The rule BL-4 established
+## 🔴 Still owed
 
-**No pricing may reach a crew channel.** No total bid, quoted price, markup %, true margin %, hours,
-or dump counts. GHL `Scope Notes` (`PdNTCRzIpYi3IANr71eh`) must never be read — it carries all of
-them. `scope_summary` has one source that *can* contain money (`estimates.job_details`, free text), so
-it is currency-stripped. **Crew Google Calendars still show `Estimate: $X` — that is BL-5, and the
-inconsistency is KNOWN AND DELIBERATE until then.** Do not "fix" either side blind.
+- **Matt: delete the two BL-5 probe events** — main + Crew 1 calendars, Wed 2026-08-20, both named
+  "JOB-1104 – Contractor Company" (event IDs `d2nqvpvj6o1p8vg808re7n98o4` main,
+  `9p88u9p07cjr9hq57h2qjsitm4` crew). Sessions have no access to those calendars.
+- **Matt's phone smoke + the one-real-bid Fillout parallel check** on
+  https://lbd-estimates.vercel.app — outstanding since 2026-08-14. First real estimate ≥ 1426.
+- Eyeball the BL-4 message rendering in #ops-test (`C0BPPG8997Z`) — still unverified; the session
+  Slack MCP is on the wrong workspace (CTA Integrity), so this is Matt's 30-second look.
+- Dane habit items: populate GHL **Job Start Time** and **Job Scope**.
 
-## 🔴 Still owed before Dane/Jackson use the estimate builder for real
+## Next work (none blocked)
 
-**Matt's phone smoke + the one-real-bid Fillout parallel check.** Outstanding since 2026-08-14 and
-untouched by the last three sessions. Nothing blocks them.
-
-Also quick: **eyeball the BL-4 message rendering in #ops-test** (`C0BPPG8997Z`) — one was posted
-2026-08-17 for JOB-1104.
-
-## Backlog captured 2026-08-17 — all unblocked, none started
-
-See `BUILD_PLAN.md` → "Backlog — captured, not scheduled".
-
-- **BL-5** — strip `Estimate: $X` from **crew** calendar events, keep it on main. Decision already
-  made. Non-trivial because one `eventBody` is built once and posted to both targets, so it needs two
-  descriptions without disturbing the per-target event-ID idempotency that took two Phase A fix rounds.
-- **BL-6** — close the `airtable-client-sync` data-loss item. The **code** is fixed (v29); the gap is
-  that the Airtable automation fires on `recordCreated` **only**, so edits never invoke the function.
-  ⚠️ **Design the echo guard first** — `ghl-contact-sync` → Airtable → `airtable-client-sync` → GHL →
-  `ghl-contact-sync` terminates today *only* because the trigger is create-only.
-- **BL-7** — decide `handle_new_auth_user()`'s fate, and settle the 7 RLS policies **before Phase D**.
-  That function has always been a silent no-op (its unqualified `INSERT INTO users` resolves to
-  `auth.users` under GoTrue's `search_path=auth`); pinning it would flip it into a real insert and
-  activate policies on `users`/`crews`/`time_entries`. Phase D is specced against `time_entries`.
-
-## Hard-won facts from 2026-08-17 — don't rediscover these
-
-- **`ghl_push_state` has no `created_at` column** (it has `updated_at`). Ordering on it makes
-  PostgREST reject the whole query. This broke promotion *and* scope on the first live fire and **no
-  unit test could catch it** — the mocks don't validate column names. **Live-probe every deploy.**
-- **`deno task test` used to lie.** It ran `_shared/` only and reported 18/18 while **139 real tests
-  were never collected**. Now runs `supabase/functions/`.
-- **`/opportunities/{id}` and `/opportunities/search` return different custom-field shapes.** By ID
-  gives `{id, fieldValue}`; search gives `{id, fieldValueString|fieldValueDate, type}` with dates as
-  **epoch milliseconds**. Phase A is safe only because it fetches by ID.
-- **`sync_log` CHECKs are narrower than they look.** `match_method IN ('ghl_contact_id','email','none',
-  'email_duplicate')` (last one added 2026-08-17), `action_taken IN ('created','updated','skipped',
-  'error')`, `status IN ('success','error')`. The old client-sync code wrote two illegal values, so
-  that insert was **silently rejected for 3.5 months**.
-- **`users`/`crews`/`time_entries` carry 7 live RLS policies**, contradicting CLAUDE.md's former "no
-  policies by design". EXECUTE on `get_my_role`/`get_my_crew_id` is now revoked from anon/authenticated.
-- **`Job Scope` is populated on zero live opportunities**, and **12 of 16 estimates have zero line
-  items** — quick mode is the common shape, which is why `job_details` became a scope tier.
-- **Dane habit items** (not code): populate GHL **Job Start Time** and **Job Scope**.
+1. **BL-6 — review the echo-guard design draft**:
+   `docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md`. Recommends a field-wise
+   `last_synced_values` jsonb snapshot on `client_sync_state`, guard in `ghl-contact-sync` FIRST
+   (that side is the real loop-breaker), 120s window, fail-open, hop-rate breaker; guard is
+   verifiable against today's existing echo BEFORE the `recordUpdated` trigger is ever created.
+   Open questions OQ-1/OQ-2 need live verification; bundled prereq fixes (`res.ok` checks in
+   `ghl-contact-sync`) are non-optional. Matt's review turns this into a build brief.
+2. **Phase C — Expenses + dump counts (BILL)**. Needs BILL credentials from Matt to build;
+   planning can start any time.
+3. **Track B — Lead intake.** Config-only, "start now" since July; needs the Grasshopper-vs-port
+   decision (open decision #7).
+4. **BL-7** — decide `handle_new_auth_user()` + the 7 RLS policies before Phase D.
+5. **Phase D — time tracking**: still the one 🔴 blocking decision.
+6. Historical import of 321 Airtable estimates: Matt **declined** 2026-08-14; don't re-propose.
 
 ## State that hasn't changed
 
-**Phase B slice 2 is LIVE** at **https://lbd-estimates.vercel.app** (project `lbd-estimates`, root
-`web`, prod branch `main`). **There is no login** — device-remembered estimator picker, re-validated
-server-side; ships network-layer **open**. Read CLAUDE.md's "No-login estimate tool" section before
-touching anything auth-shaped. First real estimate will be **≥ 1426**.
+Phase B slice 2 LIVE at https://lbd-estimates.vercel.app, no login (estimator picker),
+network-layer open. Two known limitations: superseded-version protection is UI-only; no concurrency
+guard on the GHL push. Test residue: estimates ≤1425 TEST-labeled; JOB-1102/JOB-1104 cancelled TEST
+jobs (JOB-1104's gcal IDs point at the two probe events pending Matt's deletion).
 
-Two known limitations carried forward: superseded-version protection is UI-only, and there is no
-concurrency guard on the GHL push.
+## Standing instructions (unchanged unless noted)
 
-**Test residue left live deliberately:** estimate 1424 v2 is `accepted` with `job_number = JOB-1104`
-(real promotion evidence on a TEST estimate); JOB-1104 carries `TEST`-prefixed identity values.
-`SLACK_TEST_CHANNEL_OVERRIDE` was unset and confirmed absent.
-
-## ⚠️ Standing instructions from Matt
-
-**Delete nothing without his specific, express, per-item approval.** The deletion checklist is still
-open and untouched in the BUILD_LOG `2026-08-14 (late)` entry. **Never `git add -A`** in this repo —
-stage explicit paths.
-
-**⚡ Run agents in parallel as much as possible. Quality first, efficiency second — ordered, not
-traded off.** Now a Standing Instruction in CLAUDE.md. Isolated worktrees per lane, explicit disjoint
-file ownership in every prompt, directory-scoped test runs for agents with the orchestrator running
-the full suite once as the real gate, and reviews run concurrently with unrelated implementation.
-Never parallelize away a gate — on 2026-08-17 reviews caught a GHL PUT that erased contact names, a
-log insert silently rejected for 3.5 months, a migration that would have flipped a lifelong no-op
-into a live write, and a divider glyph contradicting the approved brief. No test would have caught any
-of them.
-
-Also unchanged: (a) plan + explicit approval before any new build (small fixes exempt); (b) anything
-deployed/applied to Supabase committed the same session; (c) `BUILD_LOG.md` entry at every session
-close, including docs-only ones; (d) subagent-driven with per-task Opus review for build-sized work;
-(e) Pipeline Reference base `appA7uj7FhnPp9Bvg` = Field Registry / Secrets & Credentials / People & IDs
-only.
-
-**Process lesson worth keeping:** one deploy this session went out while 2 tests were red, because the
-suite's exit code was masked by `| tail`. Check `PIPESTATUS` when gating a deploy on a piped test run.
-
-## After BL-4 (none blocked)
-
-1. **Phase C — Expenses + dump counts (BILL)**. One transaction = one dump load, so it delivers cost
-   *and* count.
-2. **Track B — Lead intake.** Flagged "start now" back in July; still hasn't started.
-3. **BL-5 / BL-6 / BL-7** above.
-4. **Phase D — time tracking** remains the one 🔴 blocking decision. Unchanged. Note BL-7 now
-   intersects it.
-5. Historical import of the 321 Airtable estimates — Matt **declined** this 2026-08-14.
-   `estimate_number` 1001–1321 stay reserved. Don't re-propose without a reason.
+Delete nothing without Matt's express per-item approval; never `git add -A`. Plan + explicit
+approval before any new build (small fixes exempt). Anything deployed/applied to Supabase committed
+same session. BUILD_LOG entry at every session close. Sonnet implements, opus reviews every task +
+whole branch. Live-probe every deploy (mocks can't see the DB — and now: nor the deploy flags).
+Pipeline Reference base `appA7uj7FhnPp9Bvg` = Field Registry / Secrets & Credentials / People & IDs
+only (note: it stores secret NAMES, not values — calendar IDs are unreadable in-session by design).

@@ -388,6 +388,13 @@ violated one channel over, by code that predates it.
   that the Slack rule is negotiable.
 - **Depends on:** nothing. Can be picked up any time.
 
+**BL-5 was built and shipped 2026-08-20** (`ghl-job-webhook` v19, live-probed on JOB-1104: main
+event carried `Estimate: $4,200.00`, crew event carried none — Matt eyeballed both). The
+crew-channel no-pricing rule now holds on Slack AND crew calendars. One residual, consciously
+accepted: the legacy `airtable-job-scheduled` (Airtable-era path, retirement-bound) still emits
+`Estimated Revenue` to crew calendars — flagged in the BL-5 plan's Global Constraints as a
+decision, not an oversight. See `BUILD_LOG.md`.
+
 ### BL-6 — Close the `airtable-client-sync` data-loss item (Matt, 2026-08-17)
 
 **Backlogged by Matt during the BL-4 build.** The *code* fix shipped 2026-08-17 (v27): the repaired
@@ -444,7 +451,9 @@ schema was never used", is why `public.users` is empty.
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
 Phase A. BL-3 should not be attempted before Phase F, and paying against it should not happen
 until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 shipped
-2026-08-17. BL-5 is unblocked and can be picked up any time.
+2026-08-17. BL-5 shipped 2026-08-20. BL-6 has a design draft awaiting Matt's review
+(`docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md`) — the echo loop it guards
+against is now live-proven, not hypothetical.
 
 ---
 
