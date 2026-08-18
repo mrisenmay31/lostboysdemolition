@@ -499,6 +499,12 @@ schema was never used", is why `public.users` is empty.
   EXECUTE from `anon`/`authenticated`, which turns "0 rows" into "permission denied" for those roles.
   Correct while there is no login, but **Phase D clock-in is specced against `time_entries`** and must
   either re-grant EXECUTE to `authenticated` (with `pg_temp` pinned) or replace those policies.
+  ⚠️ **CORRECTED 2026-08-18 (v2 Task 0A branch-fidelity probe):** the "7 live RLS policies" figure
+  above was incomplete, not wrong — it counted only the `get_my_role()`/`get_my_crew_id()` policies.
+  The three tables actually carry **12 policies total**: those 7 (broken for `anon`/`authenticated`
+  since the 2026-08-17 revoke) plus **5 plain `auth.uid()`-based policies that still function**
+  (`users_select_own`; `employees_insert_own`/`employees_select_own`/`employees_update_own_open`;
+  `authenticated_select_crews`). Task 0B does not touch any of the 12.
 - **Depends on:** nothing. Should be settled as part of Phase D's design, not before.
 
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after

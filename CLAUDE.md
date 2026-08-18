@@ -371,6 +371,17 @@ as a side effect of any deploy; their `sha256` is unchanged, so this is cosmetic
 | `ghl-job-webhook` | **19** | GHL workflow webhook → mints JOB-XXXX at Quote Accepted (Postgres jobs), schedules at Job Scheduled (Calendar main+crew, Slack crew notify, gated BILL). Accepts top-level or customData body. **BL-4 (2026-08-17):** persists contact fields, builds the estimate→job promotion, resolves a 4-tier `scope_summary`, posts the new crew format via `_shared/slack.ts`. **BL-5 (2026-08-20):** calendar builders take a required `audience: "main" \| "crew"` param — crew calendar events carry NO `Estimate:` line, main keeps it. ⚠️ CLI deploys of this function MUST pass `--no-verify-jwt` and read back `verify_jwt` after (a bare deploy silently flips it to true → 401s every GHL call). |
 | `crew-night-before` | **11** | Nightly 16:00 America/Denver crew digest (pg_cron 22:30+23:30 UTC, self-gating). Slack per-crew. **BL-4 (2026-08-17):** new format + `———` divider between job blocks, shared module, `client_name` fallback. Discharges the owed redeploy. |
 
+**Deploy invariant (recorded per v2 Task 0A):**
+
+```bash
+supabase functions deploy ghl-job-webhook --project-ref eiqqqwajmcpcwhvxxnhx --no-verify-jwt
+supabase functions list --project-ref eiqqqwajmcpcwhvxxnhx
+```
+
+Expected: the readback reports `ghl-job-webhook` with JWT verification disabled. Any deployment
+lacking the explicit flag is a failed deployment and must not receive production traffic.
+Full workflow: `docs/runbooks/profitability-schema-validation.md`.
+
 **Line items (v7 behaviour):** each named item renders at its actual amount, including $0. If the
 sum is below Total Bid, a "Project Total" line is appended for the difference. Fallback with no
 line items: one "Demolition Services" line at Total Bid.
@@ -592,6 +603,13 @@ tables now raises `permission denied for function get_my_role` instead of return
 correct while there is no login — but **Phase D clock-in is specced against `time_entries`** and must
 either re-grant EXECUTE on those two functions to `authenticated` (with `pg_temp` pinned) or replace
 the policies. Tracked as part of BL-7.
+
+**⚠️ CORRECTED AGAIN 2026-08-18 (v2 Task 0A branch-fidelity probe) — the "7 live RLS policies" count
+above was incomplete, not wrong: it covered only the `get_my_role()`/`get_my_crew_id()` policies.**
+The three tables actually carry **12 policies total**: the 7 above (broken for `anon`/`authenticated`
+since the 2026-08-17 revoke, as described) **plus 5 plain `auth.uid()`-based policies that still
+function** — `users_select_own`; `employees_insert_own`, `employees_select_own`,
+`employees_update_own_open`; `authenticated_select_crews`. Task 0B does not touch any of the 12.
 
 RLS is enabled on all of the above with **no policies by design** (except the three tables just
 noted) — `service_role` has
