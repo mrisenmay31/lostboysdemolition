@@ -25,7 +25,7 @@ shipped.
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
-| `ghl-job-webhook` | A | 🟢 Live (**v19**) — Phase A keystone + BL-4 + **BL-5: crew calendar events carry no pricing** (audience-aware calendar bodies, live-probed) | 2026-08-20 |
+| `ghl-job-webhook` | A/v2 | 🟢 Live (**v20**, `verify_jwt=false` read back) — Phase A keystone + BL-4/BL-5 + **v2 Task 4 gates (2026-08-19): `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` flag (UNSET in prod ⇒ legacy minting unchanged) + unconditional `launch_workflow` compat check.** Deploy probed (function-level 401 + clean logs); authenticated live fire = Matt to-do (JOB-1104 re-drag, BL-5 procedure) | 2026-08-19 |
 | `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lostboysdemolition.vercel.app** (URL changed 2026-08-18; old `lbd-estimates.vercel.app` deleted, now 404s) — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
@@ -34,7 +34,7 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. Next: Session 3 (Task 4) — **hard stop until Matt's phone smoke + real estimate ≥1426**; GHL-minting cutover flips at Phase 1 gate pass | 2026-08-19 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. Next: Session 4 (Task 5A outbound dispatcher) | 2026-08-19 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
@@ -42,7 +42,37 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
-### 2026-08-19 — v2 Phase 1 Session 3: Task 4 BUILT, REVIEWED, BRANCH-VALIDATED 82/82 — NOT applied to prod, NOT deployed (both await Matt)
+### 2026-08-19 — v2 Phase 1 Session 3 SHIPPED: Task 4 — schedule_estimate APPLIED TO PRODUCTION, ghl-job-webhook v20 DEPLOYED (flag UNSET, behavior-neutral)
+
+**Same-session update — Matt approved both gates ("1 and 2 approved. Go ahead and deploy"), plus
+two more decisions:** (a) the phone smoke + first real estimate ≥1426 is a **to-do, not a
+blocker**; (b) the crew "Jackson"/"Other" fifth option is **DROPPED** — the schedule flow offers
+Crew 1–4 only, which is exactly what lanes 4a/4b already enforce (no code change needed; the 4b
+reviewer's finding 3 is resolved as decided-by-Matt).
+
+**Prod apply:** `schedule_estimate_rpc` applied with the exact repo-file bytes → head
+`20260819191046`, **32 applied**. Post-apply catalog assertions: function exists once,
+`prosecdef=false` (plain invoker), `search_path=public, pg_temp`, ACL = postgres + service_role
+only. Row counts byte-identical to the pre-apply baseline (jobs 2, budget_versions 0, outbox 0,
+estimates 16, identity_links 3, job_events 33). `get_advisors` security: **zero new WARNs** (the 3
+WARNs are the pre-existing baseline; INFO no-policy rows are the deliberate posture).
+
+**Webhook deploy:** flag confirmed ABSENT from prod secrets (`supabase secrets list` — 0 matches ⇒
+legacy minting stays on per deviation 7), then the two-command invariant:
+`supabase functions deploy ghl-job-webhook --project-ref eiqqqwajmcpcwhvxxnhx --no-verify-jwt` →
+**v20**, readback via `list_edge_functions` = `verify_jwt: false` ✓ (other functions' version
+numbers bumped cosmetically per the known CLI side effect; only ghl-job-webhook's sha changed).
+
+**Deploy probe (secret-less — the GHL_WEBHOOK_SECRET value is not readable from any sanctioned
+store; the Airtable Secrets table is a registry of key names, not values):** unauthenticated POST →
+`{"error":"Unauthorized"}` HTTP 401, byte-identical to the FUNCTION'S OWN check at index.ts:243
+(the platform's JWT rejection has a different shape) — proves verify_jwt=false routing and that v20
+boots past all module-scope env reads. `query_logs` post-deploy: exactly one event (the probe 401),
+zero boot errors. **The authenticated live fire is Matt's to-do**: re-drag the TEST opportunity
+(JOB-1104) per the BL-5 procedure — remember the re-drag-revives-row hazard: re-cancel after.
+The new code paths themselves (flag read, compat branch, skip-audit writes) are pinned by 207
+scoped tests with live-verified CHECK-constraint values; with the flag unset the deployed behavior
+is reviewer-verified byte-identical to v19.
 
 Session 3 of the Phase 1 plan, local session. **Matt decisions this session:** build+test may proceed
 pre-smoke (his explicit go); phone smoke + first real estimate ≥1426 remains the hard stop before
@@ -124,13 +154,12 @@ zero-line-item estimates; keeps the night-before digest's JOB SCOPE section aliv
 added). (2) F2 — moved-acceptance families hard-error rather than reactivate; whether they should
 ever reuse the old job is Matt's later call.
 
-**Open items for Matt (blocking the rest of Task 4 Step 4):** (1) prod apply of
-`20260819170000_schedule_estimate_rpc.sql` (per-task approval cadence); (2) `ghl-job-webhook`
-deploy via the two-command `--no-verify-jwt` invariant + readback, flag left UNSET, then the live
-JOB-1104 re-drag probe + re-cancel; (3) the phone smoke + first real estimate ≥1426 (hard stop for
-cutover + gate) — recommend the branch preview URL above; (4) product call: crew select offers only
-Crew 1–4; legacy allowed "Jackson"/"Other" (main-calendar-only) — need a fifth option or explicit
-drop. **Accepted-window note (4c reviewer):** between webhook deploy and Task 5A's dispatcher, an
+**Open items for Matt (blocking the rest of Task 4 Step 4)** *(all resolved same session — see the
+section at the top of this entry)*: (1) prod apply — ✅ approved and done; (2) webhook deploy — ✅
+approved and done (v20, flag UNSET; the authenticated JOB-1104 re-drag fire moves to Matt's to-do);
+(3) phone smoke + first real estimate ≥1426 — Matt: **to-do, not a blocker** (still required before
+the Phase 1 gate/cutover flip per the ratified decision); (4) crew fifth option — Matt: **dropped**,
+Crew 1–4 only. **Accepted-window note (4c reviewer):** between webhook deploy and Task 5A's dispatcher, an
 app-scheduled job gets `app_is_schedule_authority` while its calendar/Slack events sit undelivered
 in the outbox — by design (nobody app-schedules a real job before 5A; the plan's coexistence
 window). Suites at close: deno **331/331** (canonical task, incl. the new grant), web **537/537**,
