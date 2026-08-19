@@ -34,13 +34,79 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18** — Task 0A runbook + doc corrections done; **Task 0B BL-7 `workforce_profiles` migration APPLIED TO PRODUCTION** (19/19 assertions green, live-verified). BL-7 CLOSED. Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`; v1 archived. Next: v2 Phase 1 (Tasks 1–5), gated on Matt's phone smoke + one real estimate | 2026-08-18 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 IN PROGRESS** — Phase 1 plan approved + landed 2026-08-19 (`docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md`); **Session 1 SHIPPED: Task 1 profitability schema APPLIED TO PRODUCTION** (102/102 pgTAP, head `20260819052245`) **+ Task 3 forecast engine** (web 289/289). Deviations 9–12 recorded (incl. pin-price-at-acceptance, Matt 2026-08-19). Next: Session 2 (Task 2). GHL-minting cutover flips at Phase 1 gate pass; Matt's phone smoke + real estimate ≥1426 still the hard gate precondition | 2026-08-19 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-19 — v2 Phase 1 Session 1 SHIPPED: Task 1 profitability schema APPLIED TO PRODUCTION + Task 3 forecast engine
+
+Executed Session 1 of the approved Phase 1 plan (`docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md`,
+plan-mode approved by Matt this session) on branch `claude/last-session-review-f7tqxw`, remote
+session, subagent-driven: two Sonnet lanes concurrent, adversarial Opus review per lane (two rounds
+each), orchestrator ran the runbook cycle and prod apply. **Matt decisions this session:** GHL
+minting cutover at Phase 1 gate pass (not Task 4 deploy); build proceeds with phone smoke in
+parallel (hard stop before Task 4 cutover + gate); per-task prod applies; Task 1 prod apply
+approved and done; **price source = pin-at-acceptance** (deviation 12 — `accepted_price` on the
+immutable acceptance event; `schedule_estimate` mints budget revenue from it, not from
+`estimate_financial_details.customer_price`).
+
+**v2 Task 1 (schema) — LIVE ON PRODUCTION.** Migrations `20260819150000_profitability_lifecycle_types`
++ `20260819151000_profitability_core_schema` (applied versions `2026081905224x`, head now
+`20260819052245`, 29 applied): 14 enums, 12 new `jobs` columns, 16 tables (spec-verbatim to the
+column — verified by mechanical diff twice; the `job_forecast_overrides` B6 CHECK is the sole DDL
+deviation), `mark_job_reconciliation_required()` (pinned, service-role-only, **outbox key =
+`alert:<uuid>` of the newly-opened alert** — review demonstrated BOTH string-key failure modes:
+cross-job collision AND resolve-then-refire drop), 7 immutability triggers, RLS + explicit
+`public/anon/authenticated` revokes on all 16 tables AND the identity sequence. pgTAP suite
+`supabase/tests/profitability_core_schema_test.sql`, `plan(102)`, all multi-overload assertions
+carrying descriptions + ACL/enum-label/type-default/trigger-function pins.
+
+**Runbook record (verbatim per §3):** branch `v2-phase1-task1` (id `9595abc3-ef0d-458a-9e71-f3c4302bb976`,
+ref `hjffvzebieiepmxyfeca`, $0.01344/hr confirmed, deleted after). Probes: (a) 27 migrations, head
+`20260818230956` = prod ✓ (b) 5 definers, proconfig+proacl **character-identical** to prod ✓
+(c) `on_auth_user_created` present ✓ (d) 12 legacy policies ✓ → FAITHFUL. pgTAP 1.3.3 branch-only.
+RED = **99 fail / 3 pass of 102** (the 3 = vacuous `triggers_are` drift pins on not-yet-existing
+tables, separately confirmed 3/3 in isolation; documented in the test header). Both migrations
+applied → GREEN = **102/102** (after one test-file fix the GREEN run itself caught:
+`col_default_is` takes the plain default VALUE, not the rendered `'x'::type` expression — 22P02
+otherwise). Behavioral probe (rolled-back txn, JOB-9901/9902): 3 alerts / 3 outbox / 3 distinct
+`alert:` keys / status flipped. **Production single-transaction dry-run of the exact final SQL**
+(both migrations + behavior probes: null-guard raise, both B6 rejections, materials-accept,
+3-scenario Slack semantics on JOB-1102/1104 probe snapshots + full 102 assertions) = **102/102,
+rolled back atomically, prod verified pristine after**. Real apply → post-apply: 14/16/12 counts,
+RLS 16/16, ACLs denied, fn/sequence ACLs correct, index predicate `(resolved_at IS NULL)`,
+row counts unchanged (jobs 2, users 0, crews 0, time_entries 0, estimates 16, workforce_profiles 1),
+pgTAP absent. `get_advisors` security: **zero new WARNs** — new findings are only the deliberate
+INFO `rls_enabled_no_policy` on the 16 new tables; the 3 WARNs are pre-existing baseline.
+Suites: deno **317/317**, web **289/289**. Commit `6b83f8a`.
+
+**v2 Task 3 (forecast engine) — DONE.** `web/src/lib/profitability/{types,calculateJobHealth}.ts`
++ 28 tests (commit `77fae2d`). Review round caught 2 blockers **failing in the dangerous
+direction**: non-finite inputs fell through every comparison to `on_track`/`high` (now throws,
+`requireFinite` idiom — also rejects numeric strings, which Postgres `numeric` can deserialize as),
+and a `null` remaining-cost override zeroed a category's remaining ETC (now finite-number-guarded).
+`jobStatus` union widened to all 7 `job_lifecycle` values (deviation 9). Re-review attacked the
+guards from twelve angles: held; APPROVE.
+
+**Review-caught facts worth keeping:** (1) pgTAP `col_default_is` expected-value semantics (above).
+(2) An outbox idempotency key derived from stable strings cannot track a reopenable dedup window —
+key on the row the insert actually created. (3) `jobs.job_name` is NOT NULL and
+`jobs_job_number_format` rejects non-`JOB-<digits>` — probe data must respect both. (4) The
+`quoted_price` → `customer_price` gap (phantom revenue shortfall on discounted jobs) — CLOSED by
+Matt's pin-at-acceptance decision, deviation 12, before Task 2 starts.
+
+**Remote-session test infra (this container):** network policy blocks deno.land/esm.sh/jsr.io;
+deno installed via npm (`npm i -g deno`, 2.9.5), std assert vendored from the authentic
+`denoland/std` 0.224.0 GitHub tag with an external import map + `--no-lock` (zero repo files
+changed). 317/317 with it.
+
+**Next:** Session 2 (v2 Task 2 — economics + commercial lifecycle, 3 lanes then integration),
+carrying deviation 12. Matt's phone smoke + first real estimate ≥1426 still owed — hard stop
+before Task 4 cutover work and the phase gate.
 
 ### 2026-08-18 — Profitability v2 Phase 0 SHIPPED: Task 0A docs + Task 0B BL-7 boundary APPLIED TO PRODUCTION
 

@@ -21,6 +21,8 @@ Phase 0 shipped 2026-08-18 (runbook + BL-7 `workforce_profiles` boundary applied
 1. **GHL minting cutover = at Phase 1 gate pass.** v2 Task 4 deploys with the legacy Quote-Accepted minting path still ON (`ENABLE_GHL_ACCEPTANCE_JOB_CREATION` absent ⇒ legacy behavior, fail-safe default). The flip to `false` is the final step of the Phase 1 gate, after the E2E run proves app scheduling. Per ratified decision 1, once flipped it is permanent — rollback never re-enables it.
 2. **Build starts now; phone smoke runs in parallel.** v2 Tasks 1 + 3 (app-invisible) start immediately. Matt's phone smoke + one real estimate (≥1426) through https://lostboysdemolition.vercel.app is a **hard stop before v2 Task 4's cutover work and the phase gate** — not before Tasks 1/2/3.
 3. **Prod migration applies are per-task, after each task's adversarial review passes** (Phase B precedent; runbook step 7 approval given per task by Matt).
+4. **(later same day) Task 1 prod apply approved and DONE** — both migrations applied 2026-08-19, post-apply verification + advisors clean, disposable branch deleted. New migration head `20260819052245`.
+5. **(later same day) Price source = pin at acceptance.** The quoted_price/customer_price gap (Session 1 review escalation) is DECIDED: the immutable `estimate_acceptance_events` row records the accepted price; `schedule_estimate` mints budget-v1 revenue from it and recomputes planned profit at budget-mint time. Satisfies the reviewer's caveat by construction (acceptance events are append-only, so the accepted price cannot drift). **Becomes deviation 12**: Task 2's `estimate_acceptance_events` gains an `accepted_price numeric(12,2)` column (required on `accepted` events), and Task 4's RPC sources `approved_revenue` from the current acceptance's `accepted_price` instead of `estimate_financial_details.customer_price` (details row stays the planning-economics record).
 
 ### Verified live facts (queried read-only 2026-08-19)
 
@@ -107,7 +109,7 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
 - [x] **Step 2 (orchestrator):** Runbook cycle on disposable branch `v2-phase1-task1`: fidelity probes a–d → pgTAP install → RED pre-migration → apply both migrations → GREEN → `deno task test` + `cd web && npx vitest run` green → record verbatim (branch id, probes, red/green output, row counts).
 - [x] **Step 3 (Opus review):** Adversarial review of the SQL lane (logic + live-DB read-only; does not run the suite). Fix round if findings; re-validate on branch if the migration changed.
 - [x] **Step 4 (orchestrator):** Commit the identical SQL that passed (`feat: add canonical job profitability schema`), push.
-- [ ] **Step 5 (Matt approval, then orchestrator):** Apply to production via `apply_migration`; plain-SQL post-apply catalog assertions + row counts (legacy `jobs`/`users`/`crews`/`time_entries` unchanged); `get_advisors` security read; delete the disposable branch. Record in BUILD_LOG.
+- [x] **Step 5 (Matt approval, then orchestrator):** Apply to production via `apply_migration`; plain-SQL post-apply catalog assertions + row counts (legacy `jobs`/`users`/`crews`/`time_entries` unchanged); `get_advisors` security read; delete the disposable branch. Record in BUILD_LOG.
 
 ### Task 2 (Session 1 Lane B — v2 Task 3): Pure job forecast and health engine
 
