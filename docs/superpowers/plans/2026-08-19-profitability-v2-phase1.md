@@ -136,7 +136,7 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
 - Produces: `computeEstimateEconomics()`, `create_estimate_with_items_v2` (v1 kept during rollout), `estimate_identity_links`/`estimate_presentations`/`estimate_acceptance_events`/`estimate_acceptance_state` + `record_estimate_acceptance_event`, `presentEstimate`/`recordEstimateAcceptance`/`reverseEstimateAcceptance`, centralized `pipeline.ts` stage IDs, GHL-first prefill, category cost inputs in the builder.
 
 - [x] **Step 1 (lanes 2a ∥ 2b ∥ 2c, Sonnet):** economics module (spec-verbatim tests first, Jorge case `$2,543.51`); migrations + pgTAP (deviations 1–4; deterministic idempotent `estimate_identity_links` backfill from the 10 `ghl_push_state` rows — disagreeing families open manual-review exceptions, never guessed); GHL pipeline/prefill.
-- [ ] **Step 2 (lane 2d, Sonnet, after 2a/2b/2c):** integration — draft/schema/map/repo/actions/builder wiring; `jobSpecificCosts` aggregate keeps quote math unchanged; `expectedDumpCost` defaults `dumpCount × estimated_dump_cost_per_load`, never added to the quote; `loadRatesConfig()` gains the new key. Existing `estimates.status` keeps being written in the same server actions that append acceptance events (no silent drift); the acceptance projection is the scheduling authority.
+- [x] **Step 2 (lane 2d, Sonnet, after 2a/2b/2c):** integration — draft/schema/map/repo/actions/builder wiring; `jobSpecificCosts` aggregate keeps quote math unchanged; `expectedDumpCost` defaults `dumpCount × estimated_dump_cost_per_load`, never added to the quote; `loadRatesConfig()` gains the new key. Existing `estimates.status` keeps being written in the same server actions that append acceptance events (no silent drift); the acceptance projection is the scheduling authority.
 
   **Review handoffs binding on lane 2d (from the 2a/2b/2c adversarial reviews, 2026-08-19):**
   1. The six new cost draft fields get `nonNegativeNumber` Zod validation, and all cost inputs are cent-rounded BEFORE calling `computeEstimateEconomics` (its inputs map 1:1 to `numeric(12,2)` columns; the derived totals are unpersisted).
@@ -148,7 +148,7 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
   7. Live-verify at integration time: one real `fetchJobPipelineStages()` dump to settle the stage-name wording across docs, and confirm GHL's `eq` phone filter behavior against a formatted vs E.164 number.
 - [x] **Step 3 (orchestrator):** Runbook cycle for both migrations on a fresh disposable branch; v2 line 976–988 test commands + full suites + `npm run build`.
 - [x] **Step 4 (Opus review + fix round).**
-- [ ] **Step 5 (orchestrator):** Commit (`feat: version estimate economics and commercial acceptance`), push. **Deploy-order invariant:** Matt-approved prod apply of the migrations (including the rates seed) MUST precede the Vercel deploy of web code reading the new key — `loadRatesConfig()` throws on a missing key, so a web-first deploy would 500 every estimate page.
+- [x] **Step 5 (orchestrator):** Commit (`feat: version estimate economics and commercial acceptance`), push. **Deploy-order invariant:** Matt-approved prod apply of the migrations (including the rates seed) MUST precede the Vercel deploy of web code reading the new key — `loadRatesConfig()` throws on a missing key, so a web-first deploy would 500 every estimate page.
 
 ### Task 4 (Session 3 — v2 Task 4): Atomic schedule-to-job promotion
 

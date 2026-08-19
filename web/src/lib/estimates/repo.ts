@@ -3,16 +3,20 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loadRatesConfig } from "@/lib/rates";
 import { computeEstimate, type EstimateInputs } from "@/lib/pricing";
-import { validateEstimateDraft, validateQuoteOverride } from "./validate";
+import { validateEstimateDraft, validatePlannedProfitPctBounds, validateQuoteOverride } from "./validate";
 import { mapDraftToEstimatePayload, type VersionInfo } from "./map";
 import { NEWER_VERSION_EXISTS_MESSAGE, isUniqueViolationError } from "./errors";
 import { sanitizeSearchTerm } from "./search";
 import type {
+  EstimateAcceptanceStateRow,
   EstimateActor,
   EstimateDetail,
   EstimateDraft,
+  EstimateFinancialDetailsRow,
+  EstimateIdentityLinkRow,
   EstimateLineItemRow,
   EstimateMutationAuditRow,
+  EstimatePresentationRow,
   EstimateRow,
   EstimateStatus,
   EstimateSummary,
@@ -115,6 +119,38 @@ function normalizeAuditRow(raw: Record<string, unknown>): EstimateMutationAuditR
   };
 }
 
+/** Same numeric(*, *)-comes-back-as-a-string normalization as the row
+ *  types above, for estimate_financial_details' 15 money/pct/hours
+ *  columns. */
+function normalizeFinancialDetailsRow(raw: Record<string, unknown>): EstimateFinancialDetailsRow {
+  return {
+    ...(raw as unknown as EstimateFinancialDetailsRow),
+    productive_hours: toNum(raw.productive_hours),
+    operational_labor_cost: toNum(raw.operational_labor_cost),
+    materials_cost: toNum(raw.materials_cost),
+    rentals_cost: toNum(raw.rentals_cost),
+    expected_dump_cost: toNum(raw.expected_dump_cost),
+    subcontractors_cost: toNum(raw.subcontractors_cost),
+    other_direct_cost: toNum(raw.other_direct_cost),
+    allocated_overhead: toNum(raw.allocated_overhead),
+    expected_processing_cost: toNum(raw.expected_processing_cost),
+    risk_pricing_allowance: toNum(raw.risk_pricing_allowance),
+    markup_amount: toNum(raw.markup_amount),
+    processing_pricing_allowance: toNum(raw.processing_pricing_allowance),
+    discount_amount: toNum(raw.discount_amount),
+    customer_price: toNum(raw.customer_price),
+    planned_economic_profit: toNum(raw.planned_economic_profit),
+    planned_profit_pct: toNum(raw.planned_profit_pct),
+  };
+}
+
+function normalizeAcceptanceStateRow(raw: Record<string, unknown>): EstimateAcceptanceStateRow {
+  return {
+    ...(raw as unknown as EstimateAcceptanceStateRow),
+    accepted_price: toNullableNum(raw.accepted_price),
+  };
+}
+
 /** Builds the pricing engine's input shape from a validated draft. Pure,
  *  but not exported — it's an implementation detail of the two create
  *  pipelines below, not a public interface downstream tasks need. */
@@ -158,7 +194,7 @@ async function computeAndCreate(
     throw new EstimateValidationError([quoteCheck.error ?? "quote_override_reason is required"]);
   }
 
-  const { estimate, lineItems } = mapDraftToEstimatePayload(
+  const { estimate, lineItems, financialDetails } = mapDraftToEstimatePayload(
     draft,
     outputs,
     ratesConfig,
@@ -166,10 +202,19 @@ async function computeAndCreate(
     versionInfo,
   );
 
+  // Review handoff #2 (Phase 1 plan, Session 2 lane 2d): reject an
+  // out-of-storable-range planned_profit_pct BEFORE the RPC call, rather
+  // than let Postgres's raw "numeric field overflow" surface.
+  const pctCheck = validatePlannedProfitPctBounds(financialDetails.planned_profit_pct as number);
+  if (!pctCheck.ok) {
+    throw new EstimateValidationError([pctCheck.error ?? "planned profit % is out of range"]);
+  }
+
   const admin = createAdminClient();
-  const { data, error } = await admin.rpc("create_estimate_with_items", {
+  const { data, error } = await admin.rpc("create_estimate_with_items_v2", {
     p_estimate: estimate,
     p_line_items: lineItems,
+    p_financial_details: financialDetails,
   });
 
   if (error) {
@@ -184,7 +229,7 @@ async function computeAndCreate(
     if (versionInfo && isUniqueViolationError(error)) {
       throw new EstimateValidationError([NEWER_VERSION_EXISTS_MESSAGE]);
     }
-    throw new Error(`create_estimate_with_items failed: ${error.message}`);
+    throw new Error(`create_estimate_with_items_v2 failed: ${error.message}`);
   }
 
   return normalizeEstimateRow(data as Record<string, unknown>);
@@ -286,19 +331,44 @@ export async function updateQuote(
 ): Promise<EstimateRow> {
   const admin = createAdminClient();
 
+  const { data: existing, error: fetchError } = await admin
+    .from("estimates")
+    .select("total_bid, estimate_number")
+    .eq("id", id)
+    .single();
+
+  if (fetchError || !existing) {
+    throw new Error(
+      `updateQuote: estimate ${id} not found: ${fetchError?.message ?? "no row"}`,
+    );
+  }
+
+  // Quote-drift guard (review handoff #6, Phase 1 plan Session 2 lane 2d /
+  // Session 1 review finding F15): update_estimate_quote (the untouched
+  // legacy RPC) has no awareness of the commercial acceptance lifecycle —
+  // it would happily let quoted_price silently diverge from the
+  // immutable, already-pinned estimate_acceptance_events.accepted_price
+  // once this estimate's FAMILY has an active acceptance. Refuse here,
+  // before ever calling the RPC, regardless of whether the caller is
+  // setting or clearing the override — either direction would corrupt the
+  // commercial record with no trace once accepted.
+  const { data: acceptanceState, error: stateError } = await admin
+    .from("estimate_acceptance_state")
+    .select("accepted")
+    .eq("estimate_number", Number(existing.estimate_number))
+    .maybeSingle();
+
+  if (stateError) {
+    throw new Error(`updateQuote: estimate_acceptance_state check failed: ${stateError.message}`);
+  }
+  if (acceptanceState?.accepted) {
+    throw new EstimateValidationError([
+      "This estimate has an active customer acceptance — the accepted price is pinned. " +
+        "Reverse the acceptance first, or use a change order once that flow exists.",
+    ]);
+  }
+
   if (quotedPrice !== null) {
-    const { data: existing, error: fetchError } = await admin
-      .from("estimates")
-      .select("total_bid")
-      .eq("id", id)
-      .single();
-
-    if (fetchError || !existing) {
-      throw new Error(
-        `updateQuote: estimate ${id} not found: ${fetchError?.message ?? "no row"}`,
-      );
-    }
-
     const check = validateQuoteOverride(quotedPrice, Number(existing.total_bid), reason);
     if (!check.ok) {
       throw new EstimateValidationError([check.error ?? "quote_override_reason is required"]);
@@ -416,7 +486,16 @@ export async function getEstimate(id: string): Promise<EstimateDetail> {
 
   const row = normalizeEstimateRow(estimate as Record<string, unknown>);
 
-  const [lineItemsResult, versionChainResult, auditResult, pushStateResult] = await Promise.all([
+  const [
+    lineItemsResult,
+    versionChainResult,
+    auditResult,
+    pushStateResult,
+    financialDetailsResult,
+    identityLinkResult,
+    acceptanceStateResult,
+    presentationResult,
+  ] = await Promise.all([
     admin
       .from("estimate_line_items")
       .select("*")
@@ -433,6 +512,18 @@ export async function getEstimate(id: string): Promise<EstimateDetail> {
       .eq("estimate_id", id)
       .order("changed_at", { ascending: false }),
     admin.from("ghl_push_state").select("*").eq("estimate_id", id).maybeSingle(),
+    admin.from("estimate_financial_details").select("*").eq("estimate_id", id).maybeSingle(),
+    admin
+      .from("estimate_identity_links")
+      .select("*")
+      .eq("estimate_number", row.estimate_number)
+      .maybeSingle(),
+    admin
+      .from("estimate_acceptance_state")
+      .select("*")
+      .eq("estimate_number", row.estimate_number)
+      .maybeSingle(),
+    admin.from("estimate_presentations").select("*").eq("estimate_id", id).maybeSingle(),
   ]);
 
   if (lineItemsResult.error) {
@@ -447,6 +538,18 @@ export async function getEstimate(id: string): Promise<EstimateDetail> {
   if (pushStateResult.error) {
     throw new Error(`getEstimate: push state query failed: ${pushStateResult.error.message}`);
   }
+  if (financialDetailsResult.error) {
+    throw new Error(`getEstimate: financial details query failed: ${financialDetailsResult.error.message}`);
+  }
+  if (identityLinkResult.error) {
+    throw new Error(`getEstimate: identity link query failed: ${identityLinkResult.error.message}`);
+  }
+  if (acceptanceStateResult.error) {
+    throw new Error(`getEstimate: acceptance state query failed: ${acceptanceStateResult.error.message}`);
+  }
+  if (presentationResult.error) {
+    throw new Error(`getEstimate: presentation query failed: ${presentationResult.error.message}`);
+  }
 
   return {
     estimate: row,
@@ -460,5 +563,13 @@ export async function getEstimate(id: string): Promise<EstimateDetail> {
       normalizeAuditRow(raw as Record<string, unknown>),
     ),
     pushState: (pushStateResult.data ?? null) as GhlPushStateRow | null,
+    financialDetails: financialDetailsResult.data
+      ? normalizeFinancialDetailsRow(financialDetailsResult.data as Record<string, unknown>)
+      : null,
+    identityLink: (identityLinkResult.data ?? null) as EstimateIdentityLinkRow | null,
+    acceptanceState: acceptanceStateResult.data
+      ? normalizeAcceptanceStateRow(acceptanceStateResult.data as Record<string, unknown>)
+      : null,
+    presentation: (presentationResult.data ?? null) as EstimatePresentationRow | null,
   };
 }

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { computeEstimate, type EstimateInputs, type LaborMethod } from "@/lib/pricing";
+import { computeEstimate, roundToCent, type EstimateInputs, type LaborMethod } from "@/lib/pricing";
 import type { RatesConfig } from "@/lib/rates";
 import type {
   ClientType,
@@ -19,6 +19,8 @@ import {
   type ScopeLibraryItem,
 } from "@/lib/estimates/builderLogic";
 import { createEstimateAction, newVersionAction } from "../actions";
+import type { GhlFirstIdentity } from "../actions";
+import type { EstimatePrefill } from "@/lib/ghl/prefill";
 import { useEstimator } from "@/app/(app)/EstimatorChip";
 import {
   DecimalInputHint,
@@ -65,10 +67,27 @@ export interface BuilderInitialValues {
   daysAtJobRaw: string;
   numEmployeesRaw: string;
   dumpCountRaw: string;
-  jobSpecificCostsRaw: string;
   markupPctRaw: string;
   isPathB: boolean;
   lineItems: LineItemDraft[];
+  // Economic-plan category costs (Phase 1, v2 Task 2 lane 2d) — replace the
+  // single "Job-specific costs" field. jobSpecificCosts is now DERIVED
+  // (materialsCostRaw + rentalsCostRaw + subcontractorsCostRaw +
+  // otherDirectCostRaw), never entered directly, so there is no
+  // jobSpecificCostsRaw here any more.
+  materialsCostRaw: string;
+  rentalsCostRaw: string;
+  subcontractorsCostRaw: string;
+  otherDirectCostRaw: string;
+  /** Raw text + whether the estimator has manually edited it away from the
+   *  dumpCount * estimatedDumpCostPerLoad auto-suggestion — see the
+   *  `expectedDumpCostTouched` state below for why this pairing exists. */
+  expectedDumpCostRaw: string;
+  expectedDumpCostTouched: boolean;
+  /** Same auto-suggest/touched pairing, sourced from the live ccFee
+   *  preview instead of dumpCount. */
+  expectedProcessingCostRaw: string;
+  expectedProcessingCostTouched: boolean;
 }
 
 interface EstimateBuilderProps {
@@ -83,6 +102,14 @@ interface EstimateBuilderProps {
   /** Preloads every field below from the parent estimate. Only meaningful
    *  (and only ever passed) alongside formMode === "revise". */
   initial?: BuilderInitialValues;
+  /** GHL-first entry point (Phase 1, v2 Task 2 lane 2d) —
+   *  `/estimates/new?ghlOpportunityId=` (new/page.tsx) loads this via
+   *  loadPrefillFromOpportunity and passes it through. Prefills the
+   *  contact/job fields below and, on save, tells createEstimateAction to
+   *  link the new estimate family to this GHL contact/opportunity. Only
+   *  meaningful alongside formMode === "create" (the default) — a revise
+   *  reuses the parent's already-linked identity, never this prop. */
+  ghlPrefill?: EstimatePrefill | null;
 }
 
 /** Line items need a stable React key before they have a DB id — carried
@@ -110,12 +137,25 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Turns a GHL-first prefill's contact fields into a single display name
+ *  for the "Client name" field — company name wins (matches the pricing
+ *  Contractor/Homeowner split's own convention of treating a company as
+ *  the client), falling back to "First Last" or whichever half is
+ *  present. Empty string (never null) when nothing usable came back —
+ *  same "estimator can always type over it" contract as every other
+ *  prefilled field here. */
+function ghlPrefillClientName(prefill: EstimatePrefill): string {
+  if (prefill.companyName) return prefill.companyName;
+  return [prefill.firstName, prefill.lastName].filter(Boolean).join(" ").trim();
+}
+
 export function EstimateBuilder({
   ratesConfig,
   scopeItems,
   formMode = "create",
   parentId,
   initial,
+  ghlPrefill,
 }: EstimateBuilderProps) {
   // No login — identity is the header EstimatorChip's self-declared pick,
   // persisted in localStorage and shared across every route via
@@ -124,16 +164,21 @@ export function EstimateBuilder({
   // against the fixed 3-person allowlist server-side regardless.
   const { estimator } = useEstimator();
 
-  // Client
-  const [clientName, setClientName] = useState(initial?.clientName ?? "");
+  // Client — GHL-first prefill (ghlPrefill) only ever applies on a fresh
+  // create (formMode === "create", the default); `initial` (revise flow)
+  // always wins when both happen to be present, since useState's
+  // initializer only reads the first non-undefined default it's given.
+  const [clientName, setClientName] = useState(
+    initial?.clientName ?? (ghlPrefill ? ghlPrefillClientName(ghlPrefill) : ""),
+  );
   const [clientType, setClientType] = useState<ClientType | null>(initial?.clientType ?? null);
-  const [clientEmail, setClientEmail] = useState(initial?.clientEmail ?? "");
-  const [clientPhone, setClientPhone] = useState(initial?.clientPhone ?? "");
+  const [clientEmail, setClientEmail] = useState(initial?.clientEmail ?? ghlPrefill?.email ?? "");
+  const [clientPhone, setClientPhone] = useState(initial?.clientPhone ?? ghlPrefill?.phone ?? "");
 
   // Job
   const [jobName, setJobName] = useState(initial?.jobName ?? "");
-  const [jobAddress, setJobAddress] = useState(initial?.jobAddress ?? "");
-  const [city, setCity] = useState(initial?.city ?? "");
+  const [jobAddress, setJobAddress] = useState(initial?.jobAddress ?? ghlPrefill?.address1 ?? "");
+  const [city, setCity] = useState(initial?.city ?? ghlPrefill?.city ?? "");
   const [jobType, setJobType] = useState<JobType | null>(initial?.jobType ?? null);
   const [estimateDate, setEstimateDate] = useState(initial?.estimateDate ?? todayIso);
   const [jobDetails, setJobDetails] = useState(initial?.jobDetails ?? "");
@@ -146,8 +191,8 @@ export function EstimateBuilder({
   );
   const [scopePickerOpen, setScopePickerOpen] = useState(false);
 
-  // Labor, Dumps, Costs, Markup — all six of these hold RAW TEXT, not a
-  // number, and are parsed via parseNonNegativeDecimal below (Task 11
+  // Labor, Dumps, Costs, Markup — every one of these fields holds RAW TEXT,
+  // not a number, and is parsed via parseNonNegativeDecimal below (Task 11
   // review Finding 1: a `type="number"` input blanks `.value` for
   // legal-but-incomplete decimal states like ".25" or "0.", fighting
   // every keystroke of a fractional entry — see that function's doc
@@ -157,9 +202,38 @@ export function EstimateBuilder({
   const [daysAtJobRaw, setDaysAtJobRaw] = useState(initial?.daysAtJobRaw ?? "0");
   const [numEmployeesRaw, setNumEmployeesRaw] = useState(initial?.numEmployeesRaw ?? "0");
   const [dumpCountRaw, setDumpCountRaw] = useState(initial?.dumpCountRaw ?? "0");
-  const [jobSpecificCostsRaw, setJobSpecificCostsRaw] = useState(initial?.jobSpecificCostsRaw ?? "0");
   const [markupPctRaw, setMarkupPctRaw] = useState(
     () => initial?.markupPctRaw ?? String(ratesConfig.defaultMarkupPct),
+  );
+
+  // Economic-plan category costs (Phase 1, v2 Task 2 lane 2d) — REPLACE the
+  // single "Job-specific costs" input. jobSpecificCosts (the one number
+  // computeEstimate() still takes) is DERIVED below from these four, never
+  // entered directly — see the `jobSpecificCosts` useMemo further down.
+  const [materialsCostRaw, setMaterialsCostRaw] = useState(initial?.materialsCostRaw ?? "0");
+  const [rentalsCostRaw, setRentalsCostRaw] = useState(initial?.rentalsCostRaw ?? "0");
+  const [subcontractorsCostRaw, setSubcontractorsCostRaw] = useState(
+    initial?.subcontractorsCostRaw ?? "0",
+  );
+  const [otherDirectCostRaw, setOtherDirectCostRaw] = useState(initial?.otherDirectCostRaw ?? "0");
+
+  // expectedDumpCost / expectedProcessingCost default to a live-computed
+  // suggestion (dumpCount * estimatedDumpCostPerLoad, and the live ccFee
+  // preview, respectively) but never overwrite a value the estimator has
+  // typed into directly — the `touched` flag flips true on the field's own
+  // onChange and never resets, so a later dumpCount/markup edit updates the
+  // SUGGESTION silently but leaves an already-touched field alone. Neither
+  // is ever folded into jobSpecificCosts (see the six-field doc comment on
+  // EstimateDraft in types.ts).
+  const [expectedDumpCostRaw, setExpectedDumpCostRaw] = useState(initial?.expectedDumpCostRaw ?? "0");
+  const [expectedDumpCostTouched, setExpectedDumpCostTouched] = useState(
+    initial?.expectedDumpCostTouched ?? false,
+  );
+  const [expectedProcessingCostRaw, setExpectedProcessingCostRaw] = useState(
+    initial?.expectedProcessingCostRaw ?? "0",
+  );
+  const [expectedProcessingCostTouched, setExpectedProcessingCostTouched] = useState(
+    initial?.expectedProcessingCostTouched ?? false,
   );
 
   // Path B — "record only, no formal proposal". Persisted: draft.isPathB
@@ -179,18 +253,36 @@ export function EstimateBuilder({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<string[]>([]);
-  const [saved, setSaved] = useState<{ estimate: EstimateRow; drift: number | null } | null>(null);
+  const [saved, setSaved] = useState<
+    { estimate: EstimateRow; drift: number | null; linkWarning: string | null } | null
+  >(null);
 
   const mode = deriveMode(laborMethod, lineItems.length);
   const lineItemSums = useMemo(() => sumLineItems(lineItems), [lineItems]);
 
-  // Derived numbers from the six raw-text fields above.
+  // Derived numbers from the raw-text fields above.
   const totalJobHoursQuick = parseNonNegativeDecimal(totalJobHoursRaw);
   const daysAtJob = parseNonNegativeDecimal(daysAtJobRaw);
   const numEmployees = parseNonNegativeDecimal(numEmployeesRaw);
   const dumpCountQuick = parseNonNegativeDecimal(dumpCountRaw);
-  const jobSpecificCosts = parseNonNegativeDecimal(jobSpecificCostsRaw);
   const markupPct = parseNonNegativeDecimal(markupPctRaw);
+
+  const materialsCost = parseNonNegativeDecimal(materialsCostRaw);
+  const rentalsCost = parseNonNegativeDecimal(rentalsCostRaw);
+  const subcontractorsCost = parseNonNegativeDecimal(subcontractorsCostRaw);
+  const otherDirectCost = parseNonNegativeDecimal(otherDirectCostRaw);
+  // expectedDumpCost/expectedProcessingCost are parsed further down, from
+  // `displayedExpectedDumpCostRaw`/`displayedExpectedProcessingCostRaw` —
+  // those need `outputs` (for the ccFee-derived suggestion), which isn't
+  // computed yet at this point in the component body.
+
+  // jobSpecificCosts is DERIVED — the single aggregate computeEstimate()
+  // still takes, never entered directly (v2 doc Task 2 Step 4: "Continue
+  // passing this legacy aggregate into computeEstimate() so customer quote
+  // math remains unchanged"). Deliberately excludes expectedDumpCost/
+  // expectedProcessingCost — those are real-cost estimates, not part of
+  // the priced quote input.
+  const jobSpecificCosts = roundToCent(materialsCost + rentalsCost + subcontractorsCost + otherDirectCost);
 
   const effectiveTotalJobHours =
     laborMethod === "total_hours"
@@ -202,7 +294,7 @@ export function EstimateBuilder({
   const effectiveDumpCount = mode === "itemized" ? lineItemSums.dumpCount : dumpCountQuick;
 
   const materialsFloor = lineItemSums.materialsCost;
-  const jobSpecificCostsBelowFloor = mode === "itemized" && jobSpecificCosts < materialsFloor;
+  const materialsCostBelowFloor = mode === "itemized" && materialsCost < materialsFloor;
 
   const inputs: EstimateInputs = useMemo(() => {
     if (laborMethod === "total_hours") {
@@ -236,6 +328,36 @@ export function EstimateBuilder({
   // provided rates. The server action recomputes authoritatively on save;
   // this is a preview only.
   const outputs = useMemo(() => computeEstimate(inputs, ratesConfig.rates), [inputs, ratesConfig.rates]);
+
+  // Auto-suggest expectedDumpCost from dumpCount * estimatedDumpCostPerLoad
+  // — but ONLY until the estimator edits the field directly (touched).
+  // Deliberately not folded into `inputs`/`outputs` — this suggestion never
+  // feeds computeEstimate(). Computed at RENDER TIME (not via a
+  // useEffect+setState — that pattern cascades an extra render on every
+  // dumpCount keystroke and is the exact anti-pattern React's own
+  // react-hooks/set-state-in-effect rule flags): the raw-text state below
+  // holds only what the estimator has actually TYPED; the value shown in
+  // the input, and the value parsed for submission, both fall back to this
+  // live suggestion whenever the field hasn't been touched yet.
+  const suggestedExpectedDumpCostRaw = roundToCent(
+    effectiveDumpCount * ratesConfig.estimatedDumpCostPerLoad,
+  ).toFixed(2);
+  const displayedExpectedDumpCostRaw = expectedDumpCostTouched
+    ? expectedDumpCostRaw
+    : suggestedExpectedDumpCostRaw;
+
+  // Same auto-suggest/touched pairing, sourced from the live ccFee preview
+  // — the priced-in CC-fee rate and the actual card-processor rate are
+  // currently the same 3.5% (CLAUDE.md Pricing Benchmarks), so the live
+  // preview IS the best available estimate of the real processing cost
+  // until an estimator overrides it.
+  const suggestedExpectedProcessingCostRaw = outputs.ccFee.toFixed(2);
+  const displayedExpectedProcessingCostRaw = expectedProcessingCostTouched
+    ? expectedProcessingCostRaw
+    : suggestedExpectedProcessingCostRaw;
+
+  const expectedDumpCost = parseNonNegativeDecimal(displayedExpectedDumpCostRaw);
+  const expectedProcessingCost = parseNonNegativeDecimal(displayedExpectedProcessingCostRaw);
 
   const filteredScopeItems = useMemo(() => {
     if (!jobType) return scopeItems;
@@ -299,9 +421,9 @@ export function EstimateBuilder({
       setSaveError("Job name is required.");
       return;
     }
-    if (jobSpecificCostsBelowFloor) {
+    if (materialsCostBelowFloor) {
       setSaveError(
-        `Job-specific costs must be at least $${materialsFloor.toFixed(2)} (the sum of scope item materials).`,
+        `Materials cost must be at least $${materialsFloor.toFixed(2)} (the sum of scope item materials).`,
       );
       return;
     }
@@ -324,6 +446,12 @@ export function EstimateBuilder({
       dumpCount: effectiveDumpCount,
       jobSpecificCosts,
       markupPct,
+      materialsCost,
+      rentalsCost,
+      expectedDumpCost,
+      subcontractorsCost,
+      otherDirectCost,
+      expectedProcessingCost,
       isPathB,
       // sort_order is derived fresh from final array order here, not
       // carried from add-time (Task 11 review Finding 3 — see
@@ -331,12 +459,17 @@ export function EstimateBuilder({
       lineItems: assignSortOrders(lineItems.map(({ key: _key, ...rest }) => rest)),
     };
 
+    const ghlIdentity: GhlFirstIdentity | undefined =
+      formMode === "create" && ghlPrefill
+        ? { ghlContactId: ghlPrefill.ghlContactId, ghlOpportunityId: ghlPrefill.ghlOpportunityId }
+        : undefined;
+
     setSaving(true);
     try {
       const result =
         formMode === "revise" && parentId
           ? await newVersionAction(parentId, draft, estimator)
-          : await createEstimateAction(draft, estimator);
+          : await createEstimateAction(draft, estimator, ghlIdentity);
       if (!result.ok) {
         // On the revise path this also carries the friendly "a newer
         // version already exists" message when repo.ts detects the
@@ -350,7 +483,7 @@ export function EstimateBuilder({
       const previewTotal = outputs.totalBid;
       const savedTotal = result.estimate.total_bid;
       const drift = Math.abs(previewTotal - savedTotal) > 0.01 ? savedTotal - previewTotal : null;
-      setSaved({ estimate: result.estimate, drift });
+      setSaved({ estimate: result.estimate, drift, linkWarning: result.linkWarning ?? null });
     } finally {
       setSaving(false);
     }
@@ -387,7 +520,14 @@ export function EstimateBuilder({
     setDaysAtJobRaw("0");
     setNumEmployeesRaw("0");
     setDumpCountRaw("0");
-    setJobSpecificCostsRaw("0");
+    setMaterialsCostRaw("0");
+    setRentalsCostRaw("0");
+    setSubcontractorsCostRaw("0");
+    setOtherDirectCostRaw("0");
+    setExpectedDumpCostRaw("0");
+    setExpectedDumpCostTouched(false);
+    setExpectedProcessingCostRaw("0");
+    setExpectedProcessingCostTouched(false);
     setMarkupPctRaw(String(ratesConfig.defaultMarkupPct));
     setIsPathB(false);
     setExpanded(false);
@@ -426,6 +566,11 @@ export function EstimateBuilder({
             )}
             . The saved value above is authoritative — pricing rates may have changed since the
             page loaded.
+          </p>
+        ) : null}
+        {saved.linkWarning ? (
+          <p role="alert" className="rounded-lg bg-red-100 px-3 py-2 text-xs font-medium text-red-800 dark:bg-red-950/40 dark:text-red-300">
+            {saved.linkWarning}
           </p>
         ) : null}
         <div className="flex gap-3">
@@ -698,30 +843,107 @@ export function EstimateBuilder({
           </Field>
         </section>
 
-        {/* Costs */}
+        {/* Costs — category inputs (Phase 1, v2 Task 2 lane 2d) replace the
+            single "Job-specific costs" field. materialsCost/rentalsCost/
+            subcontractorsCost/otherDirectCost still sum into the one
+            jobSpecificCosts number computeEstimate() takes (shown as a
+            read-only total below); expectedDumpCost/expectedProcessingCost
+            are REAL-cost planning inputs that never feed the customer
+            quote — they only change the planned-profit numbers Dane sees
+            on the estimate detail page. */}
         <section className="flex flex-col gap-4">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Costs
           </h2>
           <Field
-            label="Job-specific costs"
-            htmlFor="jobSpecificCosts"
-            hint={
-              mode === "itemized"
-                ? `Must be at least $${materialsFloor.toFixed(2)} (sum of scope item materials).`
-                : "Rentals, permits, and other direct costs."
-            }
-            error={jobSpecificCostsBelowFloor ? "Below the scope items' materials total." : undefined}
+            label="Materials"
+            htmlFor="materialsCost"
+            hint={mode === "itemized" ? `Must be at least $${materialsFloor.toFixed(2)} (sum of scope item materials).` : undefined}
+            error={materialsCostBelowFloor ? "Below the scope items' materials total." : undefined}
           >
             <input
-              id="jobSpecificCosts"
+              id="materialsCost"
               type="text"
               inputMode="decimal"
-              value={jobSpecificCostsRaw}
-              onChange={(e) => setJobSpecificCostsRaw(e.target.value)}
+              value={materialsCostRaw}
+              onChange={(e) => setMaterialsCostRaw(e.target.value)}
               className={fieldInputClass}
             />
-            <DecimalInputHint raw={jobSpecificCostsRaw} />
+            <DecimalInputHint raw={materialsCostRaw} />
+          </Field>
+          <Field label="Rentals" htmlFor="rentalsCost">
+            <input
+              id="rentalsCost"
+              type="text"
+              inputMode="decimal"
+              value={rentalsCostRaw}
+              onChange={(e) => setRentalsCostRaw(e.target.value)}
+              className={fieldInputClass}
+            />
+            <DecimalInputHint raw={rentalsCostRaw} />
+          </Field>
+          <Field label="Subcontractors" htmlFor="subcontractorsCost">
+            <input
+              id="subcontractorsCost"
+              type="text"
+              inputMode="decimal"
+              value={subcontractorsCostRaw}
+              onChange={(e) => setSubcontractorsCostRaw(e.target.value)}
+              className={fieldInputClass}
+            />
+            <DecimalInputHint raw={subcontractorsCostRaw} />
+          </Field>
+          <Field label="Other direct costs" htmlFor="otherDirectCost">
+            <input
+              id="otherDirectCost"
+              type="text"
+              inputMode="decimal"
+              value={otherDirectCostRaw}
+              onChange={(e) => setOtherDirectCostRaw(e.target.value)}
+              className={fieldInputClass}
+            />
+            <DecimalInputHint raw={otherDirectCostRaw} />
+          </Field>
+          <Field label="Job-specific costs (total)" htmlFor="jobSpecificCostsTotal" hint="Materials + rentals + subcontractors + other direct — feeds the quote.">
+            <div id="jobSpecificCostsTotal" className={readOnlyValueClass}>
+              {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(jobSpecificCosts)}
+            </div>
+          </Field>
+          <Field
+            label="Expected dump cost"
+            htmlFor="expectedDumpCost"
+            hint="Real expected cost — planning only, never charged to the customer. Suggested from dump loads until edited."
+          >
+            <input
+              id="expectedDumpCost"
+              type="text"
+              inputMode="decimal"
+              value={displayedExpectedDumpCostRaw}
+              onChange={(e) => {
+                setExpectedDumpCostTouched(true);
+                setExpectedDumpCostRaw(e.target.value);
+              }}
+              className={fieldInputClass}
+            />
+            <DecimalInputHint raw={displayedExpectedDumpCostRaw} />
+          </Field>
+          <Field
+            label="Expected processing cost"
+            htmlFor="expectedProcessingCost"
+            hint="Real expected card-processing cost — planning only. Suggested from the live CC-fee preview until edited."
+          >
+            <input
+              id="expectedProcessingCost"
+              type="text"
+              inputMode="decimal"
+              value={displayedExpectedProcessingCostRaw}
+              onChange={(e) => {
+                setExpectedProcessingCostTouched(true);
+                setExpectedProcessingCostRaw(e.target.value);
+              }}
+              className={fieldInputClass}
+            />
+            <DecimalInputHint raw={displayedExpectedProcessingCostRaw} />
           </Field>
         </section>
 

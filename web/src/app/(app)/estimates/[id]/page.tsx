@@ -5,6 +5,8 @@ import { statusLabel } from "@/lib/estimates/lifecycle";
 import { StatusActions } from "./_components/StatusActions";
 import { QuoteOverridePanel } from "./_components/QuoteOverridePanel";
 import { PushPanel } from "./_components/PushPanel";
+import { CommercialLifecyclePanel } from "./_components/CommercialLifecyclePanel";
+import { IdentityLinkPanel } from "./_components/IdentityLinkPanel";
 
 /**
  * Estimate detail page (Task 11b). Server-rendered from `getEstimate()`'s
@@ -39,7 +41,16 @@ export default async function EstimateDetailPage({
     notFound();
   }
 
-  const { estimate, lineItems, versionChain, auditTrail, pushState } = detail;
+  const {
+    estimate,
+    lineItems,
+    versionChain,
+    auditTrail,
+    pushState,
+    identityLink,
+    presentation,
+    acceptanceState,
+  } = detail;
 
   // Every row in a chain becomes 'superseded' the instant its successor
   // is created (the writer contract flips exactly the immediate parent,
@@ -112,6 +123,28 @@ export default async function EstimateDetailPage({
         quotedPrice={estimate.quoted_price}
         quoteOverrideReason={estimate.quote_override_reason}
       />
+
+      {canRevise ? (
+        <>
+          <IdentityLinkPanel
+            estimateId={estimate.id}
+            identityLink={identityLink}
+            clientName={estimate.client_name}
+            clientType={estimate.client_type}
+            clientEmail={estimate.client_email}
+            clientPhone={estimate.client_phone}
+            jobAddress={estimate.job_address}
+            city={estimate.city}
+            jobName={estimate.job_name}
+          />
+          <CommercialLifecyclePanel
+            estimateId={estimate.id}
+            presentation={presentation}
+            acceptanceState={acceptanceState}
+            versionChain={versionChain}
+          />
+        </>
+      ) : null}
 
       {/* Review finding I-2 (fix round 1): status actions and the GHL
           push button are only meaningful on the LATEST version of a

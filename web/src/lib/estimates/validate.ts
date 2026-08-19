@@ -66,6 +66,15 @@ const baseEstimateDraftSchema = z.object({
   dumpCount: nonNegativeNumber("dumpCount"),
   jobSpecificCosts: nonNegativeNumber("jobSpecificCosts"),
   markupPct: nonNegativeNumber("markupPct"),
+  // Economic-plan category costs (Phase 1, v2 Task 2 lane 2d — review
+  // handoff #1: "the six new cost draft fields get nonNegativeNumber Zod
+  // validation"). Same shape/rule as jobSpecificCosts above.
+  materialsCost: nonNegativeNumber("materialsCost"),
+  rentalsCost: nonNegativeNumber("rentalsCost"),
+  expectedDumpCost: nonNegativeNumber("expectedDumpCost"),
+  subcontractorsCost: nonNegativeNumber("subcontractorsCost"),
+  otherDirectCost: nonNegativeNumber("otherDirectCost"),
+  expectedProcessingCost: nonNegativeNumber("expectedProcessingCost"),
   quotedPrice: nonNegativeNumber("quotedPrice").nullish(),
   quoteOverrideReason: z.string().nullish(),
   status: z
@@ -85,6 +94,17 @@ const baseEstimateDraftSchema = z.object({
  *       totalJobHours == Σ line.laborHours (within RECONCILE_EPSILON)
  *       dumpCount     == Σ line.dumpCount  (within RECONCILE_EPSILON)
  *       jobSpecificCosts >= Σ line.materialsCost
+ *
+ *   Note on jobSpecificCosts vs. the four new category costs: the builder
+ *   computes `jobSpecificCosts = roundToCent(materialsCost + rentalsCost +
+ *   subcontractorsCost + otherDirectCost)` itself (EstimateBuilder.tsx) —
+ *   jobSpecificCosts is not re-derived/cross-checked against them here,
+ *   the same way no other computeEstimate() input is cross-checked against
+ *   a UI-side derivation elsewhere in this schema (e.g. totalDirect is
+ *   never re-verified against its components). expectedDumpCost /
+ *   expectedProcessingCost are deliberately NEVER part of that sum — they
+ *   are real-cost estimates that sit alongside, not inside, the priced
+ *   quote input.
  */
 export const estimateDraftSchema = baseEstimateDraftSchema.superRefine((draft, ctx) => {
   if (draft.laborMethod === "total_hours") {
@@ -195,5 +215,32 @@ export function validateQuoteOverride(
     };
   }
 
+  return { ok: true };
+}
+
+// DB-storage bound for `estimate_financial_details.planned_profit_pct`
+// (`numeric(7,2)` — 5 digits before the decimal point, 2 after; max
+// magnitude 99999.99).
+const PLANNED_PROFIT_PCT_MAX = 99999.99;
+
+/**
+ * Review handoff #2 (Phase 1 plan, Session 2 lane 2d): "Clamp/reject the
+ * extreme-pct edge before insert (planned_profit_pct is numeric(7,2) — a
+ * tiny quote against a real cost overflows it)." REJECTS rather than
+ * clamps — a clamped value would silently misreport the planning economics
+ * (e.g. showing -99999.99% for a job that's actually losing 400000%),
+ * which is worse than a clear validation error asking the estimator to
+ * check their inputs. Called by repo.ts's computeAndCreate after
+ * map.ts's mapDraftToEstimatePayload computes financialDetails, before the
+ * create_estimate_with_items_v2 RPC call — a value out of range here would
+ * otherwise surface as Postgres's raw "numeric field overflow" error.
+ */
+export function validatePlannedProfitPctBounds(pct: number): QuoteOverrideCheck {
+  if (!Number.isFinite(pct) || Math.abs(pct) > PLANNED_PROFIT_PCT_MAX) {
+    return {
+      ok: false,
+      error: `Planned profit % (${pct}) is outside the storable range (±${PLANNED_PROFIT_PCT_MAX}) — check materials/dump/processing costs against the quoted price.`,
+    };
+  }
   return { ok: true };
 }

@@ -22,11 +22,11 @@ const FULL_STAGES = [
   { id: "s4", name: "Quote Sent" },
   { id: "s5", name: "Quote Accepted" },
   { id: "s6", name: "Job Scheduled" },
-  { id: "s7", name: "Job in Progress" },
+  { id: "s7", name: "Job In Progress" },
   { id: "s8", name: "Job Completed" },
   { id: "s9", name: "Invoice Review" },
   { id: "s10", name: "Invoice Sent" },
-  { id: "s11", name: "Paid/Closed (Won)" },
+  { id: "s11", name: "Paid / Closed Won" },
   { id: "s12", name: "Closed Lost (Declined)" },
 ];
 

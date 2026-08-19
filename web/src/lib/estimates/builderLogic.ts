@@ -12,7 +12,7 @@
 // ============================================================
 
 import type { LaborMethod } from "@/lib/pricing";
-import type { LineItemDraft } from "./types";
+import type { EstimateFinancialDetailsRow, LineItemDraft } from "./types";
 
 export type BuilderMode = "quick" | "itemized";
 
@@ -150,4 +150,56 @@ export interface ScopeLibraryItem {
   /** NULL until Phase G seeds it from actuals — treat as 0 when prefilling. */
   defaultMaterialsCost: number | null;
   jobTypeApplicability: string[];
+}
+
+export interface ReviseCostDefaults {
+  materialsCostRaw: string;
+  rentalsCostRaw: string;
+  subcontractorsCostRaw: string;
+  otherDirectCostRaw: string;
+}
+
+/**
+ * Fix round F5 (`[id]/revise/page.tsx`'s builder-initial-values seeding):
+ * the "revise" flow preloads the four economic-plan category cost fields
+ * from the PARENT version's `estimate_financial_details` row. That row is
+ * null only for a pre-Task-2 LEGACY estimate — one created via the v1
+ * `create_estimate_with_items` RPC, before `estimate_financial_details`
+ * existed — which has no category breakdown at all, only the parent's
+ * single aggregate `job_specific_costs` figure.
+ *
+ * Zeroing all four fields in that case (the previous behavior) silently
+ * DROPPED that aggregate the moment the revise builder recomputes
+ * `jobSpecificCosts = materialsCost + rentalsCost + subcontractorsCost +
+ * otherDirectCost` (`EstimateBuilder.tsx`) — the revised estimate would
+ * reprice as though the legacy job had zero material/rental/subcontractor/
+ * other cost, silently discounting it. Folding the whole legacy amount
+ * into `otherDirectCost` instead is the one placement that preserves the
+ * parent's aggregate EXACTLY (`0 + 0 + 0 + jobSpecificCosts ==
+ * jobSpecificCosts`) while still giving the estimator a real, editable
+ * starting number — "other" reads honestly as "uncategorized legacy
+ * cost", not a guess at which of the three real categories it belonged
+ * to.
+ */
+export function resolveReviseCostDefaults(
+  jobSpecificCosts: number,
+  financialDetails: Pick<
+    EstimateFinancialDetailsRow,
+    "materials_cost" | "rentals_cost" | "subcontractors_cost" | "other_direct_cost"
+  > | null,
+): ReviseCostDefaults {
+  if (!financialDetails) {
+    return {
+      materialsCostRaw: "0",
+      rentalsCostRaw: "0",
+      subcontractorsCostRaw: "0",
+      otherDirectCostRaw: String(jobSpecificCosts),
+    };
+  }
+  return {
+    materialsCostRaw: String(financialDetails.materials_cost),
+    rentalsCostRaw: String(financialDetails.rentals_cost),
+    subcontractorsCostRaw: String(financialDetails.subcontractors_cost),
+    otherDirectCostRaw: String(financialDetails.other_direct_cost),
+  };
 }

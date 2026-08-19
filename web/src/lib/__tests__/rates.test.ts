@@ -40,6 +40,7 @@ const ALL_ROWS: PricingVariableRow[] = [
   { key: "cc_fee_rate", value: 0.035 },
   { key: "default_markup_pct", value: 25 },
   { key: "markup_floor_pct", value: 15 },
+  { key: "estimated_dump_cost_per_load", value: 65 },
 ];
 
 // Each test dynamically re-imports the module after vi.resetModules() so it
@@ -60,7 +61,7 @@ afterEach(() => {
 });
 
 describe("loadRatesConfig — happy path", () => {
-  it("maps all 6 snake_case pricing_variables keys to the correct camelCase RatesConfig shape", async () => {
+  it("maps all 7 snake_case pricing_variables keys to the correct camelCase RatesConfig shape", async () => {
     createAdminClientMock.mockReturnValue(mockAdminClient(ALL_ROWS));
     const loadRatesConfig = await importLoader();
 
@@ -75,6 +76,7 @@ describe("loadRatesConfig — happy path", () => {
       },
       defaultMarkupPct: 25,
       markupFloorPct: 15,
+      estimatedDumpCostPerLoad: 65,
     });
   });
 
@@ -90,6 +92,8 @@ describe("loadRatesConfig — happy path", () => {
     expect(config.rates.ccFeeRate).toBe(0.035);
     expect(config.defaultMarkupPct).toBe(25);
     expect(config.markupFloorPct).toBe(15);
+    expect(config.estimatedDumpCostPerLoad).toBe(65);
+    expect(typeof config.estimatedDumpCostPerLoad).toBe("number");
   });
 });
 
@@ -101,6 +105,7 @@ describe("loadRatesConfig — missing key, no fallback to DEFAULT_RATES", () => 
     "cc_fee_rate",
     "default_markup_pct",
     "markup_floor_pct",
+    "estimated_dump_cost_per_load",
   ])("throws naming %s when that key is absent from pricing_variables", async (missingKey) => {
     const rows = ALL_ROWS.filter((row) => row.key !== missingKey);
     createAdminClientMock.mockReturnValue(mockAdminClient(rows));
@@ -148,5 +153,25 @@ describe("loadRatesConfig — validated via the engine's own requireRates", () =
     const loadRatesConfig = await importLoader();
 
     await expect(loadRatesConfig()).rejects.toThrow(/default_markup_pct/);
+  });
+
+  it("throws when estimated_dump_cost_per_load is not finite", async () => {
+    const badRows = ALL_ROWS.map((row) =>
+      row.key === "estimated_dump_cost_per_load" ? { ...row, value: Number.NaN } : row,
+    );
+    createAdminClientMock.mockReturnValue(mockAdminClient(badRows));
+    const loadRatesConfig = await importLoader();
+
+    await expect(loadRatesConfig()).rejects.toThrow(/estimated_dump_cost_per_load/);
+  });
+
+  it("throws when estimated_dump_cost_per_load is negative", async () => {
+    const badRows = ALL_ROWS.map((row) =>
+      row.key === "estimated_dump_cost_per_load" ? { ...row, value: -1 } : row,
+    );
+    createAdminClientMock.mockReturnValue(mockAdminClient(badRows));
+    const loadRatesConfig = await importLoader();
+
+    await expect(loadRatesConfig()).rejects.toThrow(/estimated_dump_cost_per_load/);
   });
 });

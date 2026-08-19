@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { validateEstimateDraft, validateQuoteOverride } from "@/lib/estimates/validate";
+import {
+  validateEstimateDraft,
+  validatePlannedProfitPctBounds,
+  validateQuoteOverride,
+} from "@/lib/estimates/validate";
 import type { EstimateDraft } from "@/lib/estimates/types";
 
 function baseQuickDraft(overrides: Partial<EstimateDraft> = {}): EstimateDraft {
@@ -12,6 +16,12 @@ function baseQuickDraft(overrides: Partial<EstimateDraft> = {}): EstimateDraft {
     dumpCount: 1,
     jobSpecificCosts: 100,
     markupPct: 25,
+    materialsCost: 0,
+    rentalsCost: 0,
+    expectedDumpCost: 0,
+    subcontractorsCost: 0,
+    otherDirectCost: 0,
+    expectedProcessingCost: 0,
     lineItems: [],
     ...overrides,
   };
@@ -157,6 +167,12 @@ describe("validateEstimateDraft — HARD REQUIREMENT: negative-input rejection",
     ["jobSpecificCosts", { jobSpecificCosts: -1 }],
     ["markupPct", { markupPct: -1 }],
     ["quotedPrice", { quotedPrice: -1 }],
+    ["materialsCost", { materialsCost: -1 }],
+    ["rentalsCost", { rentalsCost: -1 }],
+    ["expectedDumpCost", { expectedDumpCost: -1 }],
+    ["subcontractorsCost", { subcontractorsCost: -1 }],
+    ["otherDirectCost", { otherDirectCost: -1 }],
+    ["expectedProcessingCost", { expectedProcessingCost: -1 }],
   ])("rejects negative header field: %s", (_label, overrides) => {
     const result = validateEstimateDraft(baseQuickDraft(overrides as Partial<EstimateDraft>));
     expect(result.success).toBe(false);
@@ -243,5 +259,38 @@ describe("validateQuoteOverride — override-reason rule", () => {
   it("passes when quotedPrice differs from totalBid and a non-blank reason is given", () => {
     const result = validateQuoteOverride(900, 1000, "Dane discounted for repeat client");
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("validatePlannedProfitPctBounds — review handoff #2 (numeric(7,2) storage bound)", () => {
+  it("passes an ordinary planned profit pct", () => {
+    expect(validatePlannedProfitPctBounds(28.56).ok).toBe(true);
+    expect(validatePlannedProfitPctBounds(-15).ok).toBe(true);
+    expect(validatePlannedProfitPctBounds(0).ok).toBe(true);
+  });
+
+  it("passes exactly at the ±99999.99 boundary", () => {
+    expect(validatePlannedProfitPctBounds(99999.99).ok).toBe(true);
+    expect(validatePlannedProfitPctBounds(-99999.99).ok).toBe(true);
+  });
+
+  it("rejects a value just over the boundary, with a clear error naming the value", () => {
+    const result = validatePlannedProfitPctBounds(100000);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("100000");
+  });
+
+  it("rejects a large negative value (a tiny quote against a real cost base)", () => {
+    // e.g. a $1 quote against a $10,000 fully-loaded cost: plannedEconomicProfit
+    // -9999, plannedProfitPct -999900% — a real planning scenario the numeric(7,2)
+    // column simply cannot store.
+    const result = validatePlannedProfitPctBounds(-999900);
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects NaN/Infinity", () => {
+    expect(validatePlannedProfitPctBounds(Number.NaN).ok).toBe(false);
+    expect(validatePlannedProfitPctBounds(Number.POSITIVE_INFINITY).ok).toBe(false);
+    expect(validatePlannedProfitPctBounds(Number.NEGATIVE_INFINITY).ok).toBe(false);
   });
 });

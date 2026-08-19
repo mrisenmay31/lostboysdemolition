@@ -1,6 +1,7 @@
 import { loadRatesConfig } from "@/lib/rates";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ScopeLibraryItem } from "@/lib/estimates/builderLogic";
+import { loadPrefillFromOpportunity, type EstimatePrefill } from "@/lib/ghl/prefill";
 import { EstimateBuilder } from "../_components/EstimateBuilder";
 
 /**
@@ -13,6 +14,16 @@ import { EstimateBuilder } from "../_components/EstimateBuilder";
  * happens client-side (EstimateBuilder) since jobType is a form field the
  * estimator hasn't chosen yet when this page renders.
  *
+ * GHL-FIRST ENTRY (Phase 1, v2 Task 2 lane 2d): `?ghlOpportunityId=<id>`
+ * loads that opportunity + its contact via loadPrefillFromOpportunity and
+ * hands the result to EstimateBuilder as `ghlPrefill` — the estimator
+ * lands on a pre-filled form, and saving auto-links the new estimate
+ * family to that GHL identity (see actions.ts's createEstimateAction). A
+ * failed prefill load (bad/deleted opportunity id) does NOT 404 the whole
+ * page — it degrades to an ordinary blank app-first form, logging the
+ * failure server-side, since a malformed query param should never block
+ * the estimator from creating an estimate by hand instead.
+ *
  * `dynamic = "force-dynamic"`: with no cookies()/auth call left on this
  * route to implicitly force dynamic rendering, Next's static optimizer
  * would otherwise prerender this page ONCE at build time — freezing
@@ -24,7 +35,38 @@ import { EstimateBuilder } from "../_components/EstimateBuilder";
  */
 export const dynamic = "force-dynamic";
 
-export default async function NewEstimatePage() {
+export default async function NewEstimatePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ghlOpportunityId?: string }>;
+}) {
+  const { ghlOpportunityId } = await searchParams;
+
+  // ⚠️ Fix round F4 (not fixed this round, flagged as an accepted-risk
+  // decision for BUILD_LOG): this fetch is an UNGATED read of live GHL
+  // opportunity + contact data (name, email, phone, address) — anyone who
+  // can reach this URL with a guessed/observed `ghlOpportunityId` gets a
+  // pre-filled form with that person's contact details. actions.ts's
+  // findContactMatchesAction was closed this round (now `resolveActor`-
+  // gated), but this Server Component runs BEFORE any client-side
+  // estimator pick exists to check — there is no clean way to gate a
+  // page's own render against a value that only lives in localStorage on
+  // the client. This sits on top of the SAME already-documented
+  // network-layer-open posture as the rest of the no-login estimate tool
+  // (CLAUDE.md "No-login estimate tool": "the deployment ships
+  // network-layer OPEN... revisit before this tool handles anything more
+  // sensitive than internal estimate drafts") — not a new exposure this
+  // round introduced, but one this round's audit surfaced and did not
+  // close.
+  let ghlPrefill: EstimatePrefill | null = null;
+  if (ghlOpportunityId) {
+    try {
+      ghlPrefill = await loadPrefillFromOpportunity(ghlOpportunityId);
+    } catch (err) {
+      console.error(`NewEstimatePage: loadPrefillFromOpportunity(${ghlOpportunityId}) failed:`, err);
+    }
+  }
+
   const ratesConfig = await loadRatesConfig();
 
   const admin = createAdminClient();
@@ -51,5 +93,5 @@ export default async function NewEstimatePage() {
     jobTypeApplicability: (row.job_type_applicability as string[] | null) ?? [],
   }));
 
-  return <EstimateBuilder ratesConfig={ratesConfig} scopeItems={scopeItems} />;
+  return <EstimateBuilder ratesConfig={ratesConfig} scopeItems={scopeItems} ghlPrefill={ghlPrefill} />;
 }

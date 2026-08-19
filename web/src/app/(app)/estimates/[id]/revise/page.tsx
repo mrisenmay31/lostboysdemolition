@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { loadRatesConfig } from "@/lib/rates";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getEstimate } from "@/lib/estimates/repo";
-import type { ScopeLibraryItem } from "@/lib/estimates/builderLogic";
+import { resolveReviseCostDefaults, type ScopeLibraryItem } from "@/lib/estimates/builderLogic";
 import {
   EstimateBuilder,
   type BuilderInitialValues,
@@ -37,7 +37,7 @@ export default async function ReviseEstimatePage({
   } catch {
     notFound();
   }
-  const { estimate, lineItems } = detail;
+  const { estimate, lineItems, financialDetails } = detail;
 
   // Deliberately NO status-based notFound() guard here (Task 11b live
   // smoke finding — see task report). Server Actions that call
@@ -99,9 +99,28 @@ export default async function ReviseEstimatePage({
     daysAtJobRaw: estimate.days_at_job !== null ? String(estimate.days_at_job) : "0",
     numEmployeesRaw: estimate.num_employees !== null ? String(estimate.num_employees) : "0",
     dumpCountRaw: String(estimate.dump_count),
-    jobSpecificCostsRaw: String(estimate.job_specific_costs),
     markupPctRaw: String(estimate.markup_pct),
     isPathB: estimate.is_path_b,
+    // Economic-plan category costs (Phase 1, v2 Task 2 lane 2d) — preloaded
+    // from the PARENT version's financial_details row when one exists.
+    // Fix round F5: financialDetails is null only for a pre-Task-2 LEGACY
+    // row (created via the v1 create_estimate_with_items RPC, which never
+    // wrote this table) — for those, resolveReviseCostDefaults folds the
+    // parent's whole `job_specific_costs` aggregate into otherDirectCostRaw
+    // (materials/rentals/subcontractors at "0") rather than zeroing all
+    // four, which would have silently discounted the legacy job's real
+    // cost the moment the builder recomputes jobSpecificCosts as the sum
+    // of these four fields. See builderLogic.ts's doc comment for the
+    // full reasoning.
+    ...resolveReviseCostDefaults(estimate.job_specific_costs, financialDetails),
+    // Preloaded from the parent AND marked "touched" — a revise should
+    // never silently overwrite a previously-entered expected cost with a
+    // fresh dumpCount/ccFee-derived suggestion just because dumpCount
+    // happens to change during the revise.
+    expectedDumpCostRaw: String(financialDetails?.expected_dump_cost ?? 0),
+    expectedDumpCostTouched: true,
+    expectedProcessingCostRaw: String(financialDetails?.expected_processing_cost ?? 0),
+    expectedProcessingCostTouched: true,
     lineItems: lineItems.map((li) => ({
       scopeLibraryId: li.scope_library_id,
       name: li.name,

@@ -18,9 +18,35 @@
 //                 p_estimate.supersedes_estimate_id = parent.id. The RPC
 //                 uses supersedes_estimate_id to flip the parent row to
 //                 'superseded' in the same transaction.
+//
+// ECONOMIC DETAILS (Phase 1, v2 Task 2 / Session 2 lane 2d): also builds
+// the `financialDetails` argument create_estimate_with_items_v2 inserts as
+// one estimate_financial_details row in the same transaction, via
+// `computeEstimateEconomics()` (web/src/lib/profitability/
+// estimateEconomics.ts — lane 2a, imported here, never forked). Per that
+// module's documented PRECONDITION, every cost input is cent-rounded HERE,
+// immediately before the call — draft.materialsCost/rentalsCost/
+// expectedDumpCost/subcontractorsCost/otherDirectCost/expectedProcessingCost/
+// quotedPrice may carry float noise from client-side arithmetic; this is
+// the one place that noise is scrubbed before it reaches either the
+// economics engine or the DB's numeric(12,2) columns. `outputs` (the
+// pricing engine's return) is already cent-rounded by computeEstimate()
+// itself, so its fields are passed through as-is.
+//
+// Field mapping from EstimateOutputs -> EstimateEconomicsInput (documented
+// once, here, since it isn't obvious from either side alone):
+//   productiveHours          <- outputs.effectiveHours
+//   operationalLaborCost     <- outputs.laborCost
+//   allocatedOverhead        <- outputs.overhead
+//   markupAmount             <- outputs.profit
+//   dumpPricingBasis         <- outputs.dumpFees      (the PRICED dump allowance)
+//   processingPricingAllowance <- outputs.ccFee        (the PRICED CC-fee allowance)
+// The remaining six EstimateEconomicsInput fields come straight from the
+// six draft cost fields (cent-rounded).
 // ============================================================
 
-import type { EstimateOutputs } from "@/lib/pricing";
+import { roundToCent, type EstimateOutputs } from "@/lib/pricing";
+import { computeEstimateEconomics } from "@/lib/profitability/estimateEconomics";
 import type { RatesConfig } from "@/lib/rates";
 import type { EstimateActor, EstimateDraft } from "./types";
 
@@ -35,6 +61,12 @@ export interface VersionInfo {
 export interface EstimatePayload {
   estimate: Record<string, unknown>;
   lineItems: Record<string, unknown>[];
+  /** Maps 1:1 onto create_estimate_with_items_v2's p_financial_details —
+   *  one estimate_financial_details row, inserted in the same transaction
+   *  as `estimate`/`lineItems`. `planned_profit_pct` on this object MUST
+   *  be bounds-checked (validate.ts's validatePlannedProfitPctBounds)
+   *  before this payload reaches the RPC — repo.ts does that. */
+  financialDetails: Record<string, unknown>;
 }
 
 /**
@@ -86,7 +118,14 @@ export function mapDraftToEstimatePayload(
     cc_fee: outputs.ccFee,
     total_bid: outputs.totalBid,
     true_margin_pct: outputs.trueMarginPct,
-    quoted_price: draft.quotedPrice ?? null,
+    // Fix round F11: cent-round quoted_price at write, same as the
+    // customer_price it feeds into financialDetails below
+    // (quotedPriceForEconomics) — previously this raw draft value could
+    // carry a cent of float noise (e.g. 2000.006) that customer_price
+    // rounded away but this column didn't, letting the two silently read
+    // one cent apart for the exact same override.
+    quoted_price:
+      draft.quotedPrice === null || draft.quotedPrice === undefined ? null : roundToCent(draft.quotedPrice),
     quote_override_reason: draft.quoteOverrideReason ?? null,
     source: "app",
     created_by: user.id,
@@ -117,5 +156,59 @@ export function mapDraftToEstimatePayload(
     sort_order: item.sortOrder ?? index,
   }));
 
-  return { estimate, lineItems };
+  // Cent-round every cost input BEFORE calling computeEstimateEconomics —
+  // its documented PRECONDITION (estimateEconomics.ts header). outputs.*
+  // fields are already cent-rounded by computeEstimate() itself.
+  const materialsCost = roundToCent(draft.materialsCost);
+  const rentalsCost = roundToCent(draft.rentalsCost);
+  const expectedDumpCost = roundToCent(draft.expectedDumpCost);
+  const subcontractorsCost = roundToCent(draft.subcontractorsCost);
+  const otherDirectCost = roundToCent(draft.otherDirectCost);
+  const expectedProcessingCost = roundToCent(draft.expectedProcessingCost);
+  const quotedPriceForEconomics =
+    draft.quotedPrice === null || draft.quotedPrice === undefined ? null : roundToCent(draft.quotedPrice);
+
+  const economics = computeEstimateEconomics({
+    productiveHours: outputs.effectiveHours,
+    operationalLaborCost: outputs.laborCost,
+    materialsCost,
+    rentalsCost,
+    expectedDumpCost,
+    subcontractorsCost,
+    otherDirectCost,
+    allocatedOverhead: outputs.overhead,
+    expectedProcessingCost,
+    dumpPricingBasis: outputs.dumpFees,
+    markupAmount: outputs.profit,
+    processingPricingAllowance: outputs.ccFee,
+    calculatedBid: outputs.totalBid,
+    quotedPrice: quotedPriceForEconomics,
+  });
+
+  const financialDetails: Record<string, unknown> = {
+    formula_version: "economic-v1",
+    // Fix round F12: round to 2dp at write, matching the column's
+    // numeric(8,2) storage — outputs.effectiveHours is already
+    // well-behaved from computeEstimate() in practice, but nothing
+    // upstream guarantees exactly 2 decimal places the way roundToCent
+    // does for every money column on this row.
+    productive_hours: roundToCent(outputs.effectiveHours),
+    operational_labor_cost: outputs.laborCost,
+    materials_cost: materialsCost,
+    rentals_cost: rentalsCost,
+    expected_dump_cost: expectedDumpCost,
+    subcontractors_cost: subcontractorsCost,
+    other_direct_cost: otherDirectCost,
+    allocated_overhead: outputs.overhead,
+    expected_processing_cost: expectedProcessingCost,
+    risk_pricing_allowance: economics.riskPricingAllowance,
+    markup_amount: outputs.profit,
+    processing_pricing_allowance: outputs.ccFee,
+    discount_amount: economics.discountAmount,
+    customer_price: economics.customerPrice,
+    planned_economic_profit: economics.plannedEconomicProfit,
+    planned_profit_pct: economics.plannedProfitPct,
+  };
+
+  return { estimate, lineItems, financialDetails };
 }

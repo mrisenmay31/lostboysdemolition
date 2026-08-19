@@ -7,6 +7,22 @@ export interface RatesConfig {
   rates: Rates;
   defaultMarkupPct: number;
   markupFloorPct: number;
+  /** Per-load DUMP COST (not a `_rate`) — median actual dump cost per
+   *  DISCOVERY §4 / CLAUDE.md Pricing Benchmarks, seeded at 65 by
+   *  20260819160000_create_estimate_economic_details.sql (Task 2 / Phase 1
+   *  Session 2, lane 2b). Feeds the builder's `expectedDumpCost` default
+   *  (`dumpCount * estimatedDumpCostPerLoad`) for
+   *  `computeEstimateEconomics()` — changes PLANNED ECONOMIC PROFIT
+   *  reporting only, never `rates.dumpRatePerLoad` / the customer quote.
+   *  Deliberately kept OFF the `Rates` shape (not passed to
+   *  `computeEstimate()`/`requireRates()`) so the golden-321 gate's engine
+   *  contract is untouched by this addition. Required key, same "throw on
+   *  missing, never fall back to a default" posture as every other key
+   *  this loader reads — see the module doc comment. **Deploy-order
+   *  invariant** (phase-1 plan Task 3 Step 5): the migration seeding this
+   *  key must apply to prod BEFORE any web deploy that reads it, or every
+   *  estimate page 500s on this throw. */
+  estimatedDumpCostPerLoad: number;
 }
 
 // Keys read from pricing_variables, mapped to their Rates field (or null when
@@ -19,6 +35,7 @@ const RATE_KEYS = [
   "cc_fee_rate",
   "default_markup_pct",
   "markup_floor_pct",
+  "estimated_dump_cost_per_load",
 ] as const;
 
 type RateKey = (typeof RATE_KEYS)[number];
@@ -70,6 +87,7 @@ export const loadRatesConfig = cache(async (): Promise<RatesConfig> => {
 
   const defaultMarkupPct = get("default_markup_pct");
   const markupFloorPct = get("markup_floor_pct");
+  const estimatedDumpCostPerLoad = get("estimated_dump_cost_per_load");
 
   if (!Number.isFinite(defaultMarkupPct)) {
     throw new Error(
@@ -81,6 +99,11 @@ export const loadRatesConfig = cache(async (): Promise<RatesConfig> => {
       `loadRatesConfig: markup_floor_pct must be a finite number, got ${markupFloorPct}`,
     );
   }
+  if (!Number.isFinite(estimatedDumpCostPerLoad) || estimatedDumpCostPerLoad < 0) {
+    throw new Error(
+      `loadRatesConfig: estimated_dump_cost_per_load must be a finite number >= 0, got ${estimatedDumpCostPerLoad}`,
+    );
+  }
 
-  return { rates, defaultMarkupPct, markupFloorPct };
+  return { rates, defaultMarkupPct, markupFloorPct, estimatedDumpCostPerLoad };
 });

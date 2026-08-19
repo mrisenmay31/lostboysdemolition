@@ -50,6 +50,54 @@ vi.mock("@/lib/estimates/repo", () => ({
   updateQuote: updateQuoteMock,
 }));
 
+// Fix round F6: the commercial-lifecycle actions (present/accept/reverse/
+// link) and findContactMatchesAction (post-F4 gating) need their
+// underlying modules mocked the same way repo.ts is above, so their
+// allowlist-rejection tests can assert "never called" cleanly.
+const {
+  presentEstimateMock,
+  recordEstimateAcceptanceMock,
+  reverseEstimateAcceptanceMock,
+  linkEstimateIdentityMock,
+} = vi.hoisted(() => ({
+  presentEstimateMock: vi.fn(),
+  recordEstimateAcceptanceMock: vi.fn(),
+  reverseEstimateAcceptanceMock: vi.fn(),
+  linkEstimateIdentityMock: vi.fn(),
+}));
+
+class FakeEstimateIdentityConflictError extends Error {
+  conflictingEstimateNumber: number | null;
+  constructor(ghlOpportunityId: string, conflictingEstimateNumber: number | null) {
+    super(`conflict: ${ghlOpportunityId}`);
+    this.name = "EstimateIdentityConflictError";
+    this.conflictingEstimateNumber = conflictingEstimateNumber;
+  }
+}
+
+class FakeOpportunityPipelineMismatchError extends Error {
+  constructor(opportunityId: string) {
+    super(`mismatch: ${opportunityId}`);
+    this.name = "OpportunityPipelineMismatchError";
+  }
+}
+
+vi.mock("@/lib/estimates/commercialLifecycle", () => ({
+  EstimateIdentityConflictError: FakeEstimateIdentityConflictError,
+  OpportunityPipelineMismatchError: FakeOpportunityPipelineMismatchError,
+  presentEstimate: presentEstimateMock,
+  recordEstimateAcceptance: recordEstimateAcceptanceMock,
+  reverseEstimateAcceptance: reverseEstimateAcceptanceMock,
+  linkEstimateIdentity: linkEstimateIdentityMock,
+}));
+
+const { findContactMatchesMock } = vi.hoisted(() => ({
+  findContactMatchesMock: vi.fn(),
+}));
+vi.mock("@/lib/ghl/prefill", () => ({
+  findContactMatches: findContactMatchesMock,
+}));
+
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
@@ -64,6 +112,11 @@ beforeEach(() => {
   createNewVersionMock.mockReset();
   updateStatusMock.mockReset();
   updateQuoteMock.mockReset();
+  presentEstimateMock.mockReset();
+  recordEstimateAcceptanceMock.mockReset();
+  reverseEstimateAcceptanceMock.mockReset();
+  linkEstimateIdentityMock.mockReset();
+  findContactMatchesMock.mockReset();
 });
 
 afterEach(() => {
@@ -124,5 +177,98 @@ describe("updateQuoteAction — allowlist rejection (review finding I-2b)", () =
 
     expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
     expect(updateQuoteMock).not.toHaveBeenCalled();
+  });
+});
+
+// ============================================================
+// Fix round F6: extend the allowlist-rejection table to the five actions
+// F1-F4's fix round touched/added — presentEstimateAction,
+// recordEstimateAcceptanceAction, reverseEstimateAcceptanceAction, and
+// linkEstimateIdentityAction had no rejection coverage at all before this
+// round; findContactMatchesAction had NO gate whatsoever until F4. Same
+// "rejects before ever calling the underlying function" shape as every
+// describe block above.
+// ============================================================
+
+const VALID_UUID = "11111111-1111-1111-1111-111111111111";
+
+describe("presentEstimateAction — allowlist rejection (fix round F6)", () => {
+  it.each(INVALID_NAMES)("rejects estimatorName=%j without calling presentEstimate", async (name) => {
+    const { presentEstimateAction } = await importActions();
+
+    const result = await presentEstimateAction(VALID_UUID, name);
+
+    expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+    expect(presentEstimateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("recordEstimateAcceptanceAction — allowlist rejection (fix round F6)", () => {
+  it.each(INVALID_NAMES)("rejects estimatorName=%j without calling recordEstimateAcceptance", async (name) => {
+    const { recordEstimateAcceptanceAction } = await importActions();
+
+    const result = await recordEstimateAcceptanceAction(
+      {
+        estimateId: VALID_UUID,
+        method: "signature",
+        customerContactName: "Jorge Ramirez",
+        effectiveAt: "2026-08-19T00:00:00Z",
+        note: "signed on-site",
+        evidencePaths: [],
+      },
+      name,
+    );
+
+    expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+    expect(recordEstimateAcceptanceMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("reverseEstimateAcceptanceAction — allowlist rejection (fix round F6)", () => {
+  it.each(INVALID_NAMES)("rejects estimatorName=%j without calling reverseEstimateAcceptance", async (name) => {
+    const { reverseEstimateAcceptanceAction } = await importActions();
+
+    const result = await reverseEstimateAcceptanceAction(VALID_UUID, "quote_sent", "customer changed mind", name);
+
+    expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+    expect(reverseEstimateAcceptanceMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("linkEstimateIdentityAction — allowlist rejection (fix round F6)", () => {
+  it.each(INVALID_NAMES)("rejects estimatorName=%j without calling linkEstimateIdentity", async (name) => {
+    const { linkEstimateIdentityAction } = await importActions();
+
+    const result = await linkEstimateIdentityAction(
+      {
+        estimateId: VALID_UUID,
+        selection: { ghlContactId: "contact-1", ghlOpportunityId: null, createContact: false, createOpportunity: true },
+      },
+      name,
+    );
+
+    expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+    expect(linkEstimateIdentityMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("findContactMatchesAction — allowlist rejection (fix round F4/F6)", () => {
+  it.each(INVALID_NAMES)("rejects estimatorName=%j without calling findContactMatches", async (name) => {
+    const { findContactMatchesAction } = await importActions();
+
+    const result = await findContactMatchesAction("jorge@example.com", "555-0100", name);
+
+    expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+    expect(findContactMatchesMock).not.toHaveBeenCalled();
+  });
+
+  it("does call findContactMatches for a valid estimator (control case)", async () => {
+    findContactMatchesMock.mockResolvedValue([]);
+    const { findContactMatchesAction } = await importActions();
+
+    const result = await findContactMatchesAction("jorge@example.com", "555-0100", "Dane");
+
+    expect(result).toEqual({ ok: true, contacts: [] });
+    expect(findContactMatchesMock).toHaveBeenCalledTimes(1);
   });
 });

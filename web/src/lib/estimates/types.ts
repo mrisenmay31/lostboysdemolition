@@ -68,6 +68,45 @@ export interface EstimateDraft {
   dumpCount: number;
   jobSpecificCosts: number;
   markupPct: number;
+  // ---------------------------------------------------------------
+  // Economic-plan category costs (Phase 1, v2 Task 2 / Session 2 lane 2d).
+  // These six feed computeEstimateEconomics() (web/src/lib/profitability/
+  // estimateEconomics.ts) via map.ts's mapDraftToEstimatePayload, which
+  // writes exactly one estimate_financial_details row in the same
+  // transaction as the estimate. They do NOT change customer quote math:
+  // materialsCost/rentalsCost/subcontractorsCost/otherDirectCost are the
+  // four components jobSpecificCosts above is derived from
+  // (jobSpecificCosts = roundToCent(materials + rentals + subcontractors +
+  // otherDirect) — see EstimateBuilder.tsx), and expectedDumpCost /
+  // expectedProcessingCost are REAL-COST estimates that sit alongside,
+  // never inside, the priced dump/CC-fee allowances (dumpFees/ccFee on
+  // EstimateOutputs) computeEstimate() already produces.
+  /** Real (not priced-in) cost of materials — one of the four
+   *  jobSpecificCosts components. */
+  materialsCost: number;
+  /** Real cost of equipment/rentals — one of the four jobSpecificCosts
+   *  components. */
+  rentalsCost: number;
+  /** Real EXPECTED dump cost (defaults to dumpCount * rates config's
+   *  estimatedDumpCostPerLoad in the builder). Deliberately NEVER folded
+   *  into jobSpecificCosts or computeEstimate()'s inputs — it exists only
+   *  to compute the dump risk-pricing allowance
+   *  (dumpPricingBasis - expectedDumpCost) inside
+   *  computeEstimateEconomics(). */
+  expectedDumpCost: number;
+  /** Real cost of subcontracted work — one of the four jobSpecificCosts
+   *  components. */
+  subcontractorsCost: number;
+  /** Real cost of any other direct job cost not covered by the other
+   *  three category fields — one of the four jobSpecificCosts
+   *  components. */
+  otherDirectCost: number;
+  /** Real EXPECTED card-processing cost (defaults to the live preview's
+   *  computed ccFee — see EstimateBuilder.tsx — since the priced CC-fee
+   *  rate and the actual processor rate are currently the same 3.5%, per
+   *  CLAUDE.md's Pricing Benchmarks). Never folded into jobSpecificCosts
+   *  or computeEstimate()'s inputs. */
+  expectedProcessingCost: number;
   // Almost always absent on creation — Dane sets these later via the
   // updateQuote action on an existing estimate. Included here because
   // map.ts's writer contract writes quoted_price/quote_override_reason on
@@ -195,6 +234,107 @@ export interface EstimateMutationAuditRow {
   new_job_number: string | null;
 }
 
+// ---------------------------------------------------------------
+// Commercial lifecycle row shapes (Phase 1, v2 Task 2 / Session 2 lane 2d).
+// Mirror the four tables 20260819161000_estimate_commercial_lifecycle.sql
+// creates, plus the one estimate_financial_details table Task 1's core
+// schema migration creates — same "Row shapes mirror table columns
+// exactly" rationale as the header comment on this file.
+// ---------------------------------------------------------------
+
+/** `estimate_financial_details` — one immutable row per estimate VERSION,
+ *  written by create_estimate_with_items_v2 in the same transaction as
+ *  the estimate + line items. PK is estimate_id (1:1). */
+export interface EstimateFinancialDetailsRow {
+  estimate_id: string;
+  formula_version: string;
+  productive_hours: number;
+  operational_labor_cost: number;
+  materials_cost: number;
+  rentals_cost: number;
+  expected_dump_cost: number;
+  subcontractors_cost: number;
+  other_direct_cost: number;
+  allocated_overhead: number;
+  expected_processing_cost: number;
+  risk_pricing_allowance: number;
+  markup_amount: number;
+  processing_pricing_allowance: number;
+  discount_amount: number;
+  customer_price: number;
+  planned_economic_profit: number;
+  planned_profit_pct: number;
+  created_at: string;
+}
+
+/** `estimate_identity_links` — canonical estimate-family (estimate_number)
+ *  -> GHL contact/opportunity relationship. Mutable registry, not
+ *  versioned history. `ghl_opportunity_id` is UNIQUE — one opportunity
+ *  links to at most one active estimate family. */
+export interface EstimateIdentityLinkRow {
+  estimate_number: number;
+  ghl_contact_id: string;
+  ghl_opportunity_id: string;
+  linked_by_name: string;
+  actor_assurance: ActorAssurance;
+  created_at: string;
+  updated_at: string;
+}
+
+/** `estimate_presentations` — immutable, one row per estimate VERSION
+ *  (unique on estimate_id), recording that this exact version was shown
+ *  to the customer with a content hash of what was shown. */
+export interface EstimatePresentationRow {
+  id: string;
+  estimate_id: string;
+  presented_via: "ghl" | "email" | "print" | "other";
+  presented_by_name: string;
+  actor_assurance: ActorAssurance;
+  snapshot_hash: string;
+  presented_at: string;
+}
+
+export type EstimateAcceptanceAction = "accepted" | "reversed";
+export type ActorAssurance = "authenticated" | "selected_identity" | "external_webhook";
+export type CustomerAuthorizationMethod = "signature" | "email" | "text" | "verbal" | "other";
+
+/** `estimate_acceptance_events` — append-only acceptance/reversal event
+ *  log, never updated or deleted. `accepted_price` is pinned server-side
+ *  by `record_estimate_acceptance_event` on an 'accepted' event, never
+ *  trusted from the caller (deviation 12). */
+export interface EstimateAcceptanceEventRow {
+  id: string;
+  estimate_id: string;
+  action: EstimateAcceptanceAction;
+  authorization_method: CustomerAuthorizationMethod | null;
+  customer_contact_name: string | null;
+  accepted_price: number | null;
+  effective_at: string;
+  recorded_by_auth_user_id: string | null;
+  recorded_by_name: string;
+  actor_assurance: ActorAssurance;
+  note: string;
+  evidence_paths: string[];
+  supersedes_event_id: string | null;
+  reversal_destination: "quote_sent" | "closed_lost" | null;
+  created_at: string;
+}
+
+/** `estimate_acceptance_state` — mutable projection of the CURRENT
+ *  acceptance state per estimate FAMILY (estimate_number), re-derived by
+ *  `record_estimate_acceptance_event` on every event. Scheduling (a later
+ *  task) reads only this projection, so it can never select a reversed
+ *  acceptance — see `isSchedulingEligible` in commercialLifecycle.ts. */
+export interface EstimateAcceptanceStateRow {
+  estimate_number: number;
+  current_estimate_id: string;
+  accepted: boolean;
+  current_acceptance_event_id: string | null;
+  accepted_price: number | null;
+  last_event_id: string;
+  updated_at: string;
+}
+
 export interface GhlPushStateRow {
   estimate_id: string;
   ghl_contact_id: string | null;
@@ -219,4 +359,20 @@ export interface EstimateDetail {
   /** Newest first. */
   auditTrail: EstimateMutationAuditRow[];
   pushState: GhlPushStateRow | null;
+  /** Null only if create_estimate_with_items_v2's guaranteed 1:1 insert
+   *  somehow didn't run for this row (e.g. a pre-Task-2 legacy row created
+   *  via v1's create_estimate_with_items, which never writes this table). */
+  financialDetails: EstimateFinancialDetailsRow | null;
+  /** Null until this estimate's FAMILY (estimate_number) has been linked
+   *  to a GHL contact/opportunity — see commercialLifecycle.ts's
+   *  linkEstimateIdentity. */
+  identityLink: EstimateIdentityLinkRow | null;
+  /** Null until THIS VERSION has been presented — see
+   *  commercialLifecycle.ts's presentEstimate. Unique per estimate_id
+   *  (one row per version, never per family). */
+  presentation: EstimatePresentationRow | null;
+  /** Null until this estimate's FAMILY has at least one acceptance event.
+   *  `accepted: false` after a reversal — see
+   *  commercialLifecycle.ts's isSchedulingEligible. */
+  acceptanceState: EstimateAcceptanceStateRow | null;
 }

@@ -4,9 +4,10 @@ import {
   deriveMode,
   isInvalidDecimalInput,
   parseNonNegativeDecimal,
+  resolveReviseCostDefaults,
   sumLineItems,
 } from "@/lib/estimates/builderLogic";
-import type { LineItemDraft } from "@/lib/estimates/types";
+import type { EstimateFinancialDetailsRow, LineItemDraft } from "@/lib/estimates/types";
 
 function item(overrides: Partial<LineItemDraft> = {}): LineItemDraft {
   return {
@@ -177,5 +178,60 @@ describe("assignSortOrders — Task 11 review Finding 3", () => {
     const snapshot = JSON.parse(JSON.stringify(items));
     assignSortOrders(items);
     expect(items).toEqual(snapshot);
+  });
+});
+
+describe("resolveReviseCostDefaults — fix round F5", () => {
+  function financialDetails(
+    overrides: Partial<EstimateFinancialDetailsRow> = {},
+  ): Pick<
+    EstimateFinancialDetailsRow,
+    "materials_cost" | "rentals_cost" | "subcontractors_cost" | "other_direct_cost"
+  > {
+    return {
+      materials_cost: 100,
+      rentals_cost: 50,
+      subcontractors_cost: 25,
+      other_direct_cost: 10,
+      ...overrides,
+    };
+  }
+
+  it("with financialDetails present, maps each of the 4 category costs verbatim to its Raw string", () => {
+    expect(resolveReviseCostDefaults(185, financialDetails())).toEqual({
+      materialsCostRaw: "100",
+      rentalsCostRaw: "50",
+      subcontractorsCostRaw: "25",
+      otherDirectCostRaw: "10",
+    });
+  });
+
+  it("LOCK (details-less legacy estimate): folds the whole job_specific_costs aggregate into otherDirectCostRaw, zeroing the other three", () => {
+    expect(resolveReviseCostDefaults(742.5, null)).toEqual({
+      materialsCostRaw: "0",
+      rentalsCostRaw: "0",
+      subcontractorsCostRaw: "0",
+      otherDirectCostRaw: "742.5",
+    });
+  });
+
+  it("LOCK: the details-less fallback preserves the parent's aggregate EXACTLY (0+0+0+otherDirect == jobSpecificCosts)", () => {
+    const jobSpecificCosts = 1234.56;
+    const result = resolveReviseCostDefaults(jobSpecificCosts, null);
+    const sum =
+      Number(result.materialsCostRaw) +
+      Number(result.rentalsCostRaw) +
+      Number(result.subcontractorsCostRaw) +
+      Number(result.otherDirectCostRaw);
+    expect(sum).toBe(jobSpecificCosts);
+  });
+
+  it("a details-less estimate with jobSpecificCosts = 0 still returns all-zero strings, not blank", () => {
+    expect(resolveReviseCostDefaults(0, null)).toEqual({
+      materialsCostRaw: "0",
+      rentalsCostRaw: "0",
+      subcontractorsCostRaw: "0",
+      otherDirectCostRaw: "0",
+    });
   });
 });

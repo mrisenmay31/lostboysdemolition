@@ -27,12 +27,21 @@ import "server-only";
 import { fetchJobPipelineStages } from "./client";
 
 /** The exact 12 live GHL "Job Pipeline" stage names, in pipeline order —
- *  per the profitability v2 spec (2026-08-18 design doc, "the exact GHL
- *  pipeline is: ...") and live-verified 2026-08-13 during the Phase A
- *  cold-start build (CLAUDE.md § "12-Stage GHL Pipeline"). Exported for
- *  reuse anywhere the full stage list matters (e.g. a debug dump); only
- *  four of these twelve have typed accessors below — the ones Task 2's
- *  commercial lifecycle actually drives. */
+ *  LIVE-VERIFIED 2026-08-19 against the real GHL API (source:
+ *  ghl-job-webhook [startup] "Job Pipeline stages" log, pipeline id
+ *  `OMDtCf2eHWQ1GQrEcJA1`), superseding the profitability v2 spec's
+ *  doc-sourced list this const previously carried verbatim. Two entries
+ *  differ from the doc wording: stage 7 is "Job In Progress" (capital
+ *  "In"), and stage 11 is "Paid / Closed Won" (spaced slash, no
+ *  parenthetical). The location also has a SECOND pipeline
+ *  ("Contractor Pipeline") that itself contains a stage literally named
+ *  "Job Scheduled" — concrete, live proof that the pipeline-membership
+ *  assertion in commercialLifecycle.ts (`assertOpportunityInJobPipelineAndMoveStage`)
+ *  is load-bearing, not defensive-programming boilerplate: a name match
+ *  alone is not enough to know which pipeline a stage id belongs to.
+ *  Exported for reuse anywhere the full stage list matters (e.g. a debug
+ *  dump); only four of these twelve have typed accessors below — the ones
+ *  Task 2's commercial lifecycle actually drives. */
 export const JOB_PIPELINE_STAGE_NAMES = [
   "New Lead",
   "Intake/Qualification",
@@ -40,11 +49,11 @@ export const JOB_PIPELINE_STAGE_NAMES = [
   "Quote Sent",
   "Quote Accepted",
   "Job Scheduled",
-  "Job in Progress",
+  "Job In Progress",
   "Job Completed",
   "Invoice Review",
   "Invoice Sent",
-  "Paid/Closed (Won)",
+  "Paid / Closed Won",
   "Closed Lost (Declined)",
 ] as const;
 

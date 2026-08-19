@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapDraftToEstimatePayload } from "@/lib/estimates/map";
 import type { EstimateDraft } from "@/lib/estimates/types";
-import type { EstimateOutputs } from "@/lib/pricing";
+import { roundToCent, type EstimateOutputs } from "@/lib/pricing";
 import type { RatesConfig } from "@/lib/rates";
 import type { EstimateActor } from "@/lib/estimates/types";
 
@@ -20,6 +20,19 @@ const draft: EstimateDraft = {
   dumpCount: 1,
   jobSpecificCosts: 0,
   markupPct: 25,
+  materialsCost: 0,
+  rentalsCost: 0,
+  expectedDumpCost: 65,
+  subcontractorsCost: 0,
+  otherDirectCost: 0,
+  // Fix round F10: 86.01, not an arbitrary value — the real Jorge's
+  // Interior golden-master ccFee (see pricing.test.ts's
+  // "reproduces the Jorge's Interior golden-master case", CLAUDE.md's
+  // Pricing Benchmarks, and estimateEconomics.test.ts's "(Jorge case)").
+  // Aligning this fixture's numbers with the shared golden record — rather
+  // than a plausible-looking but disconnected made-up value — is what
+  // makes hard-pinning the financialDetails literals below meaningful.
+  expectedProcessingCost: 86.01,
   lineItems: [
     {
       scopeLibraryId: "11111111-1111-1111-1111-111111111111",
@@ -33,6 +46,11 @@ const draft: EstimateDraft = {
   ],
 };
 
+// Fix round F10: the real Jorge's Interior golden-master engine output
+// (totalJobHours=34, dumpCount=1, markupPct=25 against DEFAULT_RATES) —
+// see pricing.test.ts. ccFee/totalBid previously carried disconnected
+// made-up values (89.29 / 2546.79) that happened to share the job/client
+// names but not the real numbers.
 const outputs: EstimateOutputs = {
   effectiveHours: 34,
   laborCost: 884,
@@ -40,9 +58,9 @@ const outputs: EstimateOutputs = {
   totalDirect: 1184,
   overhead: 782,
   profit: 491.5,
-  ccFee: 89.29,
-  totalBid: 2546.79,
-  trueMarginPct: 19.3,
+  ccFee: 86.01,
+  totalBid: 2543.51,
+  trueMarginPct: 19.32,
 };
 
 const ratesConfig: RatesConfig = {
@@ -54,6 +72,7 @@ const ratesConfig: RatesConfig = {
   },
   defaultMarkupPct: 25,
   markupFloorPct: 15,
+  estimatedDumpCostPerLoad: 65,
 };
 
 const user: EstimateActor = { id: null, name: "Dane" };
@@ -130,6 +149,12 @@ describe("mapDraftToEstimatePayload — writer contract", () => {
       dumpCount: 0,
       jobSpecificCosts: 0,
       markupPct: 25,
+      materialsCost: 0,
+      rentalsCost: 0,
+      expectedDumpCost: 0,
+      subcontractorsCost: 0,
+      otherDirectCost: 0,
+      expectedProcessingCost: 0,
       lineItems: [],
     };
 
@@ -180,5 +205,94 @@ describe("mapDraftToEstimatePayload — writer contract", () => {
       user,
     );
     expect(withStatus.status).toBe("sent");
+  });
+});
+
+describe("mapDraftToEstimatePayload — financialDetails (Phase 1, v2 Task 2, lane 2d)", () => {
+  // Fix round F10: pinned as hard literals, NOT recomputed by calling
+  // computeEstimateEconomics() a second time inside the test — a
+  // recomputation-based assertion passes even if computeEstimateEconomics
+  // itself regresses, since the test would recompute the same (now wrong)
+  // answer map.ts also produced. `draft`/`outputs` above are the real
+  // Jorge's Interior golden-master numbers (F10's fixture-alignment fix),
+  // so these four literals are independently hand-verifiable against
+  // estimateEconomics.test.ts's own "(Jorge case)" pinned test and
+  // CLAUDE.md's Pricing Benchmarks, not just internally consistent with
+  // this file.
+  it("computes financialDetails via computeEstimateEconomics, mapping outputs/draft fields per the documented recipe", () => {
+    const { financialDetails } = mapDraftToEstimatePayload(draft, outputs, ratesConfig, user);
+
+    expect(financialDetails).toEqual({
+      formula_version: "economic-v1",
+      productive_hours: outputs.effectiveHours,
+      operational_labor_cost: outputs.laborCost,
+      materials_cost: draft.materialsCost,
+      rentals_cost: draft.rentalsCost,
+      expected_dump_cost: draft.expectedDumpCost,
+      subcontractors_cost: draft.subcontractorsCost,
+      other_direct_cost: draft.otherDirectCost,
+      allocated_overhead: outputs.overhead,
+      expected_processing_cost: draft.expectedProcessingCost,
+      risk_pricing_allowance: 235,
+      markup_amount: outputs.profit,
+      processing_pricing_allowance: outputs.ccFee,
+      discount_amount: 0,
+      customer_price: 2543.51,
+      planned_economic_profit: 726.5,
+      planned_profit_pct: 28.56,
+    });
+  });
+
+  it("never folds expectedDumpCost/expectedProcessingCost into jobSpecificCosts (estimate.job_specific_costs unaffected)", () => {
+    const { estimate } = mapDraftToEstimatePayload(draft, outputs, ratesConfig, user);
+    // draft.jobSpecificCosts is passed through verbatim — this proves the
+    // two new "expected*" cost fields never leak into the pricing-engine
+    // input the estimate row's own job_specific_costs column carries.
+    expect(estimate.job_specific_costs).toBe(draft.jobSpecificCosts);
+  });
+
+  it("cent-rounds every cost input before calling computeEstimateEconomics (precondition, review handoff #1)", () => {
+    const noisyDraft: EstimateDraft = {
+      ...draft,
+      materialsCost: 10.005,
+      rentalsCost: 0.001,
+      expectedDumpCost: 64.999,
+      subcontractorsCost: 0,
+      otherDirectCost: 0,
+      expectedProcessingCost: 89.294,
+      quotedPrice: 2000.006,
+      quoteOverrideReason: "rounding-noise test",
+    };
+
+    const { estimate, financialDetails } = mapDraftToEstimatePayload(noisyDraft, outputs, ratesConfig, user);
+
+    expect(financialDetails.materials_cost).toBe(roundToCent(10.005));
+    expect(financialDetails.rentals_cost).toBe(roundToCent(0.001));
+    expect(financialDetails.expected_dump_cost).toBe(roundToCent(64.999));
+    expect(financialDetails.expected_processing_cost).toBe(roundToCent(89.294));
+    expect(financialDetails.customer_price).toBe(roundToCent(2000.006));
+    // Fix round F11: estimate.quoted_price must round the SAME way
+    // customer_price does — previously this column carried the raw,
+    // unrounded draft value and could read a cent apart from
+    // customer_price for the exact same override.
+    expect(estimate.quoted_price).toBe(roundToCent(2000.006));
+  });
+
+  it("passes a null quotedPrice through as customerPrice = calculatedBid (no discount)", () => {
+    const { financialDetails } = mapDraftToEstimatePayload(draft, outputs, ratesConfig, user);
+    expect(financialDetails.customer_price).toBe(outputs.totalBid);
+    expect(financialDetails.discount_amount).toBe(0);
+  });
+
+  it("records a positive discount_amount when quotedPrice is below the calculated bid", () => {
+    const discountedDraft: EstimateDraft = {
+      ...draft,
+      quotedPrice: 2000,
+      quoteOverrideReason: "repeat customer",
+    };
+    const { financialDetails } = mapDraftToEstimatePayload(discountedDraft, outputs, ratesConfig, user);
+
+    expect(financialDetails.customer_price).toBe(2000);
+    expect(financialDetails.discount_amount).toBe(roundToCent(outputs.totalBid - 2000));
   });
 });

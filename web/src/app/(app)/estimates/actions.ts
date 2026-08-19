@@ -10,9 +10,22 @@ import {
   updateQuote,
   updateStatus,
 } from "@/lib/estimates/repo";
+import {
+  EstimateIdentityConflictError,
+  OpportunityPipelineMismatchError,
+  linkEstimateIdentity,
+  presentEstimate,
+  recordEstimateAcceptance,
+  reverseEstimateAcceptance,
+  type ContactCreationFields,
+  type RecordAcceptanceInput,
+} from "@/lib/estimates/commercialLifecycle";
 import type { EstimateActor, EstimateRow, EstimateStatus } from "@/lib/estimates/types";
 import { pushEstimateToGhl } from "@/lib/ghl/push";
 import type { PushResult } from "@/lib/ghl/push";
+import { findContactMatches } from "@/lib/ghl/prefill";
+import type { EstimateIdentitySelection } from "@/lib/ghl/prefill";
+import type { GhlContact } from "@/lib/ghl/types";
 
 /**
  * Server actions for the estimates data layer. Every action here is a
@@ -47,7 +60,7 @@ import type { PushResult } from "@/lib/ghl/push";
  */
 
 export type ActionResult =
-  | { ok: true; estimate: EstimateRow }
+  | { ok: true; estimate: EstimateRow; linkWarning?: string }
   | { ok: false; error: string; fieldErrors?: string[] };
 
 function toActionResult(err: unknown): ActionResult {
@@ -69,17 +82,59 @@ function resolveActor(estimatorName: string): EstimateActor | null {
     : null;
 }
 
-/** Creates a version-1 estimate from a draft object. */
+/** GHL-first entry identity, carried through from `/estimates/new?ghlOpportunityId=`
+ *  (loadPrefillFromOpportunity, @/lib/ghl/prefill) to createEstimateAction —
+ *  see that action's doc comment. */
+export interface GhlFirstIdentity {
+  ghlContactId: string | null;
+  ghlOpportunityId: string;
+}
+
+/**
+ * Creates a version-1 estimate from a draft object. When `ghlIdentity` is
+ * supplied (the GHL-first entry point — `/estimates/new?ghlOpportunityId=`
+ * — see new/page.tsx), also links the new estimate family to that GHL
+ * contact/opportunity via `linkEstimateIdentity` (v2 doc: "Creating the
+ * first saved estimate for a linked opportunity ensures it sits at
+ * Estimate in Progress"). Linking is best-effort and NON-FATAL to the
+ * create — the estimate itself is already committed by the time linking
+ * runs, and a link failure (e.g. the opportunity has no contactId, or a
+ * transient GHL error) is surfaced as `linkWarning` on the result rather
+ * than failing the whole action; the estimator can still link manually
+ * later via the detail page's identity panel.
+ */
 export async function createEstimateAction(
   draft: unknown,
   estimatorName: string,
+  ghlIdentity?: GhlFirstIdentity,
 ): Promise<ActionResult> {
   const actor = resolveActor(estimatorName);
   if (!actor) return { ok: false, error: "Pick who's estimating first." };
   try {
     const estimate = await createEstimate(draft, actor);
     revalidatePath("/estimates");
-    return { ok: true, estimate };
+
+    let linkWarning: string | undefined;
+    if (ghlIdentity) {
+      try {
+        await linkEstimateIdentity({
+          estimateId: estimate.id,
+          selection: {
+            ghlContactId: ghlIdentity.ghlContactId,
+            ghlOpportunityId: ghlIdentity.ghlOpportunityId,
+            createContact: false,
+            createOpportunity: false,
+          },
+          linkedByName: actor.name,
+        });
+      } catch (linkErr) {
+        const message = linkErr instanceof Error ? linkErr.message : String(linkErr);
+        console.error(`createEstimateAction: GHL-first identity link failed for ${estimate.id}:`, linkErr);
+        linkWarning = `Estimate saved, but linking it to the GHL opportunity failed: ${message}`;
+      }
+    }
+
+    return linkWarning ? { ok: true, estimate, linkWarning } : { ok: true, estimate };
   } catch (err) {
     return toActionResult(err);
   }
@@ -189,5 +244,157 @@ export async function pushEstimateAction(estimateId: string): Promise<PushAction
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
+  }
+}
+
+// ============================================================
+// Commercial lifecycle actions (Phase 1, v2 Task 2 / Session 2 lane 2d).
+// Thin server-action wrappers over @/lib/estimates/commercialLifecycle —
+// same allowlist-gate pattern as every mutating action above.
+// ============================================================
+
+// Fix round F2: `warning` is set only when the underlying DB write already
+// succeeded but a follow-on GHL stage move failed (commercialLifecycle.ts's
+// `LifecycleActionOutcome`) — a non-blocking notice, never a failure. Only
+// ever present alongside `ok: true`, mirroring `ActionResult`'s
+// `linkWarning` above.
+export type SimpleActionResult = { ok: true; warning?: string } | { ok: false; error: string };
+
+/** Estimate in Progress -> Quote Sent (detail-page "Present" button). */
+export async function presentEstimateAction(
+  estimateId: string,
+  estimatorName: string,
+): Promise<SimpleActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
+  if (!isValidEstimateId(estimateId)) return { ok: false, error: "invalid estimate id" };
+  try {
+    const outcome = await presentEstimate(estimateId, actor.name);
+    revalidatePath(`/estimates/${estimateId}`);
+    return outcome.warning ? { ok: true, warning: outcome.warning } : { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** -> Quote Accepted (detail-page acceptance form). */
+export async function recordEstimateAcceptanceAction(
+  input: Omit<RecordAcceptanceInput, "recordedByName">,
+  estimatorName: string,
+): Promise<SimpleActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
+  if (!isValidEstimateId(input.estimateId)) return { ok: false, error: "invalid estimate id" };
+  try {
+    const outcome = await recordEstimateAcceptance({ ...input, recordedByName: actor.name });
+    revalidatePath(`/estimates/${input.estimateId}`);
+    return outcome.warning ? { ok: true, warning: outcome.warning } : { ok: true };
+  } catch (err) {
+    // Handoff #5: surface RecordAcceptanceEventError's classified message
+    // as-is (RPC guard conditions are real and permanent, not transient —
+    // never suggest a retry here). Any other error falls through to the
+    // same generic message shape.
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Reverses the current acceptance -> Quote Sent | Closed Lost (Declined).
+ *  `estimateId` is the REVERSAL TARGET (fix round F3) — the caller
+ *  (CommercialLifecyclePanel) is responsible for passing the family's
+ *  `acceptanceState.current_estimate_id`, not necessarily the id of the
+ *  version currently being viewed; see `resolveAcceptancePresentation` and
+ *  `reverseEstimateAcceptance`'s own doc comment for why. */
+export async function reverseEstimateAcceptanceAction(
+  estimateId: string,
+  destination: "quote_sent" | "closed_lost",
+  reason: string,
+  estimatorName: string,
+): Promise<SimpleActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
+  if (!isValidEstimateId(estimateId)) return { ok: false, error: "invalid estimate id" };
+  try {
+    const outcome = await reverseEstimateAcceptance({ estimateId, destination, reason, recordedByName: actor.name });
+    revalidatePath(`/estimates/${estimateId}`);
+    return outcome.warning ? { ok: true, warning: outcome.warning } : { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type ContactMatchesActionResult =
+  | { ok: true; contacts: GhlContact[] }
+  | { ok: false; error: string };
+
+/** App-first identity search (detail page's "Link to GHL" panel) — never
+ *  auto-picks, just returns candidates for the estimator to choose from.
+ *
+ *  Fix round F4: this was the only action in this file with no
+ *  `resolveActor` gate — it returns live GHL contact records (name,
+ *  email, phone, address) to anyone who could reach the action, no
+ *  attribution check at all. Gated the same way every other action here
+ *  is, even though a search itself writes nothing — the actions in this
+ *  file are the trust boundary in front of the service-role GHL client
+ *  (see this file's module doc comment), and that boundary should not
+ *  have a read-only exception. */
+export async function findContactMatchesAction(
+  email: string | null,
+  phone: string | null,
+  estimatorName: string,
+): Promise<ContactMatchesActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
+  try {
+    const contacts = await findContactMatches({ email, phone });
+    return { ok: true, contacts };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export interface LinkEstimateIdentityActionInput {
+  estimateId: string;
+  selection: EstimateIdentitySelection;
+  contactFields?: ContactCreationFields;
+  opportunityName?: string;
+}
+
+export type LinkIdentityActionResult =
+  | { ok: true }
+  | { ok: false; error: string; conflictingEstimateNumber?: number };
+
+/** Persists the estimator's explicit identity selection (or "create new")
+ *  to estimate_identity_links — see commercialLifecycle.ts's
+ *  linkEstimateIdentity for the conflict/pipeline-mismatch handling this
+ *  wraps. */
+export async function linkEstimateIdentityAction(
+  input: LinkEstimateIdentityActionInput,
+  estimatorName: string,
+): Promise<LinkIdentityActionResult> {
+  const actor = resolveActor(estimatorName);
+  if (!actor) return { ok: false, error: "Pick who's estimating first." };
+  if (!isValidEstimateId(input.estimateId)) return { ok: false, error: "invalid estimate id" };
+  try {
+    await linkEstimateIdentity({
+      estimateId: input.estimateId,
+      selection: input.selection,
+      linkedByName: actor.name,
+      contactFields: input.contactFields,
+      opportunityName: input.opportunityName,
+    });
+    revalidatePath(`/estimates/${input.estimateId}`);
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof EstimateIdentityConflictError) {
+      return {
+        ok: false,
+        error: err.message,
+        conflictingEstimateNumber: err.conflictingEstimateNumber ?? undefined,
+      };
+    }
+    if (err instanceof OpportunityPipelineMismatchError) {
+      return { ok: false, error: err.message };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
