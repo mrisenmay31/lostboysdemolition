@@ -1,6 +1,6 @@
 {
   "tasks": {
-    "test": "deno test --allow-read=supabase/functions/_shared/fixtures supabase/functions/"
+    "test": "deno test --allow-read=supabase/functions/_shared/fixtures --allow-env=ENABLE_GHL_ACCEPTANCE_JOB_CREATION supabase/functions/"
   },
   "exclude": ["web/", "node_modules/", "airtable-automations/"]
 }

@@ -538,6 +538,46 @@ export async function handleQuoteAccepted(
 ): Promise<HandlerResult> {
   const { supabase } = deps;
 
+  // ── v2 Task 4 gate: ENABLE_GHL_ACCEPTANCE_JOB_CREATION ───────────────────
+  // Read at REQUEST time (Deno.env.get, not module scope) — testable, and a
+  // runtime env flip takes effect without a redeploy. Deviation 7 (fail-safe
+  // default, v2 Phase 1 plan): absent OR any value other than the literal
+  // string "false" -> legacy minting below runs BYTE-IDENTICAL to today (prod
+  // ships with the flag unset, so this is zero behavior change on deploy).
+  // Only the literal "false" disables minting: no jobs insert, no
+  // next_job_number() call, no GHL fetch/update — app-side scheduling (v2
+  // Task 4's schedule_estimate RPC, owned by a sibling lane) becomes the sole
+  // job-creation authority. NOTE: a GHL drag carries no way to identify which
+  // *presented* estimate version was accepted, so this gate does not attempt
+  // to write an estimate_acceptance_events row — see this lane's session
+  // report for that scope divergence from the v2 doc's "records/links
+  // acceptance state" language.
+  if (Deno.env.get("ENABLE_GHL_ACCEPTANCE_JOB_CREATION") === "false") {
+    await writeSyncLog(supabase, {
+      direction: "ghl_to_supabase",
+      trigger_event: "quote_accepted",
+      action_taken: "skipped",
+      status: "success",
+      payload_in: deps.payloadIn,
+    });
+    await writeJobEvent(supabase, {
+      job_number: null,
+      stage_from: null,
+      stage_to: 5,
+      function_name: "ghl-job-webhook",
+      trigger_source: "ghl_workflow",
+      ghl_opportunity_id: opportunityId,
+      action_summary:
+        "Skipped — ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false; app scheduling is the job-creation authority",
+      status: "skipped",
+      payload_in: deps.payloadIn,
+    });
+    return {
+      status: 200,
+      body: { success: true, action: "quote_accepted_awaiting_schedule" },
+    };
+  }
+
   // I1: outer safety net. Every branch below already has its own specific
   // error handling for expected failure modes (idempotency-check error, GHL
   // fetch failure, mint failure, insert failure); this catch exists for
@@ -1338,6 +1378,10 @@ interface ScheduleJobRow {
   client_phone: string | null;
   start_time: string | null;
   scope_summary: string | null;
+  // v2 Task 4 column (Task 1 migration). Nullable/possibly absent on the
+  // select result shape by construction — treated as legacy (false) whenever
+  // it isn't the strict boolean `true`; see the compat check below.
+  launch_workflow: boolean | null;
 }
 
 export async function handleJobScheduled(
@@ -1353,7 +1397,7 @@ export async function handleJobScheduled(
       .select(
         "id, job_number, job_name, client_name, job_address, estimate_value, crew, " +
           "start_date, end_date, gcal_main_event_id, gcal_crew_event_id, slack_notified_at, bill_job_code, " +
-          "client_contact_name, business_name, client_phone, start_time, scope_summary",
+          "client_contact_name, business_name, client_phone, start_time, scope_summary, launch_workflow",
       )
       .eq("ghl_opportunity_id", opportunityId)
       .maybeSingle();
@@ -1381,13 +1425,22 @@ export async function handleJobScheduled(
         jobScopeNames: [],
       });
       // F5 (final review): this is NOT a benign skip — job_scheduled firing with no
-      // matching job row means Quote Accepted was very likely never processed (or its
-      // insert failed), so the job was never created. That must be loud, not a quiet
-      // 'skipped'/'success' pair that never gets noticed. The 200 response body is kept
-      // as-is (unchanged 'skipped' shape) so GHL doesn't retry-storm the workflow.
+      // matching job row means the job was never created. That must be loud, not a
+      // quiet 'skipped'/'success' pair that never gets noticed. The 200 response body
+      // is kept as-is (unchanged 'skipped' shape) so GHL doesn't retry-storm the
+      // workflow.
+      // v2 Task 4 fix round: the expected CAUSE of hitting this branch changes once
+      // ENABLE_GHL_ACCEPTANCE_JOB_CREATION="false" is live — Quote Accepted no longer
+      // mints anything, so the diagnosis "Quote Accepted was likely skipped" would be
+      // wrong and would misdirect triage during cutover. Branch the message on the
+      // flag; audit/status semantics (action_taken/status 'error' on both writers) are
+      // unchanged either way — wording only.
       const missedJobMsg =
-        "job_scheduled fired but no job record exists — Quote Accepted stage was likely " +
-        "skipped; job NOT created";
+        Deno.env.get("ENABLE_GHL_ACCEPTANCE_JOB_CREATION") === "false"
+          ? "job_scheduled fired but no job record exists — app scheduling now mints the job " +
+            "(ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false); this opportunity has no app-scheduled job yet"
+          : "job_scheduled fired but no job record exists — Quote Accepted stage was likely " +
+            "skipped; job NOT created";
       await writeSyncLog(supabase, {
         direction: "ghl_to_supabase",
         trigger_event: "job_scheduled",
@@ -1412,6 +1465,45 @@ export async function handleJobScheduled(
     }
 
     const jobRow = job as ScheduleJobRow;
+
+    // ── v2 Task 4 compat check: app-side scheduling is the schedule
+    //    authority for any job IT minted (launch_workflow=true, set by the
+    //    schedule_estimate RPC owned by a sibling lane). UNCONDITIONAL — not
+    //    gated by ENABLE_GHL_ACCEPTANCE_JOB_CREATION — because an
+    //    app-authored job must never be double-scheduled by this webhook
+    //    regardless of the legacy-minting flag's state. No writes, no
+    //    calendar calls, no Slack: return before even fetching the
+    //    opportunity from GHL. Every legacy/Phase A job (including
+    //    JOB-1102/JOB-1104, which read launch_workflow=false live — the
+    //    column is NOT NULL default false, backfilled, not missing/null) is
+    //    treated as legacy and falls through to the unchanged path below;
+    //    missing/null is also handled defensively (see the tests) in case a
+    //    future select shape ever omits or nulls the column — only the
+    //    strict boolean `true` triggers this branch.
+    if (jobRow.launch_workflow === true) {
+      await writeSyncLog(supabase, {
+        direction: "ghl_to_supabase",
+        trigger_event: "job_scheduled",
+        action_taken: "skipped",
+        status: "success",
+        payload_in: deps.payloadIn,
+      });
+      await writeJobEvent(supabase, {
+        job_number: jobRow.job_number,
+        stage_from: 5,
+        stage_to: 6,
+        function_name: "ghl-job-webhook",
+        trigger_source: "ghl_workflow",
+        ghl_opportunity_id: opportunityId,
+        action_summary: "Skipped — app is schedule authority (launch_workflow=true)",
+        status: "skipped",
+        payload_in: deps.payloadIn,
+      });
+      return {
+        status: 200,
+        body: { success: true, action: "app_is_schedule_authority", job_number: jobRow.job_number },
+      };
+    }
 
     // ── Fetch opportunity, extract Crew + Start/End Date ──────────────────────
     let opp: any;

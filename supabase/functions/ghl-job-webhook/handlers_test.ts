@@ -1236,6 +1236,135 @@ Deno.test("handleQuoteAccepted: skip path — promotion also runs and self-heals
 });
 
 // ============================================================
+// ── v2 Task 4 (lane 4c): ENABLE_GHL_ACCEPTANCE_JOB_CREATION gate ───────────
+// (deviation 7 — fail-safe default: absent or anything but the literal
+// string "false" runs the legacy minting path unchanged.) ──────────────────
+// ============================================================
+
+const ACCEPTANCE_FLAG_KEY = "ENABLE_GHL_ACCEPTANCE_JOB_CREATION";
+
+Deno.test("handleQuoteAccepted: flag absent -> legacy minting path runs unchanged (creates job)", async () => {
+  Deno.env.delete(ACCEPTANCE_FLAG_KEY);
+  const supabase = fakeSupabase();
+  const deps = { supabase, ...happyDeps(), payloadIn: { event: "quote_accepted", opportunityId: "opp-1" } };
+  const result = await handleQuoteAccepted(deps as any, "opp-1");
+  assertEquals(result.status, 200);
+  assertEquals(result.body.success, true);
+  assertEquals(result.body.action, "created");
+  assertEquals(result.body.job_number, "JOB-1102");
+  assertEquals(supabase._inserted.filter((i: any) => i.table === "jobs").length, 1);
+});
+
+for (const nonDisablingValue of ["FALSE", "0", "true", "", "False", "false "]) {
+  Deno.test(
+    `handleQuoteAccepted: flag set to ${JSON.stringify(nonDisablingValue)} (not the literal "false") -> legacy minting path runs unchanged`,
+    async () => {
+      Deno.env.set(ACCEPTANCE_FLAG_KEY, nonDisablingValue);
+      try {
+        const supabase = fakeSupabase();
+        const deps = { supabase, ...happyDeps(), payloadIn: { event: "quote_accepted", opportunityId: "opp-1" } };
+        const result = await handleQuoteAccepted(deps as any, "opp-1");
+        assertEquals(result.status, 200);
+        assertEquals(result.body.success, true);
+        assertEquals(result.body.action, "created");
+        assertEquals(supabase._inserted.filter((i: any) => i.table === "jobs").length, 1);
+      } finally {
+        Deno.env.delete(ACCEPTANCE_FLAG_KEY);
+      }
+    },
+  );
+}
+
+Deno.test(
+  'handleQuoteAccepted: flag === "false" -> quote_accepted_awaiting_schedule, no jobs insert, no next_job_number call, no GHL fetch/update, and exactly one skipped audit pair',
+  async () => {
+    Deno.env.set(ACCEPTANCE_FLAG_KEY, "false");
+    try {
+      const supabase = fakeSupabase();
+      let fetchOpportunityCalled = false;
+      let fetchContactCalled = false;
+      let updateOpportunityCalled = false;
+      const deps = {
+        supabase,
+        fetchOpportunity: () => {
+          fetchOpportunityCalled = true;
+          return Promise.reject(new Error("should not be called"));
+        },
+        fetchContact: () => {
+          fetchContactCalled = true;
+          return Promise.reject(new Error("should not be called"));
+        },
+        updateOpportunity: () => {
+          updateOpportunityCalled = true;
+          return Promise.reject(new Error("should not be called"));
+        },
+        payloadIn: { event: "quote_accepted", opportunityId: "opp-flag-off" },
+      };
+      const result = await handleQuoteAccepted(deps as any, "opp-flag-off");
+
+      assertEquals(result.status, 200);
+      assertEquals(result.body, { success: true, action: "quote_accepted_awaiting_schedule" });
+
+      // No GHL touched at all.
+      assertEquals(fetchOpportunityCalled, false);
+      assertEquals(fetchContactCalled, false);
+      assertEquals(updateOpportunityCalled, false);
+
+      // No jobs insert, no mint.
+      assertEquals(supabase._inserted.filter((i: any) => i.table === "jobs").length, 0);
+      assertEquals((supabase as any)._rpcCalls.filter((c: any) => c.fn === "next_job_number").length, 0);
+
+      // Exactly one sync_log row, satisfying the CHECK constraint's allowed
+      // values (action_taken in created|updated|skipped|error; direction in
+      // ghl_to_airtable|airtable_to_ghl|ghl_to_supabase|supabase_to_slack|app_to_ghl).
+      const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
+      assertEquals(syncLogWrites.length, 1);
+      assertEquals(syncLogWrites[0].row.direction, "ghl_to_supabase");
+      assertEquals(syncLogWrites[0].row.trigger_event, "quote_accepted");
+      assertEquals(syncLogWrites[0].row.action_taken, "skipped");
+      assertEquals(syncLogWrites[0].row.status, "success");
+      assertEquals(syncLogWrites[0].row.error_message, undefined);
+
+      // Exactly one job_events row, satisfying its CHECK (status in
+      // success|error|skipped).
+      const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+      assertEquals(jobEventWrites.length, 1);
+      assertEquals(jobEventWrites[0].row.job_number, null);
+      assertEquals(jobEventWrites[0].row.stage_from, null);
+      assertEquals(jobEventWrites[0].row.stage_to, 5);
+      assertEquals(jobEventWrites[0].row.function_name, "ghl-job-webhook");
+      assertEquals(jobEventWrites[0].row.trigger_source, "ghl_workflow");
+      assertEquals(jobEventWrites[0].row.ghl_opportunity_id, "opp-flag-off");
+      assertEquals(jobEventWrites[0].row.status, "skipped");
+    } finally {
+      Deno.env.delete(ACCEPTANCE_FLAG_KEY);
+    }
+  },
+);
+
+Deno.test('handleQuoteAccepted: flag === "false" is checked at REQUEST time, not module load — flips take effect without a restart', async () => {
+  const supabase1 = fakeSupabase();
+  Deno.env.delete(ACCEPTANCE_FLAG_KEY);
+  const created = await handleQuoteAccepted(
+    { supabase: supabase1, ...happyDeps(), payloadIn: {} } as any,
+    "opp-flip-1",
+  );
+  assertEquals(created.body.action, "created");
+
+  try {
+    Deno.env.set(ACCEPTANCE_FLAG_KEY, "false");
+    const supabase2 = fakeSupabase();
+    const awaiting = await handleQuoteAccepted(
+      { supabase: supabase2, ...happyDeps(), payloadIn: {} } as any,
+      "opp-flip-2",
+    );
+    assertEquals(awaiting.body.action, "quote_accepted_awaiting_schedule");
+  } finally {
+    Deno.env.delete(ACCEPTANCE_FLAG_KEY);
+  }
+});
+
+// ============================================================
 // ── Task 4: handleJobScheduled — schedule path ──────────────────────────────
 // ============================================================
 
@@ -1669,6 +1798,8 @@ interface FakeScheduleJobRow {
   client_phone: string | null;
   start_time: string | null;
   scope_summary: string | null;
+  // v2 Task 4 (lane 4c) — see FakeScheduleJobRow.launch_workflow tests below.
+  launch_workflow: boolean | null;
 }
 
 function fakeScheduleSupabase(opts: {
@@ -1776,6 +1907,7 @@ function freshJobRow(overrides: Partial<FakeScheduleJobRow> = {}): FakeScheduleJ
     client_phone: null,
     start_time: null,
     scope_summary: null,
+    launch_workflow: false,
     ...overrides,
   };
 }
@@ -2368,7 +2500,8 @@ Deno.test("handleJobScheduled: start_time absent on the opportunity -> persisted
   assertEquals(terminalUpdate.payload.start_time, null);
 });
 
-Deno.test("handleJobScheduled: no job row -> 200 response body unchanged (no GHL retry-storm), but logged loudly as an error (F5)", async () => {
+Deno.test("handleJobScheduled: no job row, flag absent -> 200 response body unchanged (no GHL retry-storm), but logged loudly as an error citing Quote Accepted (F5)", async () => {
+  Deno.env.delete(ACCEPTANCE_FLAG_KEY);
   const supabase = fakeScheduleSupabase({ job: null });
   const deps = { supabase, ...happyScheduleDeps() };
   const result = await handleJobScheduled(deps as any, "opp-sched-1");
@@ -2389,6 +2522,45 @@ Deno.test("handleJobScheduled: no job row -> 200 response body unchanged (no GHL
     jobEventWrites[0].row.error_message,
     "job_scheduled fired but no job record exists — Quote Accepted stage was likely skipped; job NOT created",
   );
+});
+
+// v2 Task 4 fix round: once ENABLE_GHL_ACCEPTANCE_JOB_CREATION="false" is live, Quote
+// Accepted no longer mints anything, so the "Quote Accepted was likely skipped"
+// diagnosis above would misdirect triage during cutover. Same audit/status semantics
+// (action_taken/status 'error' on both writers, 200/'skipped' response body) — only the
+// error_message wording branches on the flag.
+Deno.test('handleJobScheduled: no job row, flag === "false" -> same loud-error semantics, but wording points at app scheduling instead of Quote Accepted', async () => {
+  Deno.env.set(ACCEPTANCE_FLAG_KEY, "false");
+  try {
+    const supabase = fakeScheduleSupabase({ job: null });
+    const deps = { supabase, ...happyScheduleDeps() };
+    const result = await handleJobScheduled(deps as any, "opp-sched-1");
+
+    // Response body / skip-shape semantics are unchanged by the flag.
+    assertEquals(result.status, 200);
+    assertEquals(result.body, { action: "skipped", reason: "no job record — was Quote Accepted skipped?" });
+
+    const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
+    assertEquals(syncLogWrites[0].row.action_taken, "error");
+    assertEquals(syncLogWrites[0].row.status, "error");
+    assertEquals(
+      syncLogWrites[0].row.error_message,
+      "job_scheduled fired but no job record exists — app scheduling now mints the job " +
+        "(ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false); this opportunity has no app-scheduled job yet",
+    );
+    // Must NOT contain the stale "Quote Accepted" diagnosis.
+    assertEquals(String(syncLogWrites[0].row.error_message).includes("Quote Accepted"), false);
+
+    const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+    assertEquals(jobEventWrites[0].row.status, "error");
+    assertEquals(
+      jobEventWrites[0].row.error_message,
+      "job_scheduled fired but no job record exists — app scheduling now mints the job " +
+        "(ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false); this opportunity has no app-scheduled job yet",
+    );
+  } finally {
+    Deno.env.delete(ACCEPTANCE_FLAG_KEY);
+  }
 });
 
 Deno.test("handleJobScheduled: job exists but crew/start date not set on opportunity -> 200 skip, no external calls", async () => {
@@ -2909,4 +3081,109 @@ Deno.test("handleJobScheduled: outer catch converts an unexpected synchronous th
   assertEquals(result.status, 500);
   assertEquals(result.body.success, false);
   assertEquals(logCalls.some((c) => c.table === "sync_log" && c.row.status === "error"), true);
+});
+
+// ============================================================
+// ── v2 Task 4 (lane 4c): launch_workflow compat check ───────────────────────
+// UNCONDITIONAL — not gated by ENABLE_GHL_ACCEPTANCE_JOB_CREATION. An
+// app-authored job (launch_workflow=true, set by the schedule_estimate RPC
+// owned by a sibling lane) must never be double-scheduled by this webhook.
+// ============================================================
+
+Deno.test("handleJobScheduled: launch_workflow=true -> app_is_schedule_authority, zero writes/calendar/Slack, one skipped audit pair", async () => {
+  const job = freshJobRow({ launch_workflow: true });
+  const supabase = fakeScheduleSupabase({ job });
+  let fetchOpportunityCalled = false;
+  let getAccessTokenCalled = false;
+  let createCalendarEventCalled = false;
+  let postSlackMessageCalled = false;
+  let ensureBillJobCodeCalled = false;
+  const deps = {
+    supabase,
+    ...happyScheduleDeps({
+      fetchOpportunity: () => {
+        fetchOpportunityCalled = true;
+        return Promise.reject(new Error("should not be called"));
+      },
+      getAccessToken: () => {
+        getAccessTokenCalled = true;
+        return Promise.reject(new Error("should not be called"));
+      },
+      createCalendarEvent: () => {
+        createCalendarEventCalled = true;
+        return Promise.reject(new Error("should not be called"));
+      },
+      postSlackMessage: () => {
+        postSlackMessageCalled = true;
+        return Promise.resolve({ ok: false, error: "should not be called" });
+      },
+      ensureBillJobCode: () => {
+        ensureBillJobCodeCalled = true;
+        return Promise.reject(new Error("should not be called"));
+      },
+    }),
+  };
+
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+
+  assertEquals(result.status, 200);
+  assertEquals(result.body, { success: true, action: "app_is_schedule_authority", job_number: "JOB-1100" });
+
+  // No GHL fetch, no calendar, no Slack, no BILL — the check returns before
+  // any of them run.
+  assertEquals(fetchOpportunityCalled, false);
+  assertEquals(getAccessTokenCalled, false);
+  assertEquals(createCalendarEventCalled, false);
+  assertEquals(postSlackMessageCalled, false);
+  assertEquals(ensureBillJobCodeCalled, false);
+
+  // No writes to the jobs row (no gcal-id persist, no terminal update).
+  assertEquals(supabase._updates.length, 0);
+  assertEquals(supabase._inserted.filter((i: any) => i.table === "jobs").length, 0);
+
+  const syncLogWrites = supabase._inserted.filter((i: any) => i.table === "sync_log");
+  assertEquals(syncLogWrites.length, 1);
+  assertEquals(syncLogWrites[0].row.direction, "ghl_to_supabase");
+  assertEquals(syncLogWrites[0].row.trigger_event, "job_scheduled");
+  assertEquals(syncLogWrites[0].row.action_taken, "skipped");
+  assertEquals(syncLogWrites[0].row.status, "success");
+
+  const jobEventWrites = supabase._inserted.filter((i: any) => i.table === "job_events");
+  assertEquals(jobEventWrites.length, 1);
+  assertEquals(jobEventWrites[0].row.job_number, "JOB-1100");
+  assertEquals(jobEventWrites[0].row.stage_from, 5);
+  assertEquals(jobEventWrites[0].row.stage_to, 6);
+  assertEquals(jobEventWrites[0].row.function_name, "ghl-job-webhook");
+  assertEquals(jobEventWrites[0].row.ghl_opportunity_id, "opp-sched-1");
+  assertEquals(jobEventWrites[0].row.status, "skipped");
+});
+
+Deno.test("handleJobScheduled: launch_workflow=false -> legacy scheduling path runs byte-identical to today", async () => {
+  const job = freshJobRow({ launch_workflow: false });
+  const supabase = fakeScheduleSupabase({ job });
+  const deps = { supabase, ...happyScheduleDeps() };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(result.status, 200);
+  assertEquals(result.body.success, true);
+  assertEquals(result.body.action, "scheduled");
+  assertEquals(result.body.calendar, "success");
+  assertEquals(result.body.slack, "success");
+});
+
+Deno.test("handleJobScheduled: launch_workflow=null -> defensively treated as legacy, scheduling runs", async () => {
+  const job = freshJobRow({ launch_workflow: null });
+  const supabase = fakeScheduleSupabase({ job });
+  const deps = { supabase, ...happyScheduleDeps() };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(result.status, 200);
+  assertEquals(result.body.action, "scheduled");
+});
+
+Deno.test("handleJobScheduled: launch_workflow column entirely absent from the row -> defensively treated as legacy, scheduling runs", async () => {
+  const { launch_workflow: _omitted, ...jobWithoutColumn } = freshJobRow();
+  const supabase = fakeScheduleSupabase({ job: jobWithoutColumn as any });
+  const deps = { supabase, ...happyScheduleDeps() };
+  const result = await handleJobScheduled(deps as any, "opp-sched-1");
+  assertEquals(result.status, 200);
+  assertEquals(result.body.action, "scheduled");
 });
