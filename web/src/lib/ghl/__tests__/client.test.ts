@@ -13,13 +13,20 @@ import {
   createContact,
   extractContactId,
   extractOpportunityId,
+  fetchJobPipelineStages,
   findStageIdBySubstring,
+  getContact,
+  getOpportunity,
   ghlFetch,
   getCustomFieldValue,
   listEstimateDocs,
   resolvePipeline,
   searchContactByEmail,
+  searchContactByPhone,
+  searchContactsByEmail,
+  searchContactsByPhone,
   shouldRetry,
+  updateOpportunityStage,
 } from "@/lib/ghl/client";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -228,6 +235,18 @@ describe("searchContactByEmail — POST /contacts/search (task T9f fix)", () => 
 
     expect(await searchContactByEmail("nobody@example.com")).toBeNull();
   });
+
+  it("returns only the FIRST of several matches — singular behavior unchanged after the F1 reimplementation on top of searchContactsByEmail", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(200, { contacts: [{ id: "contact-first" }, { id: "contact-second" }], total: 2 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchContactByEmail("shared@example.com");
+
+    expect(result).toEqual({ id: "contact-first" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("defensive id extraction", () => {
@@ -379,5 +398,216 @@ describe("listEstimateDocs — pagination (review finding I-1)", () => {
     const [url] = fetchMock.mock.calls[0];
     expect(String(url)).toContain("limit=5");
     expect(String(url)).toContain("offset=0");
+  });
+});
+
+describe("searchContactByPhone — POST /contacts/search (Task 2, profitability v2)", () => {
+  it("POSTs a structured eq filter on phone, same shape as searchContactByEmail", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { contacts: [{ id: "contact-9" }], total: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchContactByPhone("801-555-0100");
+
+    expect(result).toEqual({ id: "contact-9" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://services.leadconnectorhq.com/contacts/search");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string);
+    expect(body.filters).toEqual([{ field: "phone", operator: "eq", value: "801-555-0100" }]);
+    expect(body.locationId).toBe("test-location-id");
+  });
+
+  it("returns null when contacts is empty", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { contacts: [], total: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await searchContactByPhone("801-555-0000")).toBeNull();
+  });
+
+  it("returns only the FIRST of several matches — singular behavior unchanged after the F1 reimplementation on top of searchContactsByPhone", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(200, { contacts: [{ id: "contact-first" }, { id: "contact-second" }], total: 2 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchContactByPhone("801-555-0100");
+
+    expect(result).toEqual({ id: "contact-first" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("searchContactsByEmail / searchContactsByPhone — array variants (fix round F1)", () => {
+  it("searchContactsByEmail returns every matching contact, not just the first", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(200, { contacts: [{ id: "contact-1" }, { id: "contact-2" }], total: 2 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchContactsByEmail("shared@example.com");
+
+    expect(result).toEqual([{ id: "contact-1" }, { id: "contact-2" }]);
+  });
+
+  it("searchContactsByPhone returns every matching contact, not just the first", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse(200, { contacts: [{ id: "contact-9" }, { id: "contact-10" }], total: 2 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await searchContactsByPhone("801-555-0100");
+
+    expect(result).toEqual([{ id: "contact-9" }, { id: "contact-10" }]);
+  });
+
+  it("both array variants return [] when contacts is empty/missing", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(200, { contacts: [] })));
+    expect(await searchContactsByEmail("nobody@example.com")).toEqual([]);
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(jsonResponse(200, {})));
+    expect(await searchContactsByPhone("801-555-0000")).toEqual([]);
+  });
+});
+
+describe("getOpportunity — GET /opportunities/{id}", () => {
+  it("unwraps the {opportunity: {...}} envelope", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { opportunity: { id: "opp-1", name: "Jorge — Kitchen Demo" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getOpportunity("opp-1");
+
+    expect(result).toEqual({ id: "opp-1", name: "Jorge — Kitchen Demo" });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://services.leadconnectorhq.com/opportunities/opp-1");
+    expect(init.method ?? "GET").toBe("GET");
+  });
+
+  it("tolerates an unwrapped (bare) opportunity response", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { id: "opp-2", name: "Bare Shape" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    expect(await getOpportunity("opp-2")).toEqual({ id: "opp-2", name: "Bare Shape" });
+  });
+
+  it("propagates a GhlApiError on 404 (not-found signal for prefill.ts)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(404, { message: "not found" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getOpportunity("missing")).rejects.toBeInstanceOf(GhlApiError);
+  });
+
+  it("percent-encodes a path-traversal-shaped id instead of interpolating it raw (fix round F2)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { opportunity: { id: "opp-x" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getOpportunity("../locations/other-loc/whatever");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(
+      "https://services.leadconnectorhq.com/opportunities/" +
+        encodeURIComponent("../locations/other-loc/whatever"),
+    );
+    expect(String(url)).not.toContain("/opportunities/../");
+  });
+});
+
+describe("getContact — GET /contacts/{id}", () => {
+  it("unwraps the {contact: {...}} envelope", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(200, { contact: { id: "contact-1", email: "jorge@example.com" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getContact("contact-1");
+
+    expect(result).toEqual({ id: "contact-1", email: "jorge@example.com" });
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://services.leadconnectorhq.com/contacts/contact-1");
+  });
+
+  it("propagates a GhlApiError on 404", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(404, { message: "not found" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getContact("missing")).rejects.toBeInstanceOf(GhlApiError);
+  });
+
+  it("percent-encodes a path-traversal-shaped id instead of interpolating it raw (fix round F2)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { contact: { id: "contact-x" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getContact("../locations/other-loc/whatever");
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toBe(
+      "https://services.leadconnectorhq.com/contacts/" + encodeURIComponent("../locations/other-loc/whatever"),
+    );
+    expect(String(url)).not.toContain("/contacts/../");
+  });
+});
+
+describe("updateOpportunityStage — stage-only PUT", () => {
+  it("PUTs only { pipelineStageId } — no name/monetaryValue/customFields in the body", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { id: "opp-1", pipelineStageId: "stage-5" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await updateOpportunityStage("opp-1", "stage-5");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://services.leadconnectorhq.com/opportunities/opp-1");
+    expect(init.method).toBe("PUT");
+    const body = JSON.parse(init.body as string);
+    expect(body).toEqual({ pipelineStageId: "stage-5" });
+  });
+
+  it("propagates a GhlApiError on a 4xx failure (fix round F9c)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(400, { message: "bad stage id" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(updateOpportunityStage("opp-1", "bad-stage")).rejects.toBeInstanceOf(GhlApiError);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fetchJobPipelineStages — full stage list, uncached", () => {
+  it("returns the pipeline id and every stage, not just one", async () => {
+    const stages = [
+      { id: "s1", name: "New Lead" },
+      { id: "s2", name: "Estimate in Progress" },
+      { id: "s3", name: "Quote Sent" },
+    ];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { pipelines: [{ id: "pipeline-1", name: "Job Pipeline", stages }] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await fetchJobPipelineStages();
+
+    expect(result).toEqual({ pipelineId: "pipeline-1", stages });
+  });
+
+  it("is NOT cached — two calls issue two fetches (pipeline.ts owns the caching layer)", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(jsonResponse(200, { pipelines: [{ id: "pipeline-1", name: "Job Pipeline", stages: [] }] })),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchJobPipelineStages();
+    await fetchJobPipelineStages();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws when the Job Pipeline itself is not found", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse(200, { pipelines: [{ id: "p1", name: "Some Other Pipeline" }] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchJobPipelineStages()).rejects.toThrow(/Job Pipeline/);
   });
 });

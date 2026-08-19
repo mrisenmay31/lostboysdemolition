@@ -31,6 +31,8 @@ import type {
   GhlCustomFieldRead,
   GhlContact,
   GhlOpportunity,
+  GhlPipeline,
+  GhlPipelineStage,
   ListEstimateDocsParams,
   OpportunityUpdatePayload,
   PipelineResolution,
@@ -221,8 +223,54 @@ export function extractContactId(data: unknown): string | null {
   return d?.contact?.id ?? d?.id ?? null;
 }
 
+/** POST /contacts/search — shared eq-filter search over a single field
+ *  (`email` or `phone`), returning every matching contact. Added for
+ *  review fix F1 (fix round, Phase 1 Session 2): `findContactMatches` in
+ *  prefill.ts must be able to surface more than one candidate per search
+ *  leg — silently taking only the first hit is exactly the kind of
+ *  invisible narrowing the spec's "show possible matches, never silently
+ *  merge" rule forbids. `pageLimit: 10` (unchanged from the original
+ *  single-result implementations below) is now a REAL candidate ceiling,
+ *  not cosmetic — an eleventh same-field match would not surface. Flag
+ *  for live confirmation alongside the rest of this search path (see the
+ *  per-field wrappers' docstrings for the live-verification status of the
+ *  underlying endpoint). */
+async function searchContacts(field: "email" | "phone", value: string): Promise<GhlContact[]> {
+  const { data } = await ghlFetch("/contacts/search", {
+    method: "POST",
+    body: JSON.stringify({
+      locationId: getLocationId(),
+      filters: [{ field, operator: "eq", value }],
+      page: 1,
+      pageLimit: 10,
+    }),
+  });
+  return (data as { contacts?: GhlContact[] } | null)?.contacts ?? [];
+}
+
+/** POST /contacts/search — every contact matching the given email
+ *  (structured eq filter). Live-verified endpoint/shape — see
+ *  searchContactByEmail below for the full T9f history; this is the same
+ *  request, just returning the full match list instead of only the
+ *  first. */
+export async function searchContactsByEmail(email: string): Promise<GhlContact[]> {
+  return searchContacts("email", email);
+}
+
+/** POST /contacts/search — phone variant of searchContactsByEmail above,
+ *  same structured eq-filter shape (added Task 2, profitability v2, for
+ *  the app-first estimate-creation identity search). Not separately
+ *  live-verified — see searchContactByPhone below. */
+export async function searchContactsByPhone(phone: string): Promise<GhlContact[]> {
+  return searchContacts("phone", phone);
+}
+
 /** POST /contacts/search — returns the first matching contact, or null if
- *  none exists.
+ *  none exists. Reimplemented (fix round F1) on top of
+ *  `searchContactsByEmail` above; signature and result semantics are
+ *  unchanged — still resolves to exactly the first match or null, still
+ *  one network call — so push.ts's existing dependency on this function
+ *  is unaffected.
  *
  *  FIXED 2026-08-14 (task T9f). The original implementation called
  *  `GET /contacts/?locationId=...&email=...`, which the live GHL API
@@ -240,17 +288,48 @@ export function extractContactId(data: unknown): string | null {
  *  contacts-search endpoint and the only one of the three that can't
  *  return a false-positive substring match, so it's the shape used here. */
 export async function searchContactByEmail(email: string): Promise<GhlContact | null> {
-  const { data } = await ghlFetch("/contacts/search", {
-    method: "POST",
-    body: JSON.stringify({
-      locationId: getLocationId(),
-      filters: [{ field: "email", operator: "eq", value: email }],
-      page: 1,
-      pageLimit: 10,
-    }),
-  });
-  const contacts = (data as { contacts?: GhlContact[] } | null)?.contacts ?? [];
-  return contacts[0] ?? null;
+  return (await searchContactsByEmail(email))[0] ?? null;
+}
+
+/** POST /contacts/search — returns the first matching contact by phone, or
+ *  null if none exists. Reimplemented (fix round F1) on top of
+ *  `searchContactsByPhone` above; signature and result semantics are
+ *  unchanged.
+ *
+ *  Added Task 2, profitability v2, for the app-first estimate-creation
+ *  identity search: "search GHL by stable contact ID, email, and phone" —
+ *  see prefill.ts's findContactMatches. The `field: "phone"` filter name
+ *  mirrors GHL's documented contacts-search schema the same way
+ *  `field: "email"` does above; not separately live-verified in this
+ *  task, since no live GHL calls are made building this lane — flag for
+ *  live confirmation alongside the rest of prefill.ts before relying on
+ *  it beyond the mocked test coverage in client.test.ts. */
+export async function searchContactByPhone(phone: string): Promise<GhlContact | null> {
+  return (await searchContactsByPhone(phone))[0] ?? null;
+}
+
+/** GET /contacts/{id} — full contact record, unwrapped from the
+ *  `{contact: {...}}` envelope GHL wraps GET responses in — same tolerant
+ *  unwrap shape ghl-job-webhook/handlers.ts already does by hand
+ *  (`contactRecord = contact?.contact ?? contact`). Throws (via ghlFetch)
+ *  on a 404 — used by prefill.ts to signal "opportunity/contact not
+ *  found" to its callers. */
+// `id` is percent-encoded into the path (fix round F2): this deployment is
+// network-open (no login — see CLAUDE.md's "No-login estimate tool"), and
+// `id` ultimately traces back to caller-supplied input (e.g. a
+// `ghlOpportunityId`/contact id carried on a query param), so an unencoded
+// id containing path segments (`../locations/...`) could redirect this
+// authenticated GET to an arbitrary path on the GHL API host. A normal GHL
+// id (alphanumeric) encodes to itself, so this is not a behavior change
+// for any real id.
+export async function getContact(id: string): Promise<GhlContact> {
+  const { data } = await ghlFetch(`/contacts/${encodeURIComponent(id)}`);
+  const d = data as { contact?: GhlContact } | GhlContact | null;
+  const contact = (d as { contact?: GhlContact } | null)?.contact ?? (d as GhlContact | null);
+  if (!contact?.id) {
+    throw new Error(`GHL contact fetch returned no id for ${id}. Response: ${JSON.stringify(data)}`);
+  }
+  return contact;
 }
 
 /** POST /contacts/ — on a plain success, returns the new contact's id. On
@@ -342,11 +421,59 @@ export function __resetPipelineCacheForTests(): void {
   pipelineCache = null;
 }
 
+/** GET /opportunities/pipelines?locationId=... — the full "Job Pipeline"
+ *  stage list, uncached and unfiltered. Added for Task 2 (profitability
+ *  v2): resolvePipeline() above only ever resolves the single "Estimate
+ *  in Progress" stage id the estimate push (Task 12) needs;
+ *  `web/src/lib/ghl/pipeline.ts`'s commercial-lifecycle stage resolution
+ *  needs several more (Quote Sent, Quote Accepted, Closed Lost), so this
+ *  exposes the raw stage array for that module to search over instead of
+ *  duplicating resolvePipelineUncached's one-stage-only shape here.
+ *  pipeline.ts owns its own cache on top of this — this function itself
+ *  is uncached and hits the live API on every call, matching
+ *  resolvePipelineUncached's (also uncached) contract. */
+export async function fetchJobPipelineStages(): Promise<{
+  pipelineId: string;
+  stages: GhlPipelineStage[];
+}> {
+  const { data } = await ghlFetch(`/opportunities/pipelines?locationId=${getLocationId()}`);
+  const d = data as { pipelines?: unknown } | unknown[] | null;
+  const list = (Array.isArray(d) ? d : (d as { pipelines?: unknown })?.pipelines ?? []) as GhlPipeline[];
+
+  const pipeline = list.find((p) => p.name === JOB_PIPELINE_NAME);
+  if (!pipeline) {
+    throw new Error(
+      `GHL pipeline "${JOB_PIPELINE_NAME}" not found. Available: ${list.map((p) => p.name).join(", ") || "none"}`,
+    );
+  }
+
+  return { pipelineId: pipeline.id, stages: pipeline.stages ?? [] };
+}
+
 // ── Opportunities ──────────────────────────────────────────────────────────
 
 export function extractOpportunityId(data: unknown): string | null {
   const d = data as { opportunity?: { id?: string }; id?: string } | null | undefined;
   return d?.opportunity?.id ?? d?.id ?? null;
+}
+
+/** GET /opportunities/{id} — full opportunity record, unwrapped from the
+ *  `{opportunity: {...}}` envelope the same way extractOpportunityId
+ *  unwraps create/update responses (and the same shape
+ *  ghl-job-webhook/handlers.ts already unwraps by hand: `opp =
+ *  opportunity?.opportunity ?? opportunity`). Throws (via ghlFetch) on a
+ *  404 — this is prefill.ts's "opportunity not found" signal. */
+// `id` is percent-encoded into the path (fix round F2) — same rationale as
+// getContact above: this deployment is network-open, and `id` here is the
+// `ghlOpportunityId` query param a caller controls directly.
+export async function getOpportunity(id: string): Promise<GhlOpportunity> {
+  const { data } = await ghlFetch(`/opportunities/${encodeURIComponent(id)}`);
+  const d = data as { opportunity?: GhlOpportunity } | GhlOpportunity | null;
+  const opp = (d as { opportunity?: GhlOpportunity } | null)?.opportunity ?? (d as GhlOpportunity | null);
+  if (!opp?.id) {
+    throw new Error(`GHL opportunity fetch returned no id for ${id}. Response: ${JSON.stringify(data)}`);
+  }
+  return opp;
 }
 
 /** POST /opportunities/ (trailing slash — GHL rejects the bare path on
@@ -369,6 +496,19 @@ export async function updateOpportunity(id: string, partial: OpportunityUpdatePa
     body: JSON.stringify(partial),
   });
   return data;
+}
+
+/** PUT /opportunities/{id} — stage-only move, for the commercial lifecycle
+ *  transitions in pipeline.ts's callers (present → Quote Sent, accept →
+ *  Quote Accepted, reverse → Quote Sent/Closed Lost). Thin wrapper over
+ *  updateOpportunity so call sites never hand-build the partial payload.
+ *  Safe under GHL's documented merge semantics (CLAUDE.md: "PUT
+ *  /opportunities/{id} MERGES customFields, it does not replace the
+ *  set" — live-verified Task 12 finding): sending only `pipelineStageId`
+ *  here leaves name/monetaryValue/customFields on the opportunity
+ *  untouched. */
+export async function updateOpportunityStage(opportunityId: string, stageId: string): Promise<unknown> {
+  return updateOpportunity(opportunityId, { pipelineStageId: stageId });
 }
 
 /** GET /opportunities/search?contact_id=...&location_id=... — snake_case
