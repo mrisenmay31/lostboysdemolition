@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getEstimate } from "@/lib/estimates/repo";
 import { statusLabel } from "@/lib/estimates/lifecycle";
+import { canScheduleThisVersion } from "@/lib/jobs/scheduleVisibility";
 import { StatusActions } from "./_components/StatusActions";
 import { QuoteOverridePanel } from "./_components/QuoteOverridePanel";
 import { PushPanel } from "./_components/PushPanel";
@@ -62,6 +63,21 @@ export default async function EstimateDetailPage({
     (latest, v) => (v.version > latest.version ? v : latest),
     estimate,
   );
+
+  // Schedule-to-job promotion (Phase 1, v2 Task 4 / Session 3 lane 4b).
+  // Mirrors the exact eligibility condition `schedule_estimate` itself
+  // enforces (v2 doc Step 2: "it is exactly the presented estimate
+  // referenced by the current accepted projection ... job_number is
+  // null") — this is a UI mirror only, the RPC is what actually enforces
+  // it (see [id]/schedule/page.tsx). Pulled from @/lib/jobs/scheduleVisibility
+  // (pure, unit-tested there) rather than inlined — fix round 1
+  // (BLOCKER): this MUST NOT be gated on `canRevise`/`estimates.status`.
+  // The canonical accept-then-revise flow (accept v1, revise to v2) flips
+  // v1's status to 'superseded' while acceptance stays pinned to v1 — v1
+  // remains the one schedulable version. See scheduleVisibility.ts's
+  // header comment for the full traced failure this fixes, and the
+  // render site below (deliberately OUTSIDE the `canRevise` block).
+  const showScheduleLink = canScheduleThisVersion(acceptanceState, estimate.id, estimate.job_number);
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-6 p-4 pb-12">
@@ -144,6 +160,21 @@ export default async function EstimateDetailPage({
             versionChain={versionChain}
           />
         </>
+      ) : null}
+
+      {/* Fix round 1 (BLOCKER, review finding #1): deliberately NOT
+          nested inside the `canRevise` block above — see
+          @/lib/jobs/scheduleVisibility.ts's header comment for the traced
+          accept-then-revise failure this independence fixes. A
+          'superseded' version can still be exactly the one the
+          `schedule_estimate` RPC will accept. */}
+      {showScheduleLink ? (
+        <Link
+          href={`/estimates/${estimate.id}/schedule`}
+          className="flex h-11 items-center justify-center rounded-lg bg-emerald-600 text-sm font-semibold text-white dark:bg-emerald-500"
+        >
+          Schedule job
+        </Link>
       ) : null}
 
       {/* Review finding I-2 (fix round 1): status actions and the GHL
