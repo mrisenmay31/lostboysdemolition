@@ -42,6 +42,100 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-19 — v2 Phase 1 Session 3: Task 4 BUILT, REVIEWED, BRANCH-VALIDATED 82/82 — NOT applied to prod, NOT deployed (both await Matt)
+
+Session 3 of the Phase 1 plan, local session. **Matt decisions this session:** build+test may proceed
+pre-smoke (his explicit go); phone smoke + first real estimate ≥1426 remains the hard stop before
+the Task 4 prod apply, webhook deploy, and gate. Recommended smoke surface: the branch preview
+deployment **https://lostboysdemolition-git-claude-la-f27ac4-matt-risenmays-projects.vercel.app**
+(auto-built per push, no deployment protection, verified 200 on both estimate routes, same prod DB)
+— the old prod build creates v1-RPC estimates that Task 4's path can never schedule (no financial
+details, no acceptance lifecycle). Three lanes concurrent (4a RPC ∥ 4b web ∥ 4c webhook),
+disjoint files, adversarial review each + fix rounds. Commits `d72878c` (4b), `51ad5fb` (4c),
+`7028b63` (4a); pushed.
+
+**Lane 4a — `schedule_estimate` RPC** (`20260819170000_schedule_estimate_rpc.sql` + pgTAP
+plan(82)). Two review rounds + a micro round; headline catches: (1) SECURITY DEFINER (orchestrator
+prompt error) reversed to **plain invoker** — DEFINER would let a pending `workforce_profiles`
+signup bypass the BL-7 RLS gate if Task 8 ever granted `authenticated` EXECUTE; (2) **F2
+moved-acceptance guard**: a family whose acceptance moved to a different version after its job was
+cancelled would have silently revived the job on the stale budget/accepted_price — now a hard error
+on BOTH the idempotent and reactivation branches ("resolve manually or via a change order");
+(3) **F3 GHL ids written at mint** from `estimate_identity_links` — without them the webhook compat
+check and Quote Accepted idempotency lookup could never find app-minted jobs (lane 4c's
+`app_is_schedule_authority` branch would have been dead code), and the `jobs_ghl_opportunity_id`
+unique key is now a DB-level dual-mint backstop; (4) **R1 dead clamp**: `numeric(7,2)` variable
+typmod raises on ASSIGNMENT, before any clamp line — variable now plain `numeric`, clamp proven by
+a $1-vs-$1M fixture storing exactly -99999.99; (5) **R2**: the dual-link raise text contained
+"already"+"job" and would have misclassified web-side as `already_scheduled` — reworded, verified
+against the classifier. Deviation 12 pinned end-to-end: `approved_revenue` = acceptance's
+`accepted_price` (quoted-price family proves 1000 flows, not total_bid 1200) and profit is
+RECOMPUTED at mint (230, not the details row's 430).
+
+**Runbook record (verbatim per §3):** branch `v2-phase1-task4` (id
+`f12651c4-5917-46ea-b57b-d8f24a8bdfb3`, ref `oiwrasvxljhzdrscsgvk`, $0.01344/hr confirmed, deleted
+after). Probes: (a) 31 migrations, head `20260819141318` = prod ✓ (b) 5 definers
+proconfig+proacl character-identical to prod ✓ (c) `on_auth_user_created` present ✓ (d) 12 legacy
+policies ✓ → FAITHFUL. pgTAP 1.3.3 branch-only. Row-count baseline (prod, step 2): jobs 2,
+job_budget_versions 0, job_events 33, integration_outbox 0, estimates 16, line items 9,
+financial_details 0, acceptance events/state 0, identity_links 3, mutations_audit 29, legacy
+users/crews/time_entries 0/0/0. RED = **15/15 "not ok"** (Sections A+B against the pre-migration
+schema; 42883 signatures as expected). Migration applied to branch → GREEN = **82/82 on the
+plpgsql's first-ever execution, zero failures**. TAP capture method for the MCP runner: temp-table
+harness (each assertion `insert into tap_out(line) select <assertion>`, final `select` returns all
+lines) with the suite's begin/rollback stripped for branch runs — the MCP executes a batch as ONE
+implicit transaction and returns only the last statement's result, so the file's own
+rollback would discard the TAP rows (a genuinely new runner fact; the committed test file keeps its
+begin/rollback form). Branch copy of the migration trimmed header comments only — prod must receive
+the exact file bytes at apply time.
+
+**Lane 4b — web scheduling** (`web/src/lib/jobs/*`, `/estimates/[id]/schedule`, `jobs/actions.ts`,
+detail-page hook). Review caught one MAJOR: the "Schedule job" link was nested inside the
+pre-existing `canRevise` block, making it unreachable for the CANONICAL accept-then-revise state
+(v1 superseded but still the accepted version) — the only UI path would have been hand-typing the
+URL. Fixed via pure `scheduleVisibility.ts` (status-blind, mirrors the RPC's own checks) rendered
+outside `canRevise`, with a named regression pin. Also fixed: crew closed-list now enforced
+server-side (`crews.ts` shared vocabulary + z.enum; the network-open deployment could otherwise
+mint a job with garbage crew that silently maps to no Slack channel/calendar). 48+18 new tests;
+web suite **537/537**; build + lint green. Known/accepted: success navigates to
+`/jobs/<JOB-XXXX>` which 404s until v2 Task 6 (spec-mandated); `superseded` error code unreachable
+against current raise texts (documented).
+
+**Lane 4c — `ghl-job-webhook` flag gate** (handlers.ts + handlers_test.ts, IN REPO ONLY — the live
+function is untouched at v19). `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` read at request time; only the
+literal `"false"` disables (fail-safe: absent/other ⇒ legacy byte-identical — deploy-safe with the
+flag unset). Disabled path → 200 `quote_accepted_awaiting_schedule` + skip audit rows (live CHECKs
+verified). Job Scheduled gains an UNCONDITIONAL `launch_workflow===true` compat check →
+`app_is_schedule_authority`, zero side effects; legacy rows (JOB-1102/1104 read `false` live) flow
+unchanged. Fix round: the no-job-record loud error now branches its wording on the flag so
+post-cutover triage isn't told "Quote Accepted was skipped" when app scheduling is the new
+authority. Scoped suite **207/207** (193 pre-existing untouched + 14 net new). ⚠️ **deno.json
+canonical task gained `--allow-env=ENABLE_GHL_ACCEPTANCE_JOB_CREATION`** — the canonical task had
+no env grant, so the handler's request-time `Deno.env.get` threw NotCapable and failed all 29
+handleQuoteAccepted tests under `deno task test` while scoped `--allow-all` runs (which both the
+lane and its reviewer used) passed. The canonical-task gate caught it; grant is scoped to the one
+variable. Canonical suite now **331/331**.
+
+**Decisions taken on Matt's behalf, pending his confirmation (flagged in code headers too):**
+(1) F7 — app-minted jobs populate `scope_summary` from estimate line-item NAMES only (newline-joined,
+sort_order; no description, no amounts — stricter than the webhook's TS renderer), NULL for
+zero-line-item estimates; keeps the night-before digest's JOB SCOPE section alive post-cutover.
+`start_time` stays NULL (no source in the app flow — joins the Dane habit items unless a field is
+added). (2) F2 — moved-acceptance families hard-error rather than reactivate; whether they should
+ever reuse the old job is Matt's later call.
+
+**Open items for Matt (blocking the rest of Task 4 Step 4):** (1) prod apply of
+`20260819170000_schedule_estimate_rpc.sql` (per-task approval cadence); (2) `ghl-job-webhook`
+deploy via the two-command `--no-verify-jwt` invariant + readback, flag left UNSET, then the live
+JOB-1104 re-drag probe + re-cancel; (3) the phone smoke + first real estimate ≥1426 (hard stop for
+cutover + gate) — recommend the branch preview URL above; (4) product call: crew select offers only
+Crew 1–4; legacy allowed "Jackson"/"Other" (main-calendar-only) — need a fifth option or explicit
+drop. **Accepted-window note (4c reviewer):** between webhook deploy and Task 5A's dispatcher, an
+app-scheduled job gets `app_is_schedule_authority` while its calendar/Slack events sit undelivered
+in the outbox — by design (nobody app-schedules a real job before 5A; the plan's coexistence
+window). Suites at close: deno **331/331** (canonical task, incl. the new grant), web **537/537**,
+build green, golden-321 intact.
+
 ### 2026-08-19 — v2 Phase 1 Session 2 SHIPPED: Task 2 (economics + commercial lifecycle) — migrations APPLIED TO PRODUCTION, web integration merged to branch
 
 Session 2 of the Phase 1 plan, same remote session as Session 1, four lanes (2a economics module ∥
