@@ -1,220 +1,193 @@
 # Profitability v2 Phase 1 (Tasks 1–5) Implementation Plan
 
-**Approved by Matt 2026-08-19** (plan-mode approval, this session). Development branch:
-`claude/last-session-review-f7tqxw`.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Execution model: parallel Sonnet implementer lanes with disjoint file ownership; adversarial Opus review per task + whole branch; orchestrator serializes only at the integrity boundaries (branch validation, prod applies, commits).
+
+**Goal:** Ship v2 Phase 1 — "Commercial-to-job foundation": preserve every presented estimate version, record acceptance/reversal as append-only events, make **app scheduling the one action that mints `JOB-XXXX`** (with original budget v1 snapshot), and deliver GHL/Google-Calendar/Slack side effects through an idempotent, retryable `integration_outbox` including two-way Calendar date sync.
+
+**Architecture:** Additive schema first (v2 Task 1) in parallel with the pure TS forecast engine (v2 Task 3); then estimate economics + commercial lifecycle (v2 Task 2); then the atomic schedule-to-job RPC + GHL-webhook retirement flag (v2 Task 4); then the outbox dispatcher split outbound (5A) / inbound calendar sync (5B). Every migration follows `docs/runbooks/profitability-schema-validation.md`. Prod applies are per-task after adversarial review, with Matt's approval each time.
+
+**Tech Stack:** Supabase Postgres 17 (project `eiqqqwajmcpcwhvxxnhx`) + pgTAP (branches only), Supabase MCP, Deno 2 edge functions, Next 16 App Router + vitest (in `web/`), GHL API, Google Calendar API, Slack API, pg_cron.
+
+**Spec:** `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` — Task 1 (lines 272–686), Task 2 (689–999), Task 3 (1003–1138), Task 4 (1142–1237), Task 5 (1241–1358), Phase 1 gate (1360–1362). **The v2 doc is the complete technical contract — this plan does not duplicate its SQL/TS specs; it records execution structure, corrections, and decisions.**
+
+**Approved by Matt 2026-08-19** (plan-mode approval). Development branch: `claude/last-session-review-f7tqxw`.
 
 ## Context
 
-Phase 0 shipped 2026-08-18 (runbook + BL-7 `workforce_profiles` boundary applied to production;
-merged to main at `4dd15cc`). Phase 1 — "Commercial-to-job foundation" — is Tasks 1–5 of the
-ratified program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`
-(the complete technical contract; **this plan does not duplicate its SQL/TS specs — it references
-them and records the execution structure, corrections, and decisions**).
-
-Phase 1 outcome: preserve every presented estimate version, record acceptance/reversal as
-append-only events, make **app scheduling the one action that mints `JOB-XXXX`** (with original
-budget v1 snapshot), and deliver GHL/Google-Calendar/Slack side effects through an idempotent,
-retryable `integration_outbox` — including two-way Calendar date sync.
+Phase 0 shipped 2026-08-18 (runbook + BL-7 `workforce_profiles` boundary applied to production; merged to main at `4dd15cc`). Phase 1 is the first production-code phase of the ratified program.
 
 ### Decisions taken by Matt this session (2026-08-19)
 
-1. **GHL minting cutover = at Phase 1 gate pass.** Task 4 deploys with the legacy Quote-Accepted
-   minting path still ON (`ENABLE_GHL_ACCEPTANCE_JOB_CREATION` absent ⇒ legacy behavior, fail-safe
-   default). The flip to `false` is the final step of the Phase 1 gate, after the E2E run proves
-   app scheduling. Per ratified decision 1, once flipped it is permanent — rollback never
-   re-enables it.
-2. **Build starts now; phone smoke runs in parallel.** Tasks 1 + 3 (app-invisible) start
-   immediately. Matt's phone smoke + one real estimate (≥1426) through
-   https://lostboysdemolition.vercel.app is a **hard stop before Task 4's cutover work and the
-   phase gate** — not before T1/T2/T3.
-3. **Prod migration applies are per-task, after each task's adversarial review passes** (Phase B
-   precedent; runbook step 7 approval given per task by Matt).
+1. **GHL minting cutover = at Phase 1 gate pass.** v2 Task 4 deploys with the legacy Quote-Accepted minting path still ON (`ENABLE_GHL_ACCEPTANCE_JOB_CREATION` absent ⇒ legacy behavior, fail-safe default). The flip to `false` is the final step of the Phase 1 gate, after the E2E run proves app scheduling. Per ratified decision 1, once flipped it is permanent — rollback never re-enables it.
+2. **Build starts now; phone smoke runs in parallel.** v2 Tasks 1 + 3 (app-invisible) start immediately. Matt's phone smoke + one real estimate (≥1426) through https://lostboysdemolition.vercel.app is a **hard stop before v2 Task 4's cutover work and the phase gate** — not before Tasks 1/2/3.
+3. **Prod migration applies are per-task, after each task's adversarial review passes** (Phase B precedent; runbook step 7 approval given per task by Matt).
 
 ### Verified live facts (queried read-only 2026-08-19)
 
-- Migration head: `20260818230956_workforce_auth_boundary` (27 applied). Note: applied version
-  timestamps differ from repo filenames (repo file is `20260818143000_...`) — new files use
-  ≥ 2026-08-19 prefixes so repo ordering matches apply order.
-- **Zero name collisions**: none of the new enums (`job_health_status`, `cost_category`,
-  `actor_assurance`, …) or tables (`estimate_financial_details`, `integration_outbox`,
-  `estimate_identity_links`, `calendar_watch_channels`, …) exist yet.
-- `jobs` 2 rows (JOB-1102/1104, cancelled), `jobs.job_number` has a UNIQUE constraint → valid FK
-  target for all new `references public.jobs(job_number)` columns.
-- `estimates` 16 rows, max `estimate_number` 1425 (all TEST); `estimate_line_items` 9 rows.
-- `pricing_variables` = exactly the 6 known keys; `estimated_dump_cost_per_load` does NOT exist
-  yet (Task 2 seeds it at 65).
-- pg_cron: `crew-night-before-a @ 30 22 * * *` + `-b @ 30 23 * * *` — the double-slot self-gating
-  pattern Task 5's dispatcher cron mirrors (at `*/5 * * * *`).
-- Web layout matches the v2 Task 2 file list exactly (`web/src/lib/estimates/{types,validate,map,repo,lifecycle}.ts`,
-  `web/src/lib/ghl/{client,push,estimateFields,estimateDoc}.ts` all exist).
+- Migration head: `20260818230956_workforce_auth_boundary` (27 applied). Applied version timestamps differ from repo filenames — new files use ≥ 2026-08-19 prefixes so repo ordering matches apply order.
+- **Zero name collisions**: none of the new enums (`job_health_status`, `cost_category`, `actor_assurance`, …) or tables (`estimate_financial_details`, `integration_outbox`, `estimate_identity_links`, `calendar_watch_channels`, …) exist yet.
+- `jobs` 2 rows (JOB-1102/1104, cancelled); `jobs.job_number` has a UNIQUE constraint → valid FK target for the new `references public.jobs(job_number)` columns.
+- `estimates` 16 rows, max `estimate_number` 1425 (all TEST); `estimate_line_items` 9 rows; `ghl_push_state` 10 rows (Task 2's backfill input).
+- Legacy row-count baseline for runbook step 2: `users` 0, `crews` 0, `time_entries` 0, `workforce_profiles` 1.
+- `pricing_variables` = exactly the 6 known keys; `estimated_dump_cost_per_load` does NOT exist yet (v2 Task 2 seeds it at 65).
+- pg_cron: `crew-night-before-a @ 30 22 * * *` + `-b @ 30 23 * * *` — the self-gating pattern the dispatcher cron mirrors (at `*/5 * * * *`).
+- Web layout matches the v2 Task 2 file list exactly (`web/src/lib/estimates/{types,validate,map,repo,lifecycle}.ts`, `web/src/lib/ghl/{client,push,estimateFields,estimateDoc}.ts` all exist).
+- Branch cost $0.01344/hr (org `nhzbxchbcjjhvdloflip`) — `confirm_cost` at each branch creation; delete branches when validation is done.
 
-## Global constraints (inherited, non-negotiable)
+## Global Constraints
 
-- Every schema task follows `docs/runbooks/profitability-schema-validation.md` (8-step sequence,
-  branch-fidelity probes a–d, pgTAP on branches only, plain-SQL catalog assertions post-apply,
-  BUILD_LOG verbatim record). None of the Phase 1 migrations touch the `auth` schema, so the
-  production dry-run fallback applies only if a branch probes unfaithful.
+- Every schema task follows `docs/runbooks/profitability-schema-validation.md` (8-step sequence, fidelity probes a–d, pgTAP on branches only, plain-SQL catalog assertions post-apply, verbatim BUILD_LOG record). No Phase 1 migration touches the `auth` schema, so the production dry-run fallback applies only if a branch probes unfaithful.
 - `ghl-job-webhook` deploys ONLY via the two-command `--no-verify-jwt` + readback invariant.
-- Quote math does not change: golden-321 gate (`deno task test`) and the Jorge total `$2,543.51`
-  must hold through every task. `_shared/pricing.ts` is not modified in Phase 1.
-- No pricing to crew surfaces (Slack, crew calendar) — Task 5 tests pin this.
-- Suites at every task close: `deno task test` (currently 317) and `cd web && npx vitest run`
-  (currently 261) green, plus the task's new tests.
-- Sonnet implements, strongest available model adversarially reviews every task + the whole
-  branch. Reviews run concurrently with unrelated implementation lanes.
-- No deletes without Matt's per-item approval; never `git add -A`; everything applied to Supabase
-  is committed same session.
+- Quote math does not change: golden-321 gate (`deno task test`) and the Jorge total `$2,543.51` must hold through every task. `_shared/pricing.ts` is not modified in Phase 1.
+- No pricing to crew surfaces (Slack, crew calendar) — 5A tests pin this.
+- Suites at every task close: `deno task test` (currently 317) and `cd web && npx vitest run` (currently 261) green, plus the task's new tests.
+- Sonnet implements; adversarial Opus review for every task + the whole branch. Reviews run concurrently with unrelated implementation lanes; reviewers do not run the full suite mid-flight and do not report on files they don't own.
+- No deletes without Matt's per-item approval; never `git add -A`; everything applied to Supabase is committed same session; BUILD_LOG entry at every session close.
 
-## Session / lane structure (concurrency map — designed in, per the 2026-08-18 directive)
+## Spec deviations (approved via this plan — these override the v2 doc's verbatim text)
 
-Phase 1 executes as **4 build sessions + gate**, each ending with adversarial review and a
-BUILD_LOG entry. Lanes within a session own disjoint files and run concurrently.
+1. **pgTAP description args everywhere.** The v2 doc's verbatim Task 1 test (`has_enum('public','x')`, `has_table('public','x')` with no trailing description) reproduces the exact overload bug Phase 0 caught. Every multi-overload assertion gets its description argument; `plan(n)` counts adjusted.
+2. **Explicit `authenticated` revokes + ACL assertions on every new table.** v2 Task 1 says only "grant no access to anon" — Phase 0 proved Supabase default privileges pre-grant `authenticated` REFERENCES/TRIGGER/**TRUNCATE** (not RLS-gated). Every new table's migration revokes from `public, anon, authenticated` explicitly (service role bypasses RLS; Task 8 adds authenticated policies later), and the pgTAP suite pins the ACL posture.
+3. **`set search_path = public, pg_temp` pinned on every new function/RPC/trigger function** (`mark_job_reconciliation_required`, `record_estimate_acceptance_event`, `create_estimate_with_items_v2`, `schedule_estimate`, `claim_integration_events`, all immutability triggers), EXECUTE revoked from `public, anon, authenticated`. v2 doesn't state it; the 2026-08-17 hardening makes it standing.
+4. **Migration filename prefixes use 2026-08-19+ dates**, not the v2 doc's 2026-08-18 ones — keeps repo ordering consistent with the applied head.
+5. **v2 Task 5 split 5A (outbound) / 5B (inbound)** — sanctioned by the v2 gate text itself ("the outbound projection must pass its gate without depending on inbound sync being live"). 5B opens with a watch-channel spike before the lifecycle is built.
+6. **verify_jwt posture recorded for the two new functions:** `google-calendar-webhook` MUST deploy `--no-verify-jwt` (Google push notifications carry no Supabase JWT; auth = channel token verification) — it joins `ghl-job-webhook` in the deploy invariant, readback required. `integration-dispatcher` follows the `crew-night-before` pattern (`x-webhook-secret` check is the auth), posture recorded at deploy either way.
+7. **Flag default semantics:** `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` absent ⇒ legacy minting ON (deploy-safe: v2 Task 4 shipping changes nothing in prod behavior); only the literal string `"false"` disables. Flip happens at gate pass (Matt, this session).
+8. **Sub-slice review boundaries:** each session's review gates its own merge/apply; the phase additionally gets a whole-branch review before the gate (standing rule).
 
-### Session 1 — Task 1 ∥ Task 3 (start immediately)
+## Concurrency map
 
-| Lane | Owns | Notes |
-|---|---|---|
-| A: Task 1 schema | `supabase/migrations/2026081915*_profitability_{lifecycle_types,core_schema}.sql`, `supabase/tests/profitability_core_schema_test.sql` | Full runbook cycle: branch → red → green → review → Matt-approved prod apply |
-| B: Task 3 forecast engine | `web/src/lib/profitability/{types,calculateJobHealth}.ts` + tests | Pure TS, zero DB dependency — fully concurrent with Lane A; the 9 named test cases from the v2 doc are the contract |
+Per Matt's standing directive, lanes are designed in up front. File ownership is disjoint; one shared worktree on the development branch is sufficient (BL-4/Phase-0 precedent).
 
-Lane B must NOT touch `web/src/lib/estimates/` or `web/src/lib/ghl/` (Session 2 territory).
-Task 1's enum value lists and Task 3's TS union types are the same names — the Task 3 reviewer
-diff-checks them against the migration before merge.
+| Session | Lane | v2 Task | Files owned | Can run alongside |
+|---|---|---|---|---|
+| 1 | A | Task 1 schema | `supabase/migrations/20260819150000_*.sql`, `20260819151000_*.sql`, `supabase/tests/profitability_core_schema_test.sql` | Lane B entirely |
+| 1 | B | Task 3 engine | `web/src/lib/profitability/{types,calculateJobHealth}.ts` + tests | Lane A entirely; must NOT touch `web/src/lib/estimates/`, `web/src/lib/ghl/`, `supabase/` |
+| 2 | 2a | Task 2 economics | `web/src/lib/profitability/estimateEconomics.ts` + test | 2b, 2c |
+| 2 | 2b | Task 2 migrations | `20260819*_create_estimate_economic_details.sql`, `20260819*_estimate_commercial_lifecycle.sql` + pgTAP + `estimated_dump_cost_per_load=65` seed | 2a, 2c |
+| 2 | 2c | Task 2 GHL surface | `web/src/lib/ghl/pipeline.ts`, `web/src/lib/ghl/prefill.ts` + tests; additive changes to `client.ts` | 2a, 2b |
+| 2 | 2d | Task 2 integration | `web/src/lib/estimates/*`, `commercialLifecycle.ts`, `actions.ts`, `EstimateBuilder.tsx`, `web/src/lib/rates.ts` | nothing (interface boundary behind 2a/2b/2c) |
+| 3 | 4a | Task 4 RPC | `20260819*_schedule_estimate_rpc.sql` + pgTAP | 4b, 4c |
+| 3 | 4b | Task 4 web | `web/src/lib/jobs/{types,validate,repo}.ts` + tests, `web/src/app/(app)/estimates/[id]/schedule/*`, `web/src/app/(app)/jobs/actions.ts`, detail-page hook | 4a (wires against the RPC signature fixed verbatim in the v2 doc), 4c |
+| 3 | 4c | Task 4 webhook | `supabase/functions/ghl-job-webhook/handlers.ts` + `handlers_test.ts` | 4a, 4b |
+| 4 | 5A | Task 5 outbound | `20260819*_outbox_claim_rpc.sql`, `supabase/functions/integration-dispatcher/*`, `_shared/google.ts` (additive `updateCalendarEvent`), `20260819*_schedule_integration_dispatcher.sql`, `web/src/lib/jobs/scheduleActions.ts` + tests | reviews of Session 3 |
+| 5 | 5B | Task 5 inbound | `supabase/functions/google-calendar-webhook/*`, `calendar_watch_channels` migration, reconciliation poll | nothing until the spike resolves |
+| — | Review | each task | none (read-only) | any unrelated implementation lane |
+| — | Serial tail | gate + landing | prod DB, env flag, `BUILD_LOG.md`, `CLAUDE.md`, `BUILD_PLAN.md`, `NEXT_SESSION_PROMPT.md` | nothing (integrity boundary) |
 
-### Session 2 — Task 2 (estimate economics + commercial lifecycle), 3 internal lanes → 1 integration step
+---
 
-| Lane | Owns |
-|---|---|
-| 2a: economics module | `web/src/lib/profitability/estimateEconomics.ts` + test (pure fn, spec verbatim in v2 doc) |
-| 2b: migrations | `20260819*_create_estimate_economic_details.sql` (v2 RPC), `20260819*_estimate_commercial_lifecycle.sql` (identity links, presentations, acceptance events/state, `record_estimate_acceptance_event`), + pgTAP tests, + `estimated_dump_cost_per_load=65` seed |
-| 2c: GHL surface | `web/src/lib/ghl/pipeline.ts` (centralized stage IDs), `web/src/lib/ghl/prefill.ts` + tests; read-only additions to `client.ts` |
-| 2d (after 2a/2b/2c): integration | `web/src/lib/estimates/{types,validate,map,repo,lifecycle}.ts`, new `commercialLifecycle.ts`, `actions.ts`, `EstimateBuilder.tsx`, `web/src/lib/rates.ts` (new key) |
+### Task 0: Land this plan in the repo — ✅ done 2026-08-19
 
-2a ∥ 2b ∥ 2c are fully concurrent; 2d serializes behind them (interface boundary — legitimate).
-The `estimate_identity_links` backfill (deterministic, from `ghl_push_state`, never guessing on
-disagreement) runs as part of 2b's prod apply; expected input is the 10 live `ghl_push_state`
-rows (all TEST estimates).
+**Files:** Create: `docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md`
 
-**Deploy-order invariant:** the `estimated_dump_cost_per_load` seed migration MUST be applied to
-prod **before** the web code that reads it deploys — `loadRatesConfig()` throws on any missing
-key it reads, so a web-first deploy would 500 every estimate page.
+- [x] **Step 1:** Committed as `165f11b` and pushed to `claude/last-session-review-f7tqxw`; upgraded to skill-standard format same session.
 
-### Session 3 — Task 4 (atomic schedule-to-job promotion), 3 lanes
+---
 
-| Lane | Owns |
-|---|---|
-| 4a: RPC migration | `20260819*_schedule_estimate_rpc.sql` (`schedule_estimate`: lock, eligibility checks, mint via `next_job_number()`, budget v1, outbox events, idempotent re-call) + pgTAP |
-| 4b: web scheduling | `web/src/lib/jobs/{types,validate,repo}.ts` + tests, `web/src/app/(app)/estimates/[id]/schedule/*`, `web/src/app/(app)/jobs/actions.ts`, detail-page hook |
-| 4c: webhook retirement | `supabase/functions/ghl-job-webhook/handlers.ts` + `handlers_test.ts` — Quote Accepted handler gains the `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` gate (absent ⇒ legacy ON), Job Scheduled handler gains the `app_is_schedule_authority` compat response for launch-workflow jobs |
+### Task 1 (Session 1 Lane A — v2 Task 1): Canonical profitability schema
 
-4b wires against 4a's RPC signature (fixed verbatim in the v2 doc — no wait needed);
-4c is disjoint from both. `ghl-job-webhook` redeploys via the invariant; its 139-test suite must
-stay green; the flag stays un-set in prod (legacy behavior unchanged) until the gate.
+**Files:**
+- Create: `supabase/migrations/20260819150000_profitability_lifecycle_types.sql`
+- Create: `supabase/migrations/20260819151000_profitability_core_schema.sql`
+- Create: `supabase/tests/profitability_core_schema_test.sql`
 
-### Session 4 — Task 5A: outbound (dispatcher), then Session 5 — Task 5B: inbound (calendar sync)
+**Interfaces:**
+- Consumes: existing `jobs(job_number)`, `estimates(id)`, `auth.users(id)`, `next_job_number()`.
+- Produces: the 13 enums, 13 new `jobs` columns, 15 tables, `mark_job_reconciliation_required()`, immutability triggers, indexes — exact names per v2 lines 272–686; Tasks 2–17 depend on them.
 
-Split per the v2 gate's own note: *"the outbound projection must pass its gate without depending
-on inbound sync being live."*
+- [ ] **Step 1 (Sonnet lane):** Author both migrations + the pgTAP suite per the v2 contract with deviations 1–4 applied. House style: `20260818143000_workforce_auth_boundary.sql` (revokes/pinning/header), `20260814151948_phase_b_estimates_fixups.sql` (immutability triggers), `workforce_auth_boundary_test.sql` (pgTAP with descriptions). Test extends the spec's 20 existence assertions with: all 13 enums, all 15 tables, `jobs` column spot-checks, RLS-enabled checks on every new table, ACL assertions (anon + authenticated hold nothing), `function_privs_are` on `mark_job_reconciliation_required`, partial-unique-index + trigger existence checks.
+- [ ] **Step 2 (orchestrator):** Runbook cycle on disposable branch `v2-phase1-task1`: fidelity probes a–d → pgTAP install → RED pre-migration → apply both migrations → GREEN → `deno task test` + `cd web && npx vitest run` green → record verbatim (branch id, probes, red/green output, row counts).
+- [ ] **Step 3 (Opus review):** Adversarial review of the SQL lane (logic + live-DB read-only; does not run the suite). Fix round if findings; re-validate on branch if the migration changed.
+- [ ] **Step 4 (orchestrator):** Commit the identical SQL that passed (`feat: add canonical job profitability schema`), push.
+- [ ] **Step 5 (Matt approval, then orchestrator):** Apply to production via `apply_migration`; plain-SQL post-apply catalog assertions + row counts (legacy `jobs`/`users`/`crews`/`time_entries` unchanged); `get_advisors` security read; delete the disposable branch. Record in BUILD_LOG.
 
-**5A (outbound):** `20260819*_outbox_claim_rpc.sql` (`claim_integration_events`,
-`for update skip locked`), `supabase/functions/integration-dispatcher/*` (Calendar create/update
-via new `updateCalendarEvent` in `_shared/google.ts`, GHL stage projection, one crew-safe Slack
-schedule message, retry `min(60, 2**attempts)` minutes, dead-letter at attempt 5 + `job_alerts`),
-cron migration `20260819*_schedule_integration_dispatcher.sql` (every 5 min, x-webhook-secret
-required), `web/src/lib/jobs/scheduleActions.ts` (cancel/postpone/closed-lost actions).
+### Task 2 (Session 1 Lane B — v2 Task 3): Pure job forecast and health engine
 
-**5B (inbound):** `supabase/functions/google-calendar-webhook/*`, `calendar_watch_channels`
-registry + renewal-before-expiry + overlap dedup + reconciliation-fallback poll,
-`resolveDeletedCalendarEvent` resolutions, revision-guarded date-only inbound writes.
-**5B opens with a spike** (see Risks) before the lifecycle is built.
+**Files:**
+- Create: `web/src/lib/profitability/types.ts`
+- Create: `web/src/lib/profitability/calculateJobHealth.ts`
+- Create: `web/src/lib/profitability/__tests__/calculateJobHealth.test.ts`
 
-### Phase 1 gate (after 5A at minimum; 5B gates separately)
+**Interfaces:**
+- Consumes: `roundToCent` from `@/lib/pricing` only. Zero DB dependency.
+- Produces: `calculateJobHealth(input: JobHealthInput, now?: Date): JobHealthResult` — types verbatim from v2 lines 1016–1074; used by v2 Tasks 5, 6, 10, 15. Union names must match Task 1's SQL enums character-for-character (reviewer diff-checks).
 
-Precondition: Matt's phone smoke + real estimate ≥1426 — **hard stop, no exceptions.**
-Gate script (v2 doc verbatim): create/link GHL opportunity → present 2 versions → accept v2 →
-confirm `Quote Accepted` + no job → schedule 2-day all-day → one `JOB-XXXX`, one budget v1,
-correct exclusive-end Calendar rendering, GHL `Job Scheduled` → edit dates both directions →
-simulate deletion + resolve → prove retry idempotency. Runs against **live GHL with TEST-labeled
-records** (Phase A/B precedent — no staging GHL exists); test jobs re-cancelled after (re-drags
-revive rows — known hazard). **Final gate step: set `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false`
-in prod (permanent), redeploy `ghl-job-webhook` via the invariant, live-verify a GHL Quote
-Accepted drag returns `quote_accepted_awaiting_schedule` and mints nothing.**
+- [ ] **Step 1 (Sonnet lane, TDD):** The 9 named cases from v2 lines 1076–1086 written first and failing; implement the rules from lines 1088–1127 (health precedence, freshness windows 36h/12h/24h, confidence High/Medium/Low, `plannedProfit <= 0` → retention 0 + at_risk, overhead never inside `CategoryAmounts`); edge tests (revenue 0, null watermarks, completed-job checklist relaxation).
+- [ ] **Step 2:** Full web suite green (`cd web && npx vitest run`).
+- [ ] **Step 3 (Opus review):** Adversarial review incl. enum-name diff against Task 1's migration. Fix round if findings.
+- [ ] **Step 4 (orchestrator):** Commit (`feat: add deterministic job forecast and health engine`), push.
 
-## Spec corrections / deviations (approved via this plan)
+### Task 3 (Session 2 — v2 Task 2): Versioned commercial estimates and economic details
 
-1. **pgTAP description args everywhere.** The v2 doc's verbatim Task 1 test
-   (`has_enum('public','x')`, `has_table('public','x')` with no trailing description) reproduces
-   the exact overload bug Phase 0 caught. Every multi-overload assertion gets its description
-   argument. `plan(n)` counts adjusted accordingly.
-2. **Explicit `authenticated` revokes + ACL assertions on every new table.** v2 Task 1 says only
-   "grant no access to anon" — Phase 0 proved Supabase default privileges pre-grant
-   `authenticated` REFERENCES/TRIGGER/**TRUNCATE** (not RLS-gated). Every new table's migration
-   revokes from `public, anon, authenticated` explicitly (service-role bypasses RLS; Task 8 adds
-   authenticated policies later), and the pgTAP suite pins the ACL posture — the assertion class
-   that caught the real gap in Phase 0.
-3. **`search_path = public, pg_temp` pinned on every new function/RPC/trigger function**
-   (`mark_job_reconciliation_required`, `record_estimate_acceptance_event`,
-   `create_estimate_with_items_v2`, `schedule_estimate`, `claim_integration_events`, all
-   immutability triggers). v2 doesn't state it; the 2026-08-17 hardening makes it standing.
-4. **Migration filename prefixes use 2026-08-19+ dates**, not the v2 doc's 2026-08-18 ones —
-   keeps repo ordering consistent with the applied head (`20260818230956`).
-5. **Task 5 split 5A/5B** as above (sanctioned by the v2 gate text itself).
-6. **verify_jwt posture recorded for the two new functions:** `google-calendar-webhook` MUST
-   deploy `--no-verify-jwt` (Google push notifications carry no Supabase JWT; auth = channel
-   token verification) — it joins `ghl-job-webhook` in the deploy invariant, readback required.
-   `integration-dispatcher` follows the `crew-night-before` pattern (its `x-webhook-secret` check
-   is the auth), posture recorded at deploy either way.
-7. **Flag default semantics:** `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` absent ⇒ legacy minting ON
-   (deploy-safe: Task 4 shipping changes nothing in prod behavior); only the literal string
-   `"false"` disables. Flip happens at gate pass (Matt, this session).
-8. **Sub-slice review boundaries:** each session's review gates its own merge/apply; the phase
-   additionally gets a whole-branch review before the gate (standing rule).
+**Files:** per the v2 doc's Task 2 file list (lines 691–709), with migration prefixes per deviation 4.
+
+**Interfaces:**
+- Consumes: `computeEstimate()`, `roundToCent()`, `EstimateDraft`, `estimate_financial_details` (Task 1).
+- Produces: `computeEstimateEconomics()`, `create_estimate_with_items_v2` (v1 kept during rollout), `estimate_identity_links`/`estimate_presentations`/`estimate_acceptance_events`/`estimate_acceptance_state` + `record_estimate_acceptance_event`, `presentEstimate`/`recordEstimateAcceptance`/`reverseEstimateAcceptance`, centralized `pipeline.ts` stage IDs, GHL-first prefill, category cost inputs in the builder.
+
+- [ ] **Step 1 (lanes 2a ∥ 2b ∥ 2c, Sonnet):** economics module (spec-verbatim tests first, Jorge case `$2,543.51`); migrations + pgTAP (deviations 1–4; deterministic idempotent `estimate_identity_links` backfill from the 10 `ghl_push_state` rows — disagreeing families open manual-review exceptions, never guessed); GHL pipeline/prefill.
+- [ ] **Step 2 (lane 2d, Sonnet, after 2a/2b/2c):** integration — draft/schema/map/repo/actions/builder wiring; `jobSpecificCosts` aggregate keeps quote math unchanged; `expectedDumpCost` defaults `dumpCount × estimated_dump_cost_per_load`, never added to the quote; `loadRatesConfig()` gains the new key. Existing `estimates.status` keeps being written in the same server actions that append acceptance events (no silent drift); the acceptance projection is the scheduling authority.
+- [ ] **Step 3 (orchestrator):** Runbook cycle for both migrations on a fresh disposable branch; v2 line 976–988 test commands + full suites + `npm run build`.
+- [ ] **Step 4 (Opus review + fix round).**
+- [ ] **Step 5 (orchestrator):** Commit (`feat: version estimate economics and commercial acceptance`), push. **Deploy-order invariant:** Matt-approved prod apply of the migrations (including the rates seed) MUST precede the Vercel deploy of web code reading the new key — `loadRatesConfig()` throws on a missing key, so a web-first deploy would 500 every estimate page.
+
+### Task 4 (Session 3 — v2 Task 4): Atomic schedule-to-job promotion
+
+**Files:** per v2 lines 1144–1155, prefixes per deviation 4.
+
+**Interfaces:**
+- Consumes: `estimate_acceptance_state` → accepted presented estimate with financial details and no job.
+- Produces: `schedule_estimate(p_estimate_id, p_schedule, p_actor, p_actor_name)` (lock, eligibility checks, mint via `next_job_number()`, jobs insert with `launch_workflow=true`, budget v1, `job_events`, `job.scheduled` + `ghl.stage.requested` outbox events, idempotent re-call returning the linked job); `scheduleEstimateAction()` + `/estimates/[id]/schedule` UI; flag-gated webhook retirement.
+
+- [ ] **Step 0 (HARD STOP check):** Matt's phone smoke + real estimate ≥1426 done? If not, Session 3 may build and test but nothing cutover-related deploys and the gate does not run.
+- [ ] **Step 1 (lanes 4a ∥ 4b ∥ 4c, Sonnet):** RPC migration + pgTAP; web scheduling lib/UI against the RPC signature; `ghl-job-webhook` — Quote Accepted handler gains `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` gate (deviation 7 semantics, response `quote_accepted_awaiting_schedule` when disabled), Job Scheduled handler gains the `app_is_schedule_authority` compat response for `launch_workflow` jobs; 139 existing tests + new flag tests green.
+- [ ] **Step 2 (orchestrator):** Runbook cycle; `deno test supabase/functions/ghl-job-webhook`; full suites + `npm run build`.
+- [ ] **Step 3 (Opus review + fix round).**
+- [ ] **Step 4 (orchestrator):** Commit (`feat: make app scheduling the canonical job creation action`), push. Matt-approved prod apply. Deploy `ghl-job-webhook` via the two-command invariant + readback; flag left UNSET in prod (legacy behavior unchanged). Live re-drag probe on JOB-1104, then re-cancel it.
+
+### Task 5 (Session 4 — v2 Task 5A): Outbox dispatcher — outbound projections
+
+**Files:** `supabase/migrations/20260819*_outbox_claim_rpc.sql`, `supabase/functions/integration-dispatcher/{index,handlers,handlers_test}.ts`, `supabase/functions/_shared/google.ts` (additive `updateCalendarEvent`), `supabase/migrations/20260819*_schedule_integration_dispatcher.sql`, `web/src/lib/jobs/scheduleActions.ts` + tests.
+
+**Interfaces:**
+- Consumes: pending `integration_outbox` rows (Task 1 table, Task 4 producers).
+- Produces: `claim_integration_events(p_limit)` (`for update skip locked`); idempotent all-day Calendar create/update (inclusive dates → exclusive `end.date`, `extendedProperties.private.managedBy`); GHL stage projection; one crew-safe Slack schedule message; retry `min(60, 2**attempts)` minutes; dead-letter at attempt 5 + `job_alerts`; 5-min self-gating cron with `x-webhook-secret`; explicit cancel/postpone/closed-lost actions.
+
+- [ ] **Step 1 (Sonnet, TDD):** the outbound subset of the v2 Step-1 test list (all except the three inbound/channel cases), incl. `crew calendar omits financial fields` and `same idempotency key is never delivered twice after success`.
+- [ ] **Step 2 (orchestrator):** Runbook cycle for both migrations; `deno test supabase/functions/integration-dispatcher` + full suites.
+- [ ] **Step 3 (Opus review + fix round).**
+- [ ] **Step 4 (orchestrator):** Commit (`feat: deliver scheduled jobs through a retryable integration outbox`), push. Matt-approved prod apply + function deploy (posture recorded), dispatcher secret set, cron live. Live probe with a TEST job.
+
+### Task 6 (Session 5 — v2 Task 5B): Inbound Calendar sync — spike first
+
+- [ ] **Step 1 (SPIKE, orchestrator or Sonnet):** register ONE watch channel for a test calendar against a deployed stub `google-calendar-webhook` (deployed `--no-verify-jwt` per deviation 6) and observe a real notification. If Google's domain-verification blocks edge-function URLs, STOP: 5B degrades to reconciliation-polling-only (already the spec'd fallback) — flag to Matt before building channel machinery.
+- [ ] **Step 2 (Sonnet):** `calendar_watch_channels` registry migration + renewal-before-expiry + overlap dedup + reconciliation fallback poll; revision-guarded date-only inbound writes; deletion → `job_schedule_exceptions` + alert (never auto-unschedule); `resolveDeletedCalendarEvent` resolutions; the three inbound/channel test cases from the v2 list.
+- [ ] **Step 3:** Runbook cycle, Opus review, commit, Matt-approved prod apply + deploy. 5B gates separately from the phase gate.
+
+### Task 7: Phase 1 gate + permanent cutover
+
+**Precondition (hard stop, no exceptions):** Matt's phone smoke + real estimate ≥1426.
+
+- [ ] **Step 1:** Whole-branch adversarial Opus review (standing rule).
+- [ ] **Step 2 (E2E, live GHL with TEST-labeled records — no staging GHL exists; Phase A/B precedent):** create/link opportunity → present two versions → accept v2 → confirm `Quote Accepted` + no job → schedule 2-day all-day → one `JOB-XXXX`, one budget v1, correct exclusive-end Calendar rendering, GHL `Job Scheduled` → edit dates both directions (5B live) or outbound-only (5B pending) → simulate deletion + resolve → prove retry idempotency. Re-cancel test jobs after (re-drags revive rows — known hazard).
+- [ ] **Step 3 (permanent):** set `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` in prod, redeploy `ghl-job-webhook` via the invariant, live-verify a Quote Accepted drag returns `quote_accepted_awaiting_schedule` and mints nothing.
+- [ ] **Step 4:** Land the session: BUILD_LOG entry (verbatim runbook records), CLAUDE.md + BUILD_PLAN.md status updates, `NEXT_SESSION_PROMPT.md` regenerated, merge per Matt's instruction.
 
 ## Risk flags
 
-- **Google watch-channel viability is unproven** — channel registration to an edge-function URL
-  may hit Google's domain-verification requirements. 5B step 1 is a **spike**: register one watch
-  channel for a test calendar against a deployed stub endpoint and observe a real notification
-  *before* building the lifecycle. If blocked, 5B degrades to reconciliation-polling-only
-  (already specified as the fallback) — flag to Matt, don't build the channel machinery blind.
-- **`ghl-job-webhook` regression surface** (Task 4c): the function is the live Phase A keystone.
-  Gate: full 139-test suite + new flag tests green before deploy; invariant deploy; live re-drag
-  probe on JOB-1104 after (then re-cancel it).
-- **Two minting paths coexist between Task 4 deploy and gate flip** — by design (Matt's cutover
-  decision). The app path writes `launch_workflow=true`; legacy path doesn't — rows are
-  distinguishable and the GHL Job Scheduled handler's compat check keys off it.
-- **`estimate_acceptance_state` vs existing `estimates.status`:** the estimates list/detail UI
-  currently reads `status` (`sent`/`accepted`/`declined`). Task 2 keeps writing it (via existing
-  `update_estimate_status`) in the same server actions that append acceptance events, so the two
-  can't drift silently; the acceptance projection is the scheduling authority.
-- **Outbox introduces async side effects where Phase A was synchronous** — scheduling returns
-  before Calendar/Slack/GHL fire (≤5-min cron lag). Accepted; the job detail page shows outbox
-  event status so Dane isn't blind while it's pending.
-- Money stored `numeric(12,2)`; percentages whole-number unless `_rate` (decimal fraction) —
-  `pricing_variables` new key is a per-load dollar cost, not a `_rate`.
+- **Google watch-channel viability is unproven** — hence the Task 6 spike before any lifecycle code.
+- **`ghl-job-webhook` regression surface** (Task 4): live Phase A keystone; 139-test suite + invariant deploy + live re-drag probe gate it.
+- **Two minting paths coexist between Task 4 deploy and gate flip** — by design (Matt's cutover decision). App path writes `launch_workflow=true`; rows are distinguishable and the compat check keys off it.
+- **Outbox makes side effects async where Phase A was synchronous** (≤5-min cron lag) — accepted; job detail surfaces outbox status so Dane isn't blind while pending.
+- Money `numeric(12,2)`; percentages whole-number unless `_rate` (decimal fraction) — the new pricing key is a per-load dollar cost, not a `_rate`.
 
-## Verification
+## Verification (end-to-end)
 
-- **Per migration:** runbook 8-step, verbatim BUILD_LOG record (branch id, probes a–d, red/green
-  pgTAP, row counts, post-apply `get_advisors`).
-- **Per task:** the v2 doc's own test commands (Task 2: economics + estimates + ghl suites +
-  `npm run build` + Jorge $2,543.51; Task 4: `deno test supabase/functions/ghl-job-webhook` +
-  invariant readback; Task 5: dispatcher/webhook/google suites). Plus `deno task test` ≥317 and
-  web vitest ≥261 at every close.
-- **Phase gate:** the E2E script above, on live GHL with TEST records, then the flag flip +
-  negative probe (drag mints nothing), then whole-branch review, BUILD_LOG, and
-  CLAUDE.md/BUILD_PLAN status updates.
+- Per migration: runbook 8-step with verbatim BUILD_LOG record (branch id, probes a–d, red/green pgTAP, row counts, post-apply `get_advisors`).
+- Per task: the v2 doc's own test commands; plus `deno task test` ≥317 and web vitest ≥261 at every close; Jorge `$2,543.51` wherever estimate code is touched.
+- Phase gate: Task 7 above.
 
-## Out of scope (Phase 1)
+## Explicitly out of scope
 
-Tasks 6–17 (dashboard, ledger, auth'd checklists, change orders, closure, Slack digests, D1
-adapter, BILL, Stripe webhook, launch). Owner promotion of Matt's `workforce_profiles` row
-(Task 8 runbook). BL-6 echo guard (separate draft awaiting review). Removing
-`create_estimate_with_items` v1 (post-launch cleanup). Historical estimate import (declined).
-
-## First execution steps on approval
-
-1. Land this plan as `docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md`; commit +
-   push to `claude/last-session-review-f7tqxw`.
-2. Dispatch Session 1: Lane A (Task 1 schema, runbook cycle) ∥ Lane B (Task 3 engine) ∥ their
-   reviews as they complete.
+v2 Tasks 6–17 (dashboard, ledger, auth'd checklists, change orders, closure, Slack digests, D1 adapter, BILL, Stripe webhook, launch). Owner promotion of Matt's `workforce_profiles` row (v2 Task 8 runbook). BL-6 echo guard (separate draft awaiting Matt's review). Removing `create_estimate_with_items` v1 (post-launch cleanup). Historical estimate import (declined 2026-08-14).
