@@ -1,101 +1,93 @@
 Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (business ground
-truth), then BUILD_PLAN.md (official plan — note the 2026-08-18 amendment), then
+truth), then BUILD_PLAN.md, then the two Profitability v2 execution docs:
 `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (the ratified
-Profitability Program v2).
+program — the complete technical contract) and
+`docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md` (the approved Phase 1 execution
+plan — **live checkboxes, deviations 1–12, and the review-handoff blocks are all current; work
+from this file**).
 
-## What just happened — Profitability v2 Phase 0 SHIPPED; BL-7 CLOSED (2026-08-18)
+## What just happened — v2 Phase 1 Sessions 1+2 SHIPPED (2026-08-19, remote session)
 
-Executed `docs/superpowers/plans/2026-08-18-profitability-v2-phase0.md` on branch `v2-phase0`.
-**Both Phase 0 tasks are done, and Task 0B's migration is applied to production** — Matt approved
-the prod apply this session rather than leaving it committed-but-unapplied. Read the 2026-08-18
-"Profitability v2 Phase 0 SHIPPED" entry in `BUILD_LOG.md` before touching anything schema-related.
-Headlines:
+Branch: **`claude/last-session-review-f7tqxw`** (NOT yet merged to main — Matt decides when).
+Read the two 2026-08-19 entries at the top of `BUILD_LOG.md` before touching anything. Headlines:
 
-- **Task 0A** — `docs/runbooks/profitability-schema-validation.md` written: the 8-step validation
-  sequence, a branch-fidelity decision tree, the auth-schema dry-run caveat (below), and the exact
-  `ghl-job-webhook --no-verify-jwt` deploy-invariant block. CLAUDE.md/BUILD_PLAN.md got the 7→12
-  RLS policy-count correction.
-- **Task 0B** — migration `20260818143000_workforce_auth_boundary.sql` + the repo's first pgTAP
-  test (`supabase/tests/workforce_auth_boundary_test.sql`, 19 assertions), validated on a
-  disposable branch, then a **mandatory production single-transaction dry-run** (branches can't
-  reproduce `auth.users` ownership), then applied for real. `workforce_profiles` now exists on
-  production: RLS, 2 policies, 1 backfilled row (Matt, `pending`/`inactive`).
-- **BL-7 IS CLOSED.** `handle_new_auth_user()` is pinned and rewritten — it inserts into the
-  isolated `workforce_profiles` table instead of being a silent no-op. Owner promotion (Matt's row
-  from pending/inactive to an active owner role) is deliberately deferred to v2 Task 8's launch
-  runbook — not done this session.
-- Suites at validation time: `deno task test` 317/317, `cd web && npx vitest run` 261/261.
-- Branch `v2-phase0` is **not yet merged to `main`** — commits `27f95c3..c50a5d6` plus this
-  session's docs commit. Confirm the whole-branch review landed and merge before starting new work
-  if it hasn't already happened by the time you read this.
+- **v2 Task 1 (canonical profitability schema) — LIVE ON PRODUCTION.** 14 enums, 12 new `jobs`
+  columns, 16 tables, `mark_job_reconciliation_required()` (outbox keyed `alert:<uuid>` of the
+  newly-opened alert), 7 immutability triggers, full RLS + revoke posture. pgTAP 102/102.
+- **v2 Task 2 (economics + commercial lifecycle) — migrations LIVE ON PRODUCTION** (head
+  `20260819141318`, 31 applied): `create_estimate_with_items_v2` (v1 untouched, all 3 args
+  required), `estimated_dump_cost_per_load=65` seed, `estimate_identity_links` /
+  `estimate_presentations` / `estimate_acceptance_events` / `estimate_acceptance_state`,
+  `record_estimate_acceptance_event`. **Deviation 12 is live:** `accepted_price` is pinned
+  server-side at acceptance from `coalesce(quoted_price, total_bid)`. Identity backfill seeded
+  exactly 3 TEST families (1419/1420/1423). pgTAP 78/78.
+- **v2 Task 3 (forecast engine)** + **Task 2 web integration** merged to the branch: economics
+  module, GHL pipeline authority + prefill/contact-match, builder category cost inputs,
+  present/accept/reverse lifecycle UI. **The web app is NOT yet deployed to Vercel** — that is a
+  separate Matt decision (the deploy-order invariant is satisfied; the rates key is live).
+- Every task went through adversarial Opus review + fix rounds (2 rounds each for the schema
+  lanes; 3 for the 2d integration — the re-review's "Attack C" catch matters, see BUILD_LOG).
+- Suites at close: web **471/471**, deno **317/317** (golden-321 intact), build green.
 
 ## 🚨 Hard-won facts — don't rediscover these
 
-- **A bare `supabase functions deploy` silently flips `verify_jwt` to TRUE** → 401s every GHL
-  call. Always `--no-verify-jwt` for webhook functions; always read back via
-  `list_edge_functions`. Now documented as the deploy invariant in
-  `docs/runbooks/profitability-schema-validation.md`.
-- **Auth-schema DDL is branch-blind — the new standing rule.** A migration touching any
-  `auth.*` object (trigger, function owned by `auth.users`, etc.) can pass green on a disposable
-  branch and still fail on production, because branches don't reproduce `postgres`'s real
-  ownership gaps against `auth.users` (`postgres` holds TRIGGER privilege there, not ownership —
-  `DROP TRIGGER` 42501s on prod, passes on a branch). **Any such migration REQUIRES the production
-  single-transaction dry-run regardless of branch results.** Runbook: `docs/runbooks/profitability-schema-validation.md`.
-- **pgTAP assertions need explicit description args or they resolve to the wrong overload.**
-  `has_table('public', 'x')` without a third/fourth description string silently resolves to
-  `has_table(table, description)` and checks for a table literally named `public`. Always pass
-  the description argument on `has_table`/`has_column`/`policy_cmd_is` and similar multi-overload
-  pgTAP functions.
-- **Supabase default privileges pre-grant `authenticated` more than expected — including
-  TRUNCATE, which RLS does not gate.** Any new-table revoke list must name `authenticated`
-  explicitly, not just `anon`.
-- **Test re-drags revive job rows** (`handleJobScheduled` writes `status_v2='scheduled'`
-  unconditionally). Re-cancel test jobs as part of every probe cleanup.
-- **No `supabase db reset`/`db push`** — the 5 live-only legacy functions can't replay from empty.
-  Schema work validates on a disposable live-schema branch, then the established migration
-  workflow (now formalized in the runbook above).
-- **The A→G→A sync echo loop is live-proven** (BL-6 draft); `tags` arrives empty in 620/624
-  payloads, so a whole-tuple hash guard would loop forever.
+- **`estimate_acceptance_events` has no monotonic ordering** — same-transaction events share
+  `created_at`. Any "current acceptance" read MUST use
+  `estimate_acceptance_state.current_acceptance_event_id` / `current_estimate_id`, never
+  `order by created_at`. **This binds Task 4's `schedule_estimate` directly.**
+- **The superseded marker must survive a reversal.** `reverseEstimateAcceptance` deliberately
+  skips the status mirror when the target is superseded — mirroring would clear the marker and
+  re-arm stale-price acceptance (re-review Attack C). Don't "fix" that skip.
+- **Live GHL Job Pipeline stage names are dumped and verified** (pipeline `OMDtCf2eHWQ1GQrEcJA1`):
+  stage 7 "Job In Progress", stage 11 "Paid / Closed Won". The location's SECOND pipeline
+  ("Contractor Pipeline") has its own "Job Scheduled" stage — the pipeline-membership assertion
+  before any stage move is live-proven load-bearing, not boilerplate.
+- **pgTAP:** description args on every multi-overload assertion; `col_default_is` takes the plain
+  VALUE ('not_ready'), never the rendered `'x'::type` expression (22P02 otherwise).
+- The live `quote_override_reason_required` CHECK rejects any `quoted_price` without a reason —
+  test fixtures included.
+- `import "server-only"` poisons client-component import paths — pure helpers consumed by client
+  components live in untagged modules (`acceptancePresentation.ts` pattern).
+- supabase-js `.upsert(..., { ignoreDuplicates: true })` = ON CONFLICT DO NOTHING; safe against
+  immutability triggers.
+- Runbook (`docs/runbooks/profitability-schema-validation.md`) is mandatory for every schema
+  task; per-task prod applies with Matt's explicit yes each time (his 2026-08-19 decision).
 
-## 🔴 Still owed
+## 🔴 Still owed / gates
 
-- **Matt's phone smoke + one-real-bid Fillout parallel check** on
-  https://lostboysdemolition.vercel.app — outstanding since 2026-08-14 and a **hard precondition
-  of the v2 Phase 1 gate**. First real estimate ≥ 1426.
-- BL-6 echo-guard design draft still awaits Matt's review
-  (`docs/superpowers/plans/2026-08-18-bl6-echo-guard-design-DRAFT.md`).
-- Eyeball the BL-4 message rendering in #ops-test (Matt's 30-second look).
-- Dane habit items: populate GHL **Job Start Time** and **Job Scope**.
-- Owner promotion for `workforce_profiles` (Matt's row, pending → active owner) — explicitly
-  deferred to v2 Task 8's launch runbook, not a Phase 1 task.
+- **Matt's phone smoke + one real estimate (≥1426) through https://lostboysdemolition.vercel.app**
+  — outstanding since 2026-08-14, and a **HARD STOP before v2 Task 4's cutover work and the
+  Phase 1 gate** (Matt's 2026-08-19 decision: Tasks 1–3 could proceed, Task 4 cutover cannot).
+  Note the live Vercel deployment still runs the pre-Session-2 build until the branch is deployed.
+- **Vercel deploy of the Session 2 web work** — separate Matt ask (changes live builder behavior:
+  new cost inputs + lifecycle actions).
+- **GHL minting cutover** (`ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false`, permanent) happens at
+  Phase 1 gate pass, NOT at Task 4 deploy (Matt's decision 1; flag absent ⇒ legacy ON).
+- Accepted limitations recorded in BUILD_LOG (GHL-lag has no in-app retry for accept/reverse;
+  `/estimates/new?ghlOpportunityId=` prefill is an accepted-risk read on the network-open
+  surface; identity panel is creation-only for opportunities).
+- 3 TEST identity-link rows (1419/1420/1423) + estimates ≤1425 TEST residue — deletable only with
+  Matt's per-item approval.
+- Older items: BL-6 echo-guard draft awaits Matt; BL-4 #ops-test eyeball; Dane habit items;
+  owner promotion deferred to v2 Task 8.
 
-## Next work
+## Next work — Session 3 (v2 Task 4: atomic schedule-to-job promotion)
 
-1. **v2 Phase 1 planning (Tasks 1–5)**, starting with Task 1 (schema). Every schema task in this
-   phase MUST follow `docs/runbooks/profitability-schema-validation.md` — read it before writing
-   any migration.
-2. Confirm the Phase 1 gate precondition (Matt's phone smoke + first real estimate) before
-   treating Phase 1 as clear to start, per the v2 ratification decision.
-3. BL-6 echo-guard draft still awaits Matt's review — weigh its priority against the shortened
-   Airtable-sync horizon under v2.
-4. Track B — lead intake (Grasshopper-vs-port, open decision #7) remains config-only, parallel.
-5. Historical import of 321 Airtable estimates: Matt **declined** 2026-08-14; don't re-propose.
-
-## State that hasn't changed
-
-Phase B slice 2 LIVE at https://lostboysdemolition.vercel.app, no login (estimator picker),
-network-layer open. `ghl-job-webhook` v19 (BL-5: crew calendars carry no pricing),
-`crew-night-before` v11, `airtable-client-sync` v29. Suite: 317 via `deno task test`, golden-321
-gate intact; web 261/261. Test residue: estimates ≤1425 TEST-labeled; JOB-1102/JOB-1104 cancelled;
-no test artifacts on any calendar. No edge function was touched by the Phase 0 session — all
-function versions unchanged.
+1. Confirm the gate precondition above FIRST (phone smoke + real estimate).
+2. Execute the phase plan's Session 3: lanes 4a (schedule_estimate RPC migration — runbook cycle;
+   **sources `approved_revenue` from the acceptance's `accepted_price`, deviation 12**; consumes
+   `estimate_acceptance_state` + `isSchedulingEligible` semantics), 4b (web scheduling lib/UI),
+   4c (`ghl-job-webhook` flag gate — deploy ONLY via the `--no-verify-jwt` two-command invariant;
+   139-test suite must stay green; flag left UNSET in prod until the gate).
+3. Then Session 4 (Task 5A outbound dispatcher) and Session 5 (Task 5B inbound calendar — opens
+   with the watch-channel spike).
 
 ## Standing instructions (unchanged)
 
 Delete nothing without Matt's express per-item approval; never `git add -A`. Plan + explicit
-approval before any new build (the v2 plan is approved as the program plan; each phase still
-gates on adversarial review + live-probe + sign-off). Anything deployed/applied to Supabase
-committed same session. BUILD_LOG entry at every session close. Sonnet implements, opus (or the
-strongest available reviewer) reviews every task + whole branch. Concurrency is REQUIRED where it
-doesn't impact quality/integrity; plans are written for concurrent execution. Pipeline Reference
-base `appA7uj7FhnPp9Bvg` = Field Registry / Secrets & Credentials / People & IDs only.
+approval before any new build (the Phase 1 plan IS approved — execute from its checkboxes; each
+task still gates on adversarial review + live-probe + Matt sign-off for prod applies). Anything
+applied to Supabase committed same session. BUILD_LOG entry at every session close. Sonnet
+implements, the strongest available model adversarially reviews every task + the whole branch.
+Concurrency is REQUIRED where it doesn't impact quality/integrity. Pipeline Reference base
+(`appA7uj7FhnPp9Bvg`) still holds Field Registry / Secrets / People & IDs.

@@ -34,13 +34,96 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 IN PROGRESS** — Phase 1 plan approved + landed 2026-08-19 (`docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md`); **Session 1 SHIPPED: Task 1 profitability schema APPLIED TO PRODUCTION** (102/102 pgTAP, head `20260819052245`) **+ Task 3 forecast engine** (web 289/289). Deviations 9–12 recorded (incl. pin-price-at-acceptance, Matt 2026-08-19). Next: Session 2 (Task 2). GHL-minting cutover flips at Phase 1 gate pass; Matt's phone smoke + real estimate ≥1426 still the hard gate precondition | 2026-08-19 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. Next: Session 3 (Task 4) — **hard stop until Matt's phone smoke + real estimate ≥1426**; GHL-minting cutover flips at Phase 1 gate pass | 2026-08-19 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-19 — v2 Phase 1 Session 2 SHIPPED: Task 2 (economics + commercial lifecycle) — migrations APPLIED TO PRODUCTION, web integration merged to branch
+
+Session 2 of the Phase 1 plan, same remote session as Session 1, four lanes (2a economics module ∥
+2b migrations ∥ 2c GHL surface → 2d integration), each through its own adversarial Opus review +
+fix round(s). **Matt decisions this session:** this remote session finishes Session 2 (local
+terminal takes Session 3); Task 2 prod apply approved and done. Mid-session hazard: the container
+suspended while Matt was away — the 2d implementer agent died UNREPORTED with its build complete
+and green in the working tree; the review was run against the raw diff with no self-report, which
+worked because the phase plan's handoff list let the reviewer verify every requirement
+independently. Commits `5cb8015` (2a), `fccb884` (2c), `6cbc885` (2b), `a662397` (2d).
+
+**Task 2 migrations — LIVE ON PRODUCTION** (`20260819160000_create_estimate_economic_details` +
+`20260819161000_estimate_commercial_lifecycle`, applied versions head `20260819141318`, 31
+applied): `create_estimate_with_items_v2` (v1-byte-faithful + one details insert, verified by
+reviewer diff against live prosrc; v1 untouched; ALL THREE args required — the trailing-defaults
+rule forced dropping p_line_items's default too), `estimated_dump_cost_per_load=65` seed
+(pricing_variables now 7 keys), the four commercial-lifecycle tables
+(`estimate_identity_links`/`estimate_presentations`/`estimate_acceptance_events`/`estimate_acceptance_state`)
+with **deviation 12** (`accepted_price` pinned SERVER-SIDE inside the family lock from
+`coalesce(quoted_price, total_bid)`, required-on-accept CHECK, state-table accepted↔price CHECK),
+and `record_estimate_acceptance_event` (presentation-required, superseded-acceptance blocked,
+reversal guarded to the currently-accepted version, deterministic family lock order —
+the reviewer REPRODUCED a lock-order deadlock in round 1 and verified the fix deadlock-free).
+
+**Runbook record (Task 2):** branch `v2-phase1-task2` (id `ad4fee43-4d04-43ff-985f-9dc72de5ff9b`,
+ref `hkakytvwmwqpitefgqhq`, deleted after): probes a–d FAITHFUL (29 migs, head `20260819052245`,
+definers char-identical, trigger, 12 policies). RED = documented abort at assertion 57 (42P01 on
+the first `::regclass` of a missing table; reviewer-rig split 54 fail / 2 vacuous `triggers_are`
+pins). Both migrations applied → GREEN = **78/78** — after one **branch-caught fixture fix** the
+reviewer's local rig missed: the live `quote_override_reason_required` CHECK rejects a
+`quoted_price` without a reason (fixture 900101-v2). Prod apply → **F7 backfill verification:
+candidate_families=3, seeded_rows=3, candidates_not_seeded=0** — families 1419/1420/1423 exactly
+as the reviewer's dry-run predicted; family 1421's `nonexistent-opportunity-id-12345` T12 fixture
+excluded by the F9 shape filter (`^[A-Za-z0-9]{15,}$`). Catalog assertions all pass, v1 RPC
+untouched, estimates 16 / line items 9 unchanged, `get_advisors`: **zero new WARNs** (only INFO
+no-policy on the 4 new tables). The 3 seeded identity rows are TEST residue, deletable later with
+Matt's approval.
+
+**Web integration (2a/2c/2d, on the branch — NOT yet deployed to Vercel, separate Matt ask):**
+`computeEstimateEconomics` (spec-verbatim, Jorge numbers hand-verified + pinned as literals, ?? vs
+|| mutation pin for deliberate $0 quotes); GHL pipeline authority (`pipeline.ts`, runtime
+stage-ID resolution, ambiguity-guarded) + prefill/contact-match surface (ALL candidates per leg —
+round 1 found the first cut structurally unable to surface more than one match per leg, the exact
+silent-merge shape the spec forbids; path ids now URL-encoded — unencoded query-string ids
+allowed arbitrary authenticated GHL GETs on the network-open deployment); builder category cost
+inputs feeding the v2 RPC; `commercialLifecycle.ts` present/accept/reverse.
+
+**The review chain's headline catch (2d re-review "Attack C"):** present/accept superseded guards
+alone were insufficient — reversing an accepted-then-revised version (the CANONICAL F3 flow)
+mirrored `sent`/`declined` onto the routinely-superseded target, CLEARING the superseded marker
+and re-arming stale-price acceptance through a fresh door. Fix: the status mirror is skipped when
+the reversal target is superseded (the marker must survive reversal; both app-side and DB-side
+guards key off that column). Traced dead end-to-end by the reviewer post-fix.
+
+**Hard-won facts:** (1) `estimate_acceptance_events` has NO monotonic ordering column —
+same-transaction events share `created_at`; ANY "latest event" read must key off
+`estimate_acceptance_state.current_acceptance_event_id`, never `order by created_at` (Task 4
+handoff). (2) **Live GHL stage names dumped and verified** (from `ghl-job-webhook` startup logs,
+pipeline `OMDtCf2eHWQ1GQrEcJA1`): stage 7 is "Job In Progress" (capital In), stage 11 is
+"Paid / Closed Won" — CLAUDE.md's table wording, not the v2 doc's; `pipeline.ts` literals
+corrected, all four needles byte-identical. (3) The location's SECOND pipeline ("Contractor
+Pipeline") has its own "Job Scheduled" stage — live proof the pipeline-membership assertion
+before stage moves is load-bearing. (4) supabase-js `.upsert(..., {ignoreDuplicates: true})` is
+the ON CONFLICT DO NOTHING form that coexists with immutability triggers. (5) `import
+"server-only"` poisons any client-component import path — pure helpers consumed by client
+components must live in their own untagged module (`acceptancePresentation.ts`).
+
+**Accepted limitations (recorded, not defects — 3 users):** (1) a GHL-lag warning from
+accept/reverse has no in-app retry (F7's guard blocks re-accept; PushPanel targets the wrong
+stage); manual GHL stage move is the heal path. (2) The deployment remains network-open;
+`findContactMatchesAction` is actor-gated but `/estimates/new?ghlOpportunityId=` prefill is a
+documented accepted-risk read on that surface. (3) IdentityLinkPanel links contacts but always
+CREATES the opportunity (selection of an existing opportunity is a noted future path).
+
+**Suites at close:** web **471/471**, `deno` suite **317/317** (remote container note: deno.land/
+esm.sh/jsr.io are gateway-blocked here; deno installed via npm and std assert vendored from the
+authentic `denoland/std` 0.224.0 GitHub tag with an external import map — zero repo changes),
+`npm run build` green, `tsc` clean, Jorge `$2,543.51` pinned in three suites.
+
+**Next:** Session 3 = v2 Task 4 (schedule-to-job promotion) — **hard stop until Matt's phone
+smoke + one real estimate ≥1426**; then Task 5A/5B. The Vercel deploy of this branch's web work
+is a separate Matt decision (deploy-order invariant is satisfied: the rates key is live).
 
 ### 2026-08-19 — v2 Phase 1 Session 1 SHIPPED: Task 1 profitability schema APPLIED TO PRODUCTION + Task 3 forecast engine
 
