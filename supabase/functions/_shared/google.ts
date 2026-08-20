@@ -101,3 +101,43 @@ export function addOneDay(yyyyMmDd: string): string {
 export function formatCurrency(amount: number): string {
   return `$${(Number(amount) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
+
+// ── v2 Task 5A additions (integration-dispatcher) — additive only, nothing
+//    above this line changes. Same style as createCalendarEvent: encodeURIComponent
+//    on path params, error text extraction on !res.ok. ──────────────────────
+
+export async function updateCalendarEvent(calendarId: string, eventId: string, accessToken: string, eventBody: any): Promise<any> {
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(eventBody),
+    }
+  )
+  const data = await res.json()
+  if (!res.ok) throw new Error(`Calendar event update failed (${res.status}): ${JSON.stringify(data)}`)
+  return data
+}
+
+// 404/410 (event already gone, e.g. deleted by a human on the calendar, or a
+// prior fire's DELETE already succeeded but the id wasn't cleared before a
+// crash) must NOT throw — the caller treats "already gone" as success, per
+// the v2 Task 5 spec.
+export async function deleteCalendarEvent(calendarId: string, eventId: string, accessToken: string): Promise<void> {
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    }
+  )
+  if (res.ok || res.status === 404 || res.status === 410) return
+  const data = await res.json().catch(() => ({}))
+  throw new Error(`Calendar event delete failed (${res.status}): ${JSON.stringify(data)}`)
+}
