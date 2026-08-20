@@ -6,96 +6,127 @@ program — the complete technical contract) and
 plan — **live checkboxes, deviations 1–12, and the review-handoff blocks are current; work from
 this file**).
 
-## What just happened — v2 Phase 1 Session 4 (2026-08-20, local): Task 5A SHIPPED TO PROD (dispatcher live, cron live; TEST-job probe still owed)
+## What just happened — v2 Phase 1 Session 5 (2026-08-20, local): 5A probed live, 5B spike PASSED
 
 Branch: **`claude/last-session-review-f7tqxw`** (still NOT merged to main — Matt decides when).
-Read the 2026-08-20 Session 4 entry (incl. its same-session update) at the top of `BUILD_LOG.md`.
-Headlines:
+Read the two 2026-08-20 entries at the top of `BUILD_LOG.md` (the Session 5 entry carries both
+halves of this session).
 
-- **v2 Task 5A (outbound dispatcher) is LIVE ON PRODUCTION** (Matt approved same session): the 3
-  migrations applied (head `20260820152300`, 35 applied — `claim_integration_events` w/
-  NULL-locked crash recovery; `cancel_scheduled_job` w/ 5 byte-pinned raise texts +
-  `job.cancelled`/`ghl.stage.requested:cancel` outbox events; `*/5` pg_cron with the secret
-  substituted SERVER-SIDE from the live crew-night-before cron command — never entered the
-  session), `integration-dispatcher` **v1 deployed `--no-verify-jwt`** (`verify_jwt: false` read
-  back, secret-less 401 probe clean, first cron fire verified). Post-apply assertions + advisors
-  clean, row counts unchanged. The outbox is 0 rows, so every cron tick is an empty-batch no-op
-  until something schedules. Also on the branch: additive `updateCalendarEvent`/
-  `deleteCalendarEvent` in `_shared/google.ts` and `web/src/lib/jobs/scheduleActions.ts`
-  (cancel/postpone/closed-lost, `classifyCancelError`).
-- Runbook: branch `v2-phase1-task5a` probes FAITHFUL, RED 13/13 not-ok, **GREEN 65/65 first
-  execution**, branch deleted. Suites: deno **371/371**, web **556/556**, build green, golden-321
-  intact. Commits `ba8993e, 5cadc53, 78b6a75, fb945dc, d24d3a0`, pushed.
-- Review chain: WEB clean; SQL 1 fix round (fixture-scoped claim tests + pre-drain; NULL-locked
-  reclaim = ruling R12); FN 1 fix round (silent-success family: skip-reason threading,
-  missing-config legs now THROW, `bookkeepingError` surfacing, pipeline.ts-style stage needles +
-  ambiguity guards). All re-reviews clean. Deferred minors + all rulings: SDD ledger
-  `.superpowers/sdd/2026-08-19-profitability-v2-phase1/progress.md` + the BUILD_LOG entry.
+**No migrations were applied and no prod applies happened this session.** One new function was
+deployed (`google-calendar-webhook` v1, the spike scaffold). Commits `1444651`, `fca739c`, pushed.
+
+### Half 1 — Task 5A live TEST-job probe (plan Task 5, Step 4c → PARTIAL)
+
+Ran the full chain against production: estimate 1427 (TEST) → `schedule_estimate` → **JOB-1105**
+(Crew 4, 2026-12-15/16, far-future on purpose so `crew-night-before` couldn't pick it up) → outbox
+→ `*/5` cron → dispatcher → Calendar + GHL → `cancel_scheduled_job` → cleanup → re-cancel.
+
+**Proven live:** mint + budget v1 with the deviation-12 `accepted_price` pin (2044.13); both
+Calendar events created and ids persisted; GHL stage projection **both** directions (Job Scheduled,
+then Closed Lost (Declined)) with `sync_log app_to_ghl`; retry/backoff over two real attempts;
+cancel preserving every fact; gcal ids cleared on `job.cancelled`; re-cancel raising the pinned
+text, which correctly hits `classifyCancelError`'s needle (cross-lane raise-text API verified live,
+not just in unit tests).
+
+**🎁 Unprompted bonus — a Phase 1 gate item proved itself.** The dispatcher's GHL stage move fired
+the REAL `Phase A: Job Created (Job Scheduled)` workflow into `ghl-job-webhook` 29 s later, and
+**Task 4's `app_is_schedule_authority` compat check skipped it with zero side effects**
+(`job_events`: "Skipped — app is schedule authority (launch_workflow=true)"). That guard had never
+executed in production; without it there'd now be a duplicate pair of calendar events. **The plan's
+"two minting paths coexist" risk flag is retired as empirically safe.**
+
+### Half 2 — Task 5B Step 1 watch-channel spike → ✅ **PASSED, 5B is GO**
+
+`events.watch` on the main calendar → HTTP 200; Google delivered a real `sync` notification **0.3 s
+later** with `X-Goog-Channel-Token` round-tripped; channel stopped afterwards (204), nothing left
+live. **The polling-only fallback is NOT needed.**
 
 ## 🚨 Hard-won facts — don't rediscover these
 
-- **The Supabase MCP SQL runner executes a batch as ONE implicit transaction returning only the
-  LAST statement's result.** TAP-capture recipe (worked again this session, 65/65): strip
-  begin/rollback, wrap every TAP-emitting `select` as `insert into tap_out(line) select …`, final
-  `select line from tap_out order by ln`. ⚠️ New wrinkle: a mechanical wrapper also catches the
-  `select` continuation of `create temporary table … as select …` — strip those two back out or
-  the insert type-errors.
-- **pgTAP needs `plan(N)` before any assertion even in partial RED runs** ("You tried to run a
-  test without a plan!").
-- `claim_integration_events` claim order is real: FOR UPDATE CTE materializes, ordering columns
-  never written, re-sort reproduces claim order — verified by live EXPLAIN. `WITH ORDINALITY` is
-  the right way to assert it.
-- **Raise texts are a cross-lane API (again):** `cancel_scheduled_job`'s five texts are byte-pinned
-  in the migration header and needle-matched by `classifyCancelError`
-  (`web/src/lib/jobs/scheduleActions.ts`) — separate classifier from `classifyScheduleError`, no
-  shared needles. A status LABEL can still be interpolated into the wrong-status text
-  (e.g. 'accepted') — harmless only while cancel errors never route through the schedule
-  classifier.
-- **Cancel does NOT bump `calendar_sync_revision`** (preserves facts), so `job.scheduled:…:revN`
-  and `job.cancelled:…:revN` share a rev — a backed-off `job.scheduled` retry can fire AFTER its
-  own cancel; ordering falls to `available_at`. Cross-lane note for 5B's inbound logic (ledger M7).
-- Dispatcher policy decisions that bind future work: missing required-leg config (crew outside
-  Crew 1–4, unset `GOOGLE_CALENDAR_CREW*`/`SLACK_CREW*_CHANNEL`) THROWS → dead-letters loudly;
-  outbox bookkeeping failures surface as `bookkeepingError`; unknown event types ride the normal
-  retry path to dead_letter.
+- 🔴 **THE SLACK BOT IS NOT IN THE CREW CHANNELS.** `Slack post failed: not_in_channel` on Crew 4.
+  Diagnostic: **not** `channel_not_found` (ids are valid), **not** `missing_scope` (token is fine) —
+  never invited. `sync_log direction='supabase_to_slack'` holds **10 rows in the system's entire
+  history: 9 skips + ONE real post, Crew 1, 2026-08-13.** Crews 2/3/4 have never been delivered to.
+  **No test could catch this** — the dispatcher's tests inject a fake `postSlackMessage` and
+  `crew-night-before` has hit the "no jobs tomorrow" skip every night since 2026-08-14. A green
+  suite says nothing about channel membership.
+- **Google Calendar push needs NO domain verification** — the widely-cited "verify in Search
+  Console + register in the GCP Push section" requirement (and the `Unauthorized WebHook callback
+  channel` folklore) is **stale**; it still applies to the Drive API, which is likely the source of
+  the confusion. Google's *current* official push guide says SSL only, and it is correct.
+  `*.supabase.co` was accepted as-is.
+- **Spike facts banked for 5B Step 2:** the notification body is **empty** (`bodyLength: 0`) — you
+  MUST fetch the changed event by stored id; the channel token round-trips, so `token_hash` auth is
+  viable; Google honors the requested TTL to the second, so renewal can trust the returned
+  `expiration`; the notification route and admin routes need **different** auth and cannot share one
+  check (Google sends no `x-webhook-secret`), and the notification route must always 200 — a non-2xx
+  makes Google retry and then kill the channel.
+- **Cross-lane constraint for 5B (ledger M7):** cancel does NOT bump `calendar_sync_revision`, so
+  `job.scheduled:…:revN` and `job.cancelled:…:revN` share a rev and ordering falls to
+  `available_at`. **The inbound revision guard must not assume rev monotonicity separates them.**
+- **Server-side secret invocation recipe (reused twice now):** drive secret-gated functions from SQL
+  via `net.http_post`, extracting the shared secret from the live `cron.job.command` with
+  `regexp_match`. The header is built with `jsonb_build_object`, so the pattern is
+  `'x-webhook-secret'\s*,\s*'([^']+)'` — **NOT** the JSON-colon shape. Secret never enters session,
+  repo, or logs. Read results from `net._http_response` by request id.
+- **`estimates` CHECK constraints bite:** `job_type` ∈ {Residential, Commercial}, `client_type` ∈
+  {Contractor, Homeowner}, `labor_method` ∈ {total_hours, days_employees},
+  `estimate_presentations.presented_via` ∈ {ghl, email, print, other}. A violation still burns the
+  `estimate_number` sequence (nextval doesn't roll back).
+- The MCP SQL runner returns **only the last statement's result** and runs the batch as one implicit
+  transaction — a mid-batch failure rolls the whole thing back.
 
-## 🔴 Open for Matt — Task 5A close-out
+## 🔴 Open for Matt (both block the Phase 1 gate)
 
-1. ✅ ~~Prod apply~~ and ✅ ~~deploy~~ — DONE 2026-08-20 (same session, Matt's "go on 1 and 2").
-2. **Live probe with a TEST job** end-to-end (schedule → outbox → dispatcher → Calendar/Slack/GHL;
-   cancel → event cleanup; re-cancel hygiene). This is the remaining Task 5A close-out item; a
-   natural fit at the start of Session 5 or folded into the Phase 1 gate E2E.
-3. Standing to-dos (unchanged, required before the Phase 1 gate): phone smoke + one real estimate
-   ≥1426 on the branch preview
+1. **Invite the Slack bot to the Crew 1–4 channels** and confirm. Cannot be done in-session (the
+   Slack MCP available locally is CTA Integrity's workspace, not Lost Boys).
+2. **Eyeball 2026-12-15/16 on the main and Cade/Crew-4 calendars** and confirm the probe's two
+   events are gone. `deleteCalendarEvent` treats 404/410 as success so a clean return isn't proof,
+   and no calendar in-session has read access to the Lost Boys calendars.
+3. Standing to-dos, unchanged: phone smoke + one real estimate (**now ≥1428** — 1426 was burned by a
+   failed CHECK, 1427 by the probe) on the branch preview
    https://lostboysdemolition-git-claude-la-f27ac4-matt-risenmays-projects.vercel.app; authenticated
    JOB-1104 re-drag + re-cancel; merge decision; BL-6 draft review.
+4. GHL TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv` ("TEST - 5A dispatcher probe (delete me)") sits at
+   Closed Lost (Declined) — harmless. **Awaiting per-item OK to delete.**
 
-## Next work — Session 5 (v2 Task 5B: inbound calendar sync)
+## Next work — Task 5B Step 2 (the real inbound implementation)
 
-**OPENS WITH THE WATCH-CHANNEL SPIKE** (plan Task 6 Step 1): register ONE watch channel for a test
-calendar against a deployed stub `google-calendar-webhook` (deploy `--no-verify-jwt` — Google push
-carries no JWT; auth = channel token). If Google blocks edge-function URLs → STOP, flag to Matt,
-degrade to reconciliation-polling-only (the spec'd fallback). Only then build
-`calendar_watch_channels` + renewal + overlap dedup + revision-guarded date-only inbound writes +
-`job_schedule_exceptions` + `resolveDeletedCalendarEvent`. 5B gates separately from the phase gate.
-Then Task 7 = Phase 1 gate (whole-branch review → E2E → permanent flag flip → land/merge per Matt).
+A full build task on the normal gate (parallel Sonnet lanes → adversarial Opus review → runbook
+cycle → Matt-approved prod apply): `calendar_watch_channels` registry migration + renewal-before-
+expiry + overlap dedup by `(resource_id, event id, event updated)` + reconciliation fallback poll +
+revision-guarded **date-only** inbound writes + deletion → `job_schedule_exceptions` and alert
+(never auto-unschedule) + `resolveDeletedCalendarEvent`. **The deployed spike scaffold is NOT a
+foundation — it has zero DB access by design and Step 2 replaces it.** Its first integration test
+should pin an `exists` notification (only `sync` was observed; transport is identical).
+
+Then Task 7 = Phase 1 gate: whole-branch review → E2E → permanent
+`ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` flip → land/merge per Matt.
+
+## Still-unproven 5A items, carried into the gate
+
+Crew Slack delivery (blocked on #1); Calendar event *deletion* (blocked on #2); calendar
+update-not-create idempotency (needs a second successful `job.scheduled`, so blocked behind Slack);
+dead-letter + `job_alerts` (operator forced the row succeeded on Matt's instruction, ~3 attempts
+short — `job_alerts` is still 0 rows). `postponed` cancel resolution is also unexercised,
+**deliberately** — it returns GHL to Quote Accepted, which would trip the still-live legacy minting
+workflow. Probe it only after the gate flag flip.
 
 ## State that hasn't changed
 
-Production Vercel serves `main` (pre-Session-2 build), no login, network-open. `ghl-job-webhook`
-v20 (flag UNSET ⇒ legacy minting), `crew-night-before` v11, `airtable-client-sync` v29,
-`integration-dispatcher` v1 (cron `*/5` live). Prod migration head `20260820152300` (35 applied).
-`integration_outbox` and `job_alerts` are 0 rows on prod. Estimates ≤1425 TEST residue;
-JOB-1102/1104 cancelled; 3 TEST identity-link rows. JOB-9200xx fixtures existed only on the
-deleted validation branch.
+Production Vercel serves `main` (pre-Session-2 build), no login, network-open. Prod migration head
+`20260820152300` (35 applied) — **unchanged this session**. `ghl-job-webhook` v20 (flag UNSET ⇒
+legacy minting), `crew-night-before` v11, `airtable-client-sync` v29, `integration-dispatcher` v1
+(cron `*/5` live), **`google-calendar-webhook` v1 (new)**. Suites: deno **382/382** (was 371),
+web 556/556, golden-321 intact.
 
 ## Standing instructions (unchanged)
 
 Delete nothing without Matt's express per-item approval; never `git add -A`. Execute from the
-Phase 1 plan's checkboxes; every task gates on adversarial review + runbook cycle + Matt's
+Phase 1 plan's checkboxes; every build task gates on adversarial review + runbook cycle + Matt's
 per-task prod-apply yes. Anything applied to Supabase committed same session. BUILD_LOG entry at
 every session close. Sonnet implements, the strongest available model adversarially reviews.
-Concurrency REQUIRED where it doesn't impact quality/integrity. `ghl-job-webhook` (and now
-`google-calendar-webhook` when it exists) deploy ONLY via the `--no-verify-jwt` + readback
-invariant. Pipeline Reference base `appA7uj7FhnPp9Bvg` = Field Registry / Secrets (names only) /
-People & IDs.
+Concurrency REQUIRED where it doesn't impact quality/integrity. **Three functions now deploy ONLY
+via the `--no-verify-jwt` + readback invariant: `ghl-job-webhook`, `integration-dispatcher`,
+`google-calendar-webhook`** — and the readback should confirm the other two weren't disturbed.
+Pipeline Reference base `appA7uj7FhnPp9Bvg` = Field Registry / Secrets (names only) / People & IDs.
