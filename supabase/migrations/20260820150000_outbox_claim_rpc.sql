@@ -28,17 +28,29 @@
 --      ordinary "ready to (re)try" set. Both pending and failed are
 --      claimable identically; a caller distinguishes a fresh attempt from a
 --      retry only via `attempts`, which this function always increments.
---   2. status = 'processing' AND locked_at < now() - interval '15 minutes'
---      — a claim considered abandoned. 15 minutes is well beyond any single
---      dispatcher invocation's realistic run time (the sibling cron
---      migration's own net.http_post carries a 55-second
+--   2. status = 'processing' AND (locked_at IS NULL OR locked_at < now() -
+--      interval '15 minutes') — a claim considered abandoned. 15 minutes is
+--      well beyond any single dispatcher invocation's realistic run time
+--      (the sibling cron migration's own net.http_post carries a 55-second
 --      timeout_milliseconds), so a row still 'processing' past that window
 --      can only mean the worker that claimed it never got to update it
 --      again — never a live, still-working claim.
--- Claiming a stale-processing row does NOT reset `attempts` to account for
--- the abandoned attempt separately; the increment below counts THIS claim
--- as one attempt, same as any other. `succeeded` and `dead_letter` rows are
--- terminal and are never claimable under either arm.
+--      ⚠️ ORCHESTRATOR RULING R12 (fix round, supersedes the task brief's
+--      literal `locked_at < now() - interval '15 minutes'` predicate): a
+--      NULL locked_at must ALSO be reclaimable. `locked_at` is nullable
+--      with no default, so a manual repair (an operator hand-setting
+--      status='processing' to pull a row out of rotation) or an errant
+--      future writer that sets status='processing' without stamping
+--      locked_at would otherwise strand that row PERMANENTLY — `locked_at <
+--      now() - interval '15 minutes'` is NULL, not TRUE, when locked_at is
+--      NULL, so the row would never satisfy arm 2 under any wall-clock
+--      time. That is exactly the failure mode this crash-recovery arm
+--      exists to prevent, so the OR-null-branch is not optional.
+-- Claiming a stale-processing row (locked_at NULL or old) does NOT reset
+-- `attempts` to account for the abandoned attempt separately; the increment
+-- below counts THIS claim as one attempt, same as any other. `succeeded`
+-- and `dead_letter` rows are terminal and are never claimable under either
+-- arm.
 --
 -- FOR UPDATE SKIP LOCKED ordering: the `claimable` CTE below carries a
 -- FOR UPDATE clause, which PostgreSQL always materializes (a WITH query
@@ -73,7 +85,7 @@ begin
     select o.id, o.available_at, o.created_at
       from public.integration_outbox o
      where (o.status in ('pending', 'failed') and o.available_at <= now())
-        or (o.status = 'processing' and o.locked_at < now() - interval '15 minutes')
+        or (o.status = 'processing' and (o.locked_at is null or o.locked_at < now() - interval '15 minutes'))
      order by o.available_at asc, o.created_at asc
      limit p_limit
      for update skip locked

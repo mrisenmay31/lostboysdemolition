@@ -37,6 +37,21 @@
 -- this suite must never be run against an environment without it, not a
 -- SQL-level IF.
 --
+-- Fix round (adversarial review, same session): I1 -- claim_integration_events
+-- claims from the WHOLE table, not a fixture-scoped subset, so a
+-- production single-transaction dry-run (sanctioned by the runbook above)
+-- could carry real eligible rows that would inflate an unscoped count(*) or
+-- steal a p_limit slot from this suite's own fixtures. Fixed two ways: a
+-- bounded pre-drain loop before Section D's fixtures are ever inserted
+-- (documented at that call site), AND every count(*) assertion over a
+-- claimed batch is scoped `where aggregate_id like 'claim-%'` (the
+-- reviewer's preferred, primary fix -- see Section D/E). I2/R12 -- a
+-- `processing` row with `locked_at IS NULL` was permanently unclaimable
+-- (`locked_at < now() - interval '15 minutes'` is NULL, not TRUE, against a
+-- NULL locked_at) -- the migration's predicate now also reclaims
+-- `locked_at IS NULL`, and Section D gained a dedicated fixture
+-- (`claim-null-locked-processing`) plus 4 new assertions proving it.
+--
 -- plan(N) arithmetic, section by section (counts verified against the
 -- actual file with `grep -cE '^select (has_function|isnt_definer|ok\(|
 -- function_privs_are|lives_ok\(|is\(|throws_like\()'` -- every TAP-emitting
@@ -49,13 +64,16 @@
 --                    / search_path / EXECUTE posture
 --    1  Section C -- cron.job contains integration-dispatcher at
 --                    */5 * * * *
---   17  Section D -- claim behavior, type/eligibility coverage batch:
---                    due-pending + due-failed + stale-processing claimed
+--   21  Section D -- claim behavior, type/eligibility coverage batch:
+--                    due-pending + due-failed + stale-processing +
+--                    null-locked-processing (fix round I2/R12) claimed
 --                    (status/locked_at/attempts updated correctly);
 --                    future-pending / succeeded / dead_letter /
---                    fresh-processing left untouched
+--                    fresh-processing left untouched; count assertion
+--                    scoped to fixture rows (fix round I1)
 --    4  Section E -- claim order + p_limit respected (3 due-pending rows,
---                    p_limit=2 claims the two earliest by available_at)
+--                    p_limit=2 claims the two earliest by available_at);
+--                    count assertion scoped to fixture rows (fix round I1)
 --    3  Section F -- claim limit-validation raises (null / 0 / 101), exact
 --                    byte-pinned text
 --   12  Section G -- cancel_scheduled_job happy path, postponed +
@@ -73,7 +91,7 @@
 --                    resolution / reason / job-not-found), exact
 --                    byte-pinned text
 -- ---
---   61  total -- 6+6+1+17+4+3+12+1+4+3+4 = 61
+--   65  total -- 6+6+1+21+4+3+12+1+4+3+4 = 65
 --
 -- No test reproduces the two-concurrent-session race pg_cron/SKIP LOCKED
 -- guards against -- pgTAP runs single-session, the same limitation
@@ -83,7 +101,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_temp;
-select plan(61);
+select plan(65);
 
 -- ============================================================
 -- Section A (1-6): claim_integration_events existence, NOT SECURITY
@@ -167,10 +185,47 @@ select ok(
 );
 
 -- ============================================================
+-- Pre-drain (fix round, I1): this suite is sanctioned to run as a
+-- production single-transaction dry-run (per
+-- docs/runbooks/profitability-schema-validation.md §3), not only against an
+-- empty branch -- so `integration_outbox` may already carry real eligible
+-- rows (pending/failed/stale-processing job.scheduled or
+-- ghl.stage.requested events) before this section's own fixtures are ever
+-- inserted. claim_integration_events claims from the WHOLE table, not a
+-- filtered subset, so draining first means the coverage/order batches below
+-- reason about a KNOWN claimable set at call time rather than "whatever
+-- else happens to also be due." Bounded to 100 iterations of the function's
+-- own max batch size (100 rows/call = up to 10,000 rows) purely as a safety
+-- valve against an unbounded loop -- every count/order assertion below is
+-- ALSO scoped to `aggregate_id like 'claim-%'` (this fix round's second,
+-- primary mitigation, per the review's "prefer scoped assertions"), so a
+-- residual undrained backlog beyond that cap cannot produce a false
+-- assertion FAILURE; at worst this suite's own fixture rows could lose the
+-- race for a p_limit slot, the same already-accepted residual risk the
+-- review itself named ("a drain alone still breaks if >100 real rows are
+-- due"). Entirely rolled back with the rest of this transaction -- no real
+-- row's state survives past this file's `rollback;`.
+-- ============================================================
+do $$
+declare
+  v_claimed integer;
+  v_iterations integer := 0;
+begin
+  loop
+    select count(*) into v_claimed from public.claim_integration_events(100);
+    v_iterations := v_iterations + 1;
+    exit when v_claimed = 0 or v_iterations >= 100;
+  end loop;
+end $$;
+
+-- ============================================================
 -- Fixture: claim behavior, type/eligibility coverage batch. Every arm of
 -- the claimable predicate, plus every terminal/ineligible status, in one
--- insert pass so a single claim_integration_events(10) call exercises all
--- of them at once.
+-- insert pass so a single claim_integration_events(100) call exercises all
+-- of them at once. Includes a processing row with locked_at IS NULL
+-- (fix round, I2/R12): must be reclaimed exactly like a stale-timestamp
+-- processing row, proving the OR-null branch in the migration's predicate
+-- actually fires.
 -- ============================================================
 insert into public.integration_outbox (
   event_type, aggregate_type, aggregate_id, idempotency_key, payload,
@@ -194,18 +249,24 @@ insert into public.integration_outbox (
   ('test.claim', 'test', 'claim-stale-processing', 'claim-stale-processing-key', '{}'::jsonb,
    'processing', now() - interval '1 hour', now() - interval '20 minutes', 1),
   ('test.claim', 'test', 'claim-fresh-processing', 'claim-fresh-processing-key', '{}'::jsonb,
-   'processing', now() - interval '1 hour', now() - interval '5 minutes', 1);
+   'processing', now() - interval '1 hour', now() - interval '5 minutes', 1),
+  ('test.claim', 'test', 'claim-null-locked-processing', 'claim-null-locked-processing-key', '{}'::jsonb,
+   'processing', now() - interval '1 hour', null, 1);
 
 create temporary table t_claim_batch1 as
-select * from public.claim_integration_events(10);
+select * from public.claim_integration_events(100);
 
 -- ============================================================
--- Section D (14-29): claim behavior, type/eligibility coverage.
+-- Section D (14-34): claim behavior, type/eligibility coverage. Every
+-- count/order assertion is scoped to `aggregate_id like 'claim-%'` (fix
+-- round, I1) so this section is correct whether the table is empty (a fresh
+-- branch) or carries other, unrelated eligible rows the pre-drain above
+-- didn't reach.
 -- ============================================================
 select is(
-  (select count(*) from t_claim_batch1),
-  3::bigint,
-  'claim batch 1: exactly 3 rows claimed (due-pending, due-failed, stale-processing)'
+  (select count(*) from t_claim_batch1 where aggregate_id like 'claim-%'),
+  4::bigint,
+  'claim batch 1: exactly 4 fixture rows claimed (due-pending, due-failed, stale-processing, null-locked-processing)'
 );
 select ok(
   exists (select 1 from t_claim_batch1 where aggregate_id = 'claim-due-pending'),
@@ -218,6 +279,10 @@ select ok(
 select ok(
   exists (select 1 from t_claim_batch1 where aggregate_id = 'claim-stale-processing'),
   'claim batch 1: stale-processing (locked_at 20 minutes ago) IS reclaimed -- crash recovery'
+);
+select ok(
+  exists (select 1 from t_claim_batch1 where aggregate_id = 'claim-null-locked-processing'),
+  'fix round I2/R12: null-locked-processing (locked_at IS NULL) IS reclaimed -- crash recovery covers the null case too'
 );
 select ok(
   not exists (select 1 from t_claim_batch1 where aggregate_id = 'claim-future-pending'),
@@ -269,6 +334,20 @@ select ok(
   'claim batch 1: stale-processing locked_at is refreshed to a recent timestamp, not left at its original 20-minutes-ago value'
 );
 select is(
+  (select status::text from public.integration_outbox where aggregate_id = 'claim-null-locked-processing'),
+  'processing',
+  'fix round I2/R12: null-locked-processing status remains processing after reclaim'
+);
+select is(
+  (select attempts from public.integration_outbox where aggregate_id = 'claim-null-locked-processing'),
+  2,
+  'fix round I2/R12: null-locked-processing attempts incremented from 1 to 2 on reclaim'
+);
+select ok(
+  (select locked_at is not null from public.integration_outbox where aggregate_id = 'claim-null-locked-processing'),
+  'fix round I2/R12: null-locked-processing locked_at is now SET (was NULL before reclaim)'
+);
+select is(
   (select attempts from public.integration_outbox where aggregate_id = 'claim-fresh-processing'),
   1,
   'claim batch 1: fresh-processing attempts UNCHANGED (not reclaimed)'
@@ -280,9 +359,14 @@ select is(
 );
 
 -- ============================================================
--- Fixture + Section E (30-33): claim order + p_limit. Three due-pending
+-- Fixture + Section E (35-38): claim order + p_limit. Three due-pending
 -- rows with distinct available_at; p_limit=2 must claim exactly the two
--- earliest, in order, leaving the third unclaimed.
+-- earliest, in order, leaving the third unclaimed. The pre-drain above
+-- guarantees these three fixture rows are the only eligible rows at call
+-- time, which is what makes an ORDER assertion meaningful at all (a count
+-- filter can scope "how many of ours got claimed", but it cannot make
+-- "ours claimed first" true if something else legitimately sorts ahead of
+-- it -- draining is the only fix for that half of I1).
 -- ============================================================
 insert into public.integration_outbox (
   event_type, aggregate_type, aggregate_id, idempotency_key, payload,
@@ -307,9 +391,9 @@ select aggregate_id, ordinality as ord
   from public.claim_integration_events(2) with ordinality as f;
 
 select is(
-  (select count(*) from t_claim_batch2),
+  (select count(*) from t_claim_batch2 where aggregate_id like 'claim-%'),
   2::bigint,
-  'claim batch 2: p_limit=2 respected -- exactly 2 of the 3 eligible rows claimed'
+  'claim batch 2: p_limit=2 respected -- exactly 2 of the 3 eligible fixture rows claimed'
 );
 select is(
   (select aggregate_id from t_claim_batch2 where ord = 1),
@@ -327,7 +411,7 @@ select ok(
 );
 
 -- ============================================================
--- Section F (34-36): claim limit-validation raises, exact byte-pinned text.
+-- Section F (39-41): claim limit-validation raises, exact byte-pinned text.
 -- ============================================================
 select throws_like(
   $sql$select claim_integration_events(null::integer)$sql$,
@@ -346,7 +430,7 @@ select throws_like(
 );
 
 -- ============================================================
--- Fixture + Section G (37-48): cancel_scheduled_job happy path, postponed
+-- Fixture + Section G (42-53): cancel_scheduled_job happy path, postponed
 -- resolution, GHL-linked job (JOB-920001). calendar_sync_revision is
 -- deliberately non-default (3) to prove the idempotency keys are
 -- rev-scoped from the row's actual value, not a hardcoded rev1.
@@ -435,7 +519,7 @@ select is(
 );
 
 -- ============================================================
--- Section H (49): a second cancel call on the now-cancelled JOB-920001
+-- Section H (54): a second cancel call on the now-cancelled JOB-920001
 -- raises the exact byte-pinned wrong-status text.
 -- ============================================================
 select throws_like(
@@ -449,7 +533,7 @@ select throws_like(
 );
 
 -- ============================================================
--- Fixture + Section I (50-53): cancel_scheduled_job happy path, closed_lost
+-- Fixture + Section I (55-58): cancel_scheduled_job happy path, closed_lost
 -- resolution, GHL-linked job (JOB-920002).
 -- ============================================================
 insert into public.jobs (
@@ -488,7 +572,7 @@ select is(
 );
 
 -- ============================================================
--- Fixture + Section J (54-56): cancel_scheduled_job on an UNLINKED job
+-- Fixture + Section J (59-61): cancel_scheduled_job on an UNLINKED job
 -- (ghl_opportunity_id is null, JOB-920003) -- job.cancelled is enqueued,
 -- ghl.stage.requested is NOT.
 -- ============================================================
@@ -522,7 +606,7 @@ select ok(
 );
 
 -- ============================================================
--- Section K (57-60): cancel_scheduled_job input-guard raises, exact
+-- Section K (62-65): cancel_scheduled_job input-guard raises, exact
 -- byte-pinned text. Validation order (actor name, resolution, reason, job
 -- lookup) means each of these can use minimal/garbage values for every
 -- argument checked AFTER the one under test.
