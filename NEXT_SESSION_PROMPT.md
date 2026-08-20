@@ -6,18 +6,23 @@ program — the complete technical contract) and
 plan — **live checkboxes, deviations 1–12, and the review-handoff blocks are current; work from
 this file**).
 
-## What just happened — v2 Phase 1 Session 4 (2026-08-20, local): Task 5A BUILT + BRANCH-VALIDATED, NOT YET ON PROD
+## What just happened — v2 Phase 1 Session 4 (2026-08-20, local): Task 5A SHIPPED TO PROD (dispatcher live, cron live; TEST-job probe still owed)
 
 Branch: **`claude/last-session-review-f7tqxw`** (still NOT merged to main — Matt decides when).
-Read the 2026-08-20 Session 4 entry at the top of `BUILD_LOG.md`. Headlines:
+Read the 2026-08-20 Session 4 entry (incl. its same-session update) at the top of `BUILD_LOG.md`.
+Headlines:
 
-- **v2 Task 5A (outbound dispatcher) is code-complete and branch-validated — NOTHING TOUCHED
-  PRODUCTION.** Three migrations committed (`claim_integration_events` w/ NULL-locked crash
-  recovery; `cancel_scheduled_job` w/ 5 byte-pinned raise texts + `job.cancelled`/
-  `ghl.stage.requested:cancel` outbox events; `*/5` pg_cron w/ `__WEBHOOK_SECRET__` placeholder),
-  the `integration-dispatcher` edge function (DI handlers, 40 tests), additive
-  `updateCalendarEvent`/`deleteCalendarEvent` in `_shared/google.ts`, and
-  `web/src/lib/jobs/scheduleActions.ts` (cancel/postpone/closed-lost, `classifyCancelError`).
+- **v2 Task 5A (outbound dispatcher) is LIVE ON PRODUCTION** (Matt approved same session): the 3
+  migrations applied (head `20260820152300`, 35 applied — `claim_integration_events` w/
+  NULL-locked crash recovery; `cancel_scheduled_job` w/ 5 byte-pinned raise texts +
+  `job.cancelled`/`ghl.stage.requested:cancel` outbox events; `*/5` pg_cron with the secret
+  substituted SERVER-SIDE from the live crew-night-before cron command — never entered the
+  session), `integration-dispatcher` **v1 deployed `--no-verify-jwt`** (`verify_jwt: false` read
+  back, secret-less 401 probe clean, first cron fire verified). Post-apply assertions + advisors
+  clean, row counts unchanged. The outbox is 0 rows, so every cron tick is an empty-batch no-op
+  until something schedules. Also on the branch: additive `updateCalendarEvent`/
+  `deleteCalendarEvent` in `_shared/google.ts` and `web/src/lib/jobs/scheduleActions.ts`
+  (cancel/postpone/closed-lost, `classifyCancelError`).
 - Runbook: branch `v2-phase1-task5a` probes FAITHFUL, RED 13/13 not-ok, **GREEN 65/65 first
   execution**, branch deleted. Suites: deno **371/371**, web **556/556**, build green, golden-321
   intact. Commits `ba8993e, 5cadc53, 78b6a75, fb945dc, d24d3a0`, pushed.
@@ -54,17 +59,13 @@ Read the 2026-08-20 Session 4 entry at the top of `BUILD_LOG.md`. Headlines:
   outbox bookkeeping failures surface as `bookkeepingError`; unknown event types ride the normal
   retry path to dead_letter.
 
-## 🔴 Open for Matt — Task 5A close-out (Step 4b of plan Task 5)
+## 🔴 Open for Matt — Task 5A close-out
 
-1. **Prod apply of the 3 Session-4 migrations** (`20260820150000/151000/152000`). The cron file
-   MUST get `__WEBHOOK_SECRET__` → real `GHL_WEBHOOK_SECRET` substituted at apply time.
-   **Recommended order: deploy the function FIRST, then the cron migration** (else up to 5 min of
-   404 fires).
-2. **Deploy `integration-dispatcher`** with `--no-verify-jwt` + `functions list` readback
-   (deviation 6 posture — cron POST carries no JWT).
-3. **Live probe with a TEST job** end-to-end (schedule → outbox → dispatcher → Calendar/Slack/GHL;
-   cancel → event cleanup; re-cancel hygiene).
-4. Standing to-dos (unchanged, required before the Phase 1 gate): phone smoke + one real estimate
+1. ✅ ~~Prod apply~~ and ✅ ~~deploy~~ — DONE 2026-08-20 (same session, Matt's "go on 1 and 2").
+2. **Live probe with a TEST job** end-to-end (schedule → outbox → dispatcher → Calendar/Slack/GHL;
+   cancel → event cleanup; re-cancel hygiene). This is the remaining Task 5A close-out item; a
+   natural fit at the start of Session 5 or folded into the Phase 1 gate E2E.
+3. Standing to-dos (unchanged, required before the Phase 1 gate): phone smoke + one real estimate
    ≥1426 on the branch preview
    https://lostboysdemolition-git-claude-la-f27ac4-matt-risenmays-projects.vercel.app; authenticated
    JOB-1104 re-drag + re-cancel; merge decision; BL-6 draft review.
@@ -82,10 +83,11 @@ Then Task 7 = Phase 1 gate (whole-branch review → E2E → permanent flag flip 
 ## State that hasn't changed
 
 Production Vercel serves `main` (pre-Session-2 build), no login, network-open. `ghl-job-webhook`
-v20 (flag UNSET ⇒ legacy minting), `crew-night-before` v11, `airtable-client-sync` v29. Prod
-migration head `20260819191046` (32 applied) — Session 4's three are repo-only. `integration_outbox`
-and `job_alerts` are 0 rows on prod. Estimates ≤1425 TEST residue; JOB-1102/1104 cancelled; 3 TEST
-identity-link rows. JOB-9200xx fixtures existed only on the deleted validation branch.
+v20 (flag UNSET ⇒ legacy minting), `crew-night-before` v11, `airtable-client-sync` v29,
+`integration-dispatcher` v1 (cron `*/5` live). Prod migration head `20260820152300` (35 applied).
+`integration_outbox` and `job_alerts` are 0 rows on prod. Estimates ≤1425 TEST residue;
+JOB-1102/1104 cancelled; 3 TEST identity-link rows. JOB-9200xx fixtures existed only on the
+deleted validation branch.
 
 ## Standing instructions (unchanged)
 

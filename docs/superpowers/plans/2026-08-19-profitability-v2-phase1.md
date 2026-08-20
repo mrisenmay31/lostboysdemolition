@@ -176,7 +176,8 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
 - [x] **Step 2 (orchestrator):** DONE — runbook cycle on branch `v2-phase1-task5a` (probes a–d FAITHFUL; RED 13/13 not-ok + documented 42883 abort; all 3 migrations applied; GREEN **65/65 first execution**; branch deleted). Full suites: deno **371/371**, web **556/556**, build green, golden-321 intact.
 - [x] **Step 3 (Opus review + fix round):** DONE — SQL: approved w/ 2 Important → 1 fix round → re-review clean. FN: needs-fixes (4 Important, silent-success family) → 1 fix round → re-review all addressed. WEB: approved clean, 0 fix rounds. Deferred minors recorded in the SDD ledger + BUILD_LOG.
 - [x] **Step 4a (orchestrator):** Committed and pushed (`ba8993e` web, `5cadc53`+`d24d3a0` SQL, `78b6a75`+`fb945dc` dispatcher).
-- [ ] **Step 4b (Matt-gated):** prod apply of the 3 migrations (cron file needs the `__WEBHOOK_SECRET__` → `GHL_WEBHOOK_SECRET` substitution at apply time), `integration-dispatcher` deploy `--no-verify-jwt` + posture readback, cron live, live probe with a TEST job.
+- [x] **Step 4b (Matt approved same session, "go on 1 and 2"):** `integration-dispatcher` v1 DEPLOYED `--no-verify-jwt`, readback `verify_jwt: false` ✓, secret-less 401 probe clean; all 3 migrations APPLIED TO PRODUCTION (head `20260820152300`, 35 applied; cron secret substituted SERVER-SIDE from the live crew-night-before cron command — never entered the session; post-apply assertions + advisors clean, row counts unchanged); first cron fire verified. See BUILD_LOG same-session update.
+- [ ] **Step 4c (still open):** live probe with a TEST job end-to-end (schedule → outbox → dispatcher → Calendar/Slack/GHL; cancel → cleanup; re-cancel hygiene). Until then every cron tick is an empty-batch no-op (outbox 0 rows).
 
 ### Task 6 (Session 5 — v2 Task 5B): Inbound Calendar sync — spike first
 
