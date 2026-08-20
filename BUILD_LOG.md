@@ -42,6 +42,112 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-20 (later) — v2 Phase 1 Session 5: Task 5A live TEST-job probe RUN — dispatcher works end to end; 🔴 Slack bot is NOT in the crew channels
+
+Session 5, local. Matt chose "5A live probe first" and "real channels, TEST-labeled, clean up
+after". The probe was run directly against production via the RPCs (the scheduling UI is on the
+branch, not on prod Vercel — driving it through the UI is the Task 7 gate E2E, not this step).
+**Nothing was deployed and no migration was applied this session.**
+
+**The headline finding is a production defect the probe existed to catch:**
+
+🔴 **The Lost Boys Slack bot is not a member of the crew channels.** The `job.scheduled` event
+failed live with `Slack post failed: not_in_channel` for Crew 4. That error is specific — not
+`channel_not_found` (so `SLACK_CREW4_CHANNEL` holds a valid id) and not `missing_scope` (so the
+token and scopes are fine). The bot was simply never invited to the channel.
+
+Scope is almost certainly wider than one crew. `sync_log direction='supabase_to_slack'` holds
+**10 rows in the system's entire history: 9 "no jobs" skips and exactly ONE real post — to
+Crew 1, on 2026-08-13.** Crews 2, 3 and 4 have never received a message from this bot in
+production. Crew 1 demonstrably worked once; Crew 4 demonstrably fails now; 2 and 3 are untested
+and presumed to share Crew 4's state.
+
+**Why no test could have caught this:** the dispatcher's 40 unit tests inject a fake
+`postSlackMessage`, and `crew-night-before` has hit the "no jobs tomorrow" skip branch every
+night since 2026-08-14, so its Slack leg has not run since the Phase A test. The gap would have
+surfaced the first time a real job was assigned to Crew 2, 3, or 4 — i.e. on ~3 of 4 jobs.
+
+`crew-night-before` degrades correctly (writes a `sync_log` error row and does NOT stamp
+`night_before_sent_on`, so it retries the next night) — but nothing alerts on it, so it would
+have failed quietly into a table nobody reads. The dispatcher degrades loudly (retry →
+dead-letter → `job_alerts`), which is the better posture and is why this surfaced in minutes.
+
+**→ OPEN ITEM, blocking the Phase 1 gate (Matt): invite the bot to the Crew 1–4 Slack channels
+and confirm.** Cannot be done from a session — the Slack MCP available locally is CTA
+Integrity's workspace, not Lost Boys.
+
+**What the probe proved live (everything except the Slack leg):**
+
+| Leg | Result |
+|---|---|
+| `schedule_estimate` | **JOB-1105** minted from estimate family 1427, `launch_workflow=true`, `calendar_sync_revision=1` |
+| Budget v1 (deviation 12) | `approved_revenue` **2044.13** sourced from the pinned `accepted_price`, `planned_economic_profit` 865.00, `planned_profit_pct` 42.32 |
+| Outbox producers | `job.scheduled:JOB-1105:rev1` + `ghl.stage.requested:JOB-1105:rev1` |
+| pg_cron → dispatcher | Fired 21:35 UTC, claimed the batch — the server-side-substituted secret path works end to end |
+| Google Calendar create | Both events created; ids persisted (`main g8o4kb7vmjan05jptvmqile3jc`, `crew sp74lcoj5kd5rbv0nhoi9a8mkk`) |
+| GHL stage projection | Opportunity moved to **Job Scheduled**; `sync_log app_to_ghl / updated` written |
+| Retry + backoff | att1 21:35, att2 21:40, same `not_in_channel` — the backoff loop works live |
+| `cancel_scheduled_job` | `closed_lost` → `cancelled`, all facts preserved, revision stays 1 |
+| Re-cancel hygiene | Raised `job JOB-1105 cannot be cancelled from status cancelled` |
+| Cross-lane raise-text API | That live text hits `classifyCancelError`'s `cannot be cancelled` needle → `not_cancellable` ✓ |
+| `job.cancelled` dispatch | Succeeded att1 → both `gcal_*_event_id` cleared to NULL |
+| GHL cancel projection | Opportunity moved to **Closed Lost (Declined)**, second `app_to_ghl` row |
+
+**🎁 Unplanned bonus — a Phase 1 gate item proved itself.** The dispatcher's GHL stage move fired
+the REAL GHL workflow (`Phase A: Job Created (Job Scheduled)`) into `ghl-job-webhook` 29 seconds
+later, and **v2 Task 4's `app_is_schedule_authority` compat check caught it**: `job_events` reads
+`Skipped — app is schedule authority (launch_workflow=true)`, status `skipped`, zero side effects.
+That guard had never executed in production. Without it the legacy webhook would have created a
+duplicate pair of calendar events on top of the dispatcher's. **This retires the "two minting
+paths coexist" risk flag from the plan's Risk section as empirically safe.**
+
+**Ruling taken (orchestrator, with Matt): `closed_lost` over `postponed` for the cancel leg.**
+`postponed` returns GHL to *Quote Accepted*, which is a live workflow trigger for the legacy
+minting path (the flag is still UNSET), i.e. the documented "re-drag revives rows" hazard.
+`closed_lost` exercises identical dispatcher code, differing only by stage id. **Confirmed
+empirically:** the Job Scheduled move produced an inbound `ghl_to_supabase` row; the Closed Lost
+move produced none. `postponed`'s GHL leg therefore remains unexercised live and should only be
+probed after the Phase 1 flag flip.
+
+**Operator intervention, recorded for honesty:** on Matt's instruction ("skip Slack, force it
+succeeded, continue to cancel") the `job.scheduled` row was hand-updated to `succeeded` at
+attempt 2. **`last_error` was deliberately left in place** so the row stays self-documenting as
+an operator-forced close rather than a genuine dispatcher success, and `jobs.slack_notified_at`
+remains NULL. Consequence: **the dead-letter + `job_alerts` path was NOT exercised** (it was ~3
+attempts away) and `job_alerts` is still 0 rows.
+
+**Not verified, and honestly so:** *deletion* of the two Google Calendar events. `deleteCalendarEvent`
+treats 404/410 as success, so a clean return does not by itself prove the event was removed, and
+no calendar in this session has read access to the Lost Boys calendars (they are shared with the
+service account, not with Matt's Google account — `list_calendars` does not show them).
+**→ Matt: eyeball 2026-12-15/16 on the main and Cade/Crew-4 calendars and confirm both events are
+gone.** Same class of check as BL-5's manual eyeball.
+
+**Production artifacts created (nothing deleted — standing rule):**
+- `estimates` 1427 v1 (`ef49df3c-…`), TEST-labeled, + presentation + acceptance event + identity link.
+  **`estimate_number` 1426 was burned** by a first attempt that violated `estimates_job_type_check`
+  (`job_type` must be `Residential`|`Commercial`, not a free-text label) — the sequence does not roll
+  back. **The first real estimate is therefore ≥ 1428**, not ≥1426.
+- `jobs` JOB-1105 — TEST, now `cancelled`, gcal ids cleared. Joins JOB-1102/1104 as cancelled test rows.
+- `job_budget_versions` v1 for JOB-1105; 2 `job_events`; 4 `integration_outbox` rows (all `succeeded`);
+  3 `sync_log` rows.
+- **GHL opportunity `UuTLn5Xg2Bb9EEj4UUBv`** ("TEST - 5A dispatcher probe (delete me)"), hung off the
+  pre-existing TEST contact `iFYNrZAaJn8hWjXnSUeB` (matt@ctaintegrity.com) deliberately, so no new
+  contact was created and no `ghl-contact-sync` → Airtable ripple occurred. Left at Closed Lost
+  (Declined), terminal and harmless. **Awaiting Matt's per-item OK to delete.**
+- Live GHL fact re-confirmed: the T12 TEST contacts and opportunities (1419/1420/1423 identity links)
+  were all cleaned out of GHL previously — all six ids now 404. The identity-link rows still
+  reference them.
+
+**Task 5A close-out status: Step 4c is PARTIAL.** Calendar-create, GHL both directions, cancel
+cleanup, retry/backoff and re-cancel hygiene are proven live. Unproven: the crew Slack leg
+(blocked on the bot-membership defect), calendar-event *deletion* (needs Matt's eyeball),
+calendar update-not-create idempotency (needs a second successful `job.scheduled`, so it is
+blocked behind Slack too), and the dead-letter/`job_alerts` path (operator intervened).
+
+**Next:** Task 5B (inbound calendar sync), which OPENS WITH THE WATCH-CHANNEL SPIKE. The Slack
+membership fix and the calendar eyeball are Matt's, and both must close before the Phase 1 gate.
+
 ### 2026-08-20 — v2 Phase 1 Session 4: Task 5A (outbound dispatcher) BUILT + BRANCH-VALIDATED 65/65; prod apply and deploy AWAIT MATT
 
 **Same-session update — Matt approved items 1 and 2 ("go on 1 and 2"), both DONE:**
