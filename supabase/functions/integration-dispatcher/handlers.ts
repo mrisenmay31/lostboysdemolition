@@ -74,6 +74,16 @@ export interface EventOutcome {
   event_type: string;
   outcome: "succeeded" | "failed" | "dead_letter";
   detail?: string;
+  /** Set when the `integration_outbox` bookkeeping write itself failed (the
+   *  status UPDATE for this event, or — for a dead-lettered event — the
+   *  `job_alerts` insert too). `outcome` above still reflects the true
+   *  processing result, but the ROW may NOT have been updated to record it:
+   *  a row stuck in `processing` gets re-claimed and reprocessed on the next
+   *  run (re-PUTting GHL, re-writing sync_log, etc.), and a dead-lettered
+   *  event whose alert insert failed opens no alert. A monitoring reader
+   *  must treat this as needing attention even when `outcome` reads
+   *  "succeeded". (Review round 1, finding 3.) */
+  bookkeepingError?: string;
 }
 
 export interface DispatchSummary {
@@ -279,7 +289,13 @@ async function upsertCalendarEvent(
 
 // ── job.scheduled ────────────────────────────────────────────────────────
 
-async function processJobScheduled(deps: DispatcherDeps, row: OutboxRow): Promise<void> {
+/** Returns a skip-reason string on a succeeded no-op (stale revision /
+ *  cancelled job), or `undefined` on a normal full run — threaded by the
+ *  caller into `DispatchSummary.results[].detail` (never written to
+ *  `integration_outbox.last_error`, which is reserved for actual failures).
+ *  Review round 1, finding 1: this used to return `void`, silently
+ *  discarding the very reason a code comment claimed it preserved. */
+async function processJobScheduled(deps: DispatcherDeps, row: OutboxRow): Promise<string | undefined> {
   const payload = row.payload as JobScheduledPayload;
   const job = await fetchJobRow(deps, payload.job_number);
   if (!job) {
@@ -288,12 +304,41 @@ async function processJobScheduled(deps: DispatcherDeps, row: OutboxRow): Promis
 
   // Stale-event guard: a superseded event must never overwrite newer state.
   // Recorded as a succeeded no-op (not an error) — this is expected, not a
-  // failure — but never in last_error (per brief: leave last_error null on
-  // the outbox row; the reason lives only in this function's return, which
-  // the caller folds into DispatchSummary.results[].detail).
-  if (job.status_v2 === "cancelled") return;
+  // failure — but never in last_error (the reason is returned instead, see
+  // the doc comment above).
+  if (job.status_v2 === "cancelled") return "job is cancelled — stale event, no-op";
   const currentRevision = job.calendar_sync_revision ?? 0;
-  if (currentRevision > payload.calendar_sync_revision) return;
+  if (currentRevision > payload.calendar_sync_revision) {
+    return `stale revision (job at ${currentRevision}, event carries ${payload.calendar_sync_revision})`;
+  }
+
+  // FIX POLICY (review round 1, finding 2 — orchestrator decision): every
+  // leg the payload requires must actually be delivered, or the whole event
+  // fails loudly (-> retry/dead-letter/alert), matching processJobCancelled's
+  // existing policy below. `payload.crew` is a required field on this event
+  // (never optional), so an unmappable crew string or an unset crew
+  // calendar/Slack channel is a misconfiguration, not an ordinary "no crew
+  // calendar for this job" case — and the main calendar is required
+  // unconditionally. Validated eagerly, before any network call, so a
+  // standing misconfiguration doesn't burn a Google Calendar write on every
+  // backoff cycle while it stays broken.
+  if (!deps.calendarIds.main) {
+    throw new Error("job.scheduled: main calendar not configured (GOOGLE_CALENDAR_MAIN unset)");
+  }
+  const crewEnvKey = resolveCrewEnvKey(payload.crew);
+  if (!crewEnvKey) {
+    throw new Error(
+      `job.scheduled: crew "${payload.crew}" is not one of Crew 1-4 — cannot resolve a crew calendar/Slack channel`,
+    );
+  }
+  const crewCalendarId = deps.calendarIds[crewEnvKey];
+  if (!crewCalendarId) {
+    throw new Error(`job.scheduled: no calendar configured for ${crewEnvKey} (crew "${payload.crew}")`);
+  }
+  const crewSlackChannel = deps.slackChannels[crewEnvKey];
+  if (!crewSlackChannel) {
+    throw new Error(`job.scheduled: no Slack channel configured for ${crewEnvKey} (crew "${payload.crew}")`);
+  }
 
   const clientName = job.client_contact_name ?? job.client_name ?? job.business_name ?? null;
   const calendarInput: DispatcherCalendarInput = {
@@ -312,34 +357,29 @@ async function processJobScheduled(deps: DispatcherDeps, row: OutboxRow): Promis
   // Main leg — persisted immediately on success, before the crew leg runs,
   // so a crew-leg failure can never orphan an already-created main event
   // (retry sees gcal_main_event_id already set and takes the update path).
-  if (deps.calendarIds.main) {
-    const mainEventId = await upsertCalendarEvent(deps, {
-      audience: "main",
-      calendarId: deps.calendarIds.main,
-      existingEventId: job.gcal_main_event_id,
-      input: calendarInput,
-      accessToken,
-    });
-    if (mainEventId && mainEventId !== job.gcal_main_event_id) {
-      await persistJobField(deps, job.id, "gcal_main_event_id", mainEventId);
-      job.gcal_main_event_id = mainEventId;
-    }
+  const mainEventId = await upsertCalendarEvent(deps, {
+    audience: "main",
+    calendarId: deps.calendarIds.main,
+    existingEventId: job.gcal_main_event_id,
+    input: calendarInput,
+    accessToken,
+  });
+  if (mainEventId && mainEventId !== job.gcal_main_event_id) {
+    await persistJobField(deps, job.id, "gcal_main_event_id", mainEventId);
+    job.gcal_main_event_id = mainEventId;
   }
 
   // Crew leg — same immediate-persist discipline.
-  const crewEnvKey = resolveCrewEnvKey(payload.crew);
-  if (crewEnvKey && deps.calendarIds[crewEnvKey]) {
-    const crewEventId = await upsertCalendarEvent(deps, {
-      audience: "crew",
-      calendarId: deps.calendarIds[crewEnvKey],
-      existingEventId: job.gcal_crew_event_id,
-      input: calendarInput,
-      accessToken,
-    });
-    if (crewEventId && crewEventId !== job.gcal_crew_event_id) {
-      await persistJobField(deps, job.id, "gcal_crew_event_id", crewEventId);
-      job.gcal_crew_event_id = crewEventId;
-    }
+  const crewEventId = await upsertCalendarEvent(deps, {
+    audience: "crew",
+    calendarId: crewCalendarId,
+    existingEventId: job.gcal_crew_event_id,
+    input: calendarInput,
+    accessToken,
+  });
+  if (crewEventId && crewEventId !== job.gcal_crew_event_id) {
+    await persistJobField(deps, job.id, "gcal_crew_event_id", crewEventId);
+    job.gcal_crew_event_id = crewEventId;
   }
 
   // Slack leg — idempotent on slack_notified_at vs THIS event's created_at
@@ -347,41 +387,87 @@ async function processJobScheduled(deps: DispatcherDeps, row: OutboxRow): Promis
   // re-notifies even though slack_notified_at is already non-null.
   const alreadyNotifiedForThisEvent =
     job.slack_notified_at != null && job.slack_notified_at > row.created_at;
-  if (!alreadyNotifiedForThisEvent && crewEnvKey) {
-    const channel = deps.slackChannels[crewEnvKey];
-    if (channel) {
-      const message = buildCrewJobBlock({
-        headline: `🗓️ Job scheduled — ${job.job_number}`,
-        contactName: job.client_contact_name ?? job.client_name,
-        businessName: job.business_name,
-        clientPhone: job.client_phone,
-        startDate: payload.start_date,
-        startTime: job.start_time,
-        jobAddress: job.job_address,
-        // scope_summary is a DB invariant (CLAUDE.md: "MUST NOT contain
-        // pricing") set by whichever upstream writer resolved it — this
-        // dispatcher trusts and forwards it verbatim, it does not
-        // re-resolve or re-sanitize it.
-        scopeSummary: job.scope_summary,
-      });
-      const result = await deps.postSlackMessage(channel, message);
-      if (!result.ok) throw new Error(`Slack post failed: ${result.error ?? "unknown error"}`);
-      const nowIso = deps.now().toISOString();
-      await persistJobField(deps, job.id, "slack_notified_at", nowIso);
-    }
+  if (!alreadyNotifiedForThisEvent) {
+    const message = buildCrewJobBlock({
+      headline: `🗓️ Job scheduled — ${job.job_number}`,
+      contactName: job.client_contact_name ?? job.client_name,
+      businessName: job.business_name,
+      clientPhone: job.client_phone,
+      startDate: payload.start_date,
+      startTime: job.start_time,
+      jobAddress: job.job_address,
+      // scope_summary is a DB invariant (CLAUDE.md: "MUST NOT contain
+      // pricing") set by whichever upstream writer resolved it — this
+      // dispatcher trusts and forwards it verbatim, it does not re-resolve
+      // or re-sanitize it.
+      scopeSummary: job.scope_summary,
+    });
+    const result = await deps.postSlackMessage(crewSlackChannel, message);
+    if (!result.ok) throw new Error(`Slack post failed: ${result.error ?? "unknown error"}`);
+    const nowIso = deps.now().toISOString();
+    await persistJobField(deps, job.id, "slack_notified_at", nowIso);
   }
+
+  return undefined;
 }
 
 // ── ghl.stage.requested ──────────────────────────────────────────────────
 
-/** Case-insensitive substring match, same predicate as ghl-job-webhook's
- *  findStageId and web/src/lib/ghl/pipeline.ts's resolveStage — a May 2026
- *  error log showed combined live stage names (e.g. "Deposit
- *  Received/Job Scheduled"), which is why substring, not exact equality. */
+/** Strips a trailing parenthetical (and surrounding whitespace) before
+ *  lowercasing — mirrors web/src/lib/ghl/pipeline.ts's `needleFor` exactly,
+ *  duplicated rather than imported per house style (no cross-module imports
+ *  between the Deno edge functions and the Next.js web app). Review round 1,
+ *  finding 4: without this, a live rename that reshapes the parenthetical
+ *  qualifier — e.g. "Closed Lost (Declined)" -> "Closed Lost / Declined",
+ *  the wording CLAUDE.md's own pipeline table uses — stops matching the
+ *  literal payload value `'Closed Lost (Declined)'` even though both names
+ *  plainly mean the same stage. "Job Scheduled" / "Quote Accepted" have no
+ *  parenthetical, so stripping is a no-op for them. */
+function needleFor(stageName: string): string {
+  return stageName.split("(")[0].trim().toLowerCase();
+}
+
+/** Case-insensitive substring match on the CLEANED needle (see needleFor) —
+ *  same predicate as ghl-job-webhook's findStageId, now additionally
+ *  parenthetical-stripped like web/src/lib/ghl/pipeline.ts's resolveStage. A
+ *  May 2026 error log showed combined live stage names (e.g. "Deposit
+ *  Received/Job Scheduled"), which is why substring, not exact equality.
+ *  Exported for direct testing; the real call site is resolveStageId below,
+ *  which adds the ambiguity + empty-id guards this function deliberately
+ *  does not (mirrors pipeline.ts's split between a plain finder and its
+ *  validating resolveStage). */
 export function findStageId(stages: Array<{ id: string; name: string }>, substring: string): string | null {
-  const needle = substring.toLowerCase();
+  const needle = needleFor(substring);
   const match = stages.find((s) => (s?.name ?? "").toLowerCase().includes(needle));
   return match ? match.id : null;
+}
+
+/** Resolves AND validates in one step — throws (never returns null) on
+ *  every failure mode: not found, ambiguous (>1 stage matches the cleaned
+ *  needle), or a matched stage carrying no usable id. Mirrors
+ *  web/src/lib/ghl/pipeline.ts's resolveStage's three guards exactly; these
+ *  ids drive a real PUT that moves a live opportunity through the pipeline,
+ *  so a silent first-match pick on an ambiguous config is not safe here. */
+function resolveStageId(stages: Array<{ id: string; name: string }>, rawStage: string): string {
+  const needle = needleFor(rawStage);
+  const matches = stages.filter((s) => (s?.name ?? "").toLowerCase().includes(needle));
+
+  if (matches.length === 0) {
+    throw new Error(
+      `GHL stage "${rawStage}" not found in "Job Pipeline". Available: ${stages.map((s) => s.name).join(", ") || "none"}`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `GHL stage "${rawStage}" is AMBIGUOUS in "Job Pipeline" — ${matches.length} stages matched: ` +
+        `${matches.map((s) => s.name).join(", ")}.`,
+    );
+  }
+  const id = matches[0].id;
+  if (!id) {
+    throw new Error(`GHL stage "${matches[0].name}" matched "${rawStage}" but has no id.`);
+  }
+  return id;
 }
 
 /** "Job Pipeline" resolution — the location has a SECOND pipeline
@@ -402,13 +488,7 @@ async function processGhlStageRequested(
   const payload = row.payload as GhlStageRequestedPayload;
   const pipeline = await resolvePipeline();
 
-  const stageId = findStageId(pipeline.stages, payload.stage);
-  if (!stageId) {
-    throw new Error(
-      `GHL stage "${payload.stage}" not found in "Job Pipeline". ` +
-        `Available: ${pipeline.stages.map((s) => s.name).join(", ") || "none"}`,
-    );
-  }
+  const stageId = resolveStageId(pipeline.stages, payload.stage);
 
   const opportunity = await deps.fetchOpportunity(payload.ghl_opportunity_id);
   const opp = opportunity?.opportunity ?? opportunity;
@@ -496,29 +576,49 @@ function computeBackoffMinutes(attempts: number): number {
   return Math.min(BACKOFF_CAP_MINUTES, Math.pow(2, attempts));
 }
 
-async function markSucceeded(deps: DispatcherDeps, id: string): Promise<void> {
+/** Returns the write error message, or null on a clean write. Review round
+ *  1, finding 3: this used to only console.error and swallow the outcome,
+ *  so a row stuck in 'processing' (bookkeeping write failed) was reported
+ *  identically to a real success — it then gets re-claimed and reprocessed
+ *  on the next run (re-PUTting GHL, re-writing sync_log, etc.) with no
+ *  visible signal anywhere in the summary. */
+async function markSucceeded(deps: DispatcherDeps, id: string): Promise<string | null> {
   const nowIso = deps.now().toISOString();
   const { error } = await deps.supabase
     .from("integration_outbox")
     .update({ status: "succeeded", completed_at: nowIso, last_error: null })
     .eq("id", id);
   if (error) {
-    console.error("[integration-dispatcher] failed to mark outbox row succeeded:", error.message ?? String(error));
+    const msg = error.message ?? String(error);
+    console.error("[integration-dispatcher] failed to mark outbox row succeeded:", msg);
+    return msg;
   }
+  return null;
 }
 
-async function markFailed(deps: DispatcherDeps, row: OutboxRow, message: string): Promise<"failed" | "dead_letter"> {
+/** Same bookkeeping-visibility fix as markSucceeded, folded across BOTH
+ *  writes a dead-letter can make (the outbox status UPDATE and the
+ *  job_alerts INSERT) — either one failing silently used to leave a
+ *  dead-lettered event with no visible trace anywhere except a console
+ *  log line. */
+async function markFailed(
+  deps: DispatcherDeps,
+  row: OutboxRow,
+  message: string,
+): Promise<{ outcome: "failed" | "dead_letter"; bookkeepingError: string | null }> {
   const isDead = row.attempts >= DEAD_LETTER_THRESHOLD;
   if (isDead) {
     const { error } = await deps.supabase
       .from("integration_outbox")
       .update({ status: "dead_letter", last_error: message })
       .eq("id", row.id);
-    if (error) {
-      console.error("[integration-dispatcher] failed to mark outbox row dead_letter:", error.message ?? String(error));
+    const outboxErrorMsg = error ? (error.message ?? String(error)) : null;
+    if (outboxErrorMsg) {
+      console.error("[integration-dispatcher] failed to mark outbox row dead_letter:", outboxErrorMsg);
     }
-    await insertJobAlert(deps, row, message);
-    return "dead_letter";
+    const alertErrorMsg = await insertJobAlert(deps, row, message);
+    const combined = [outboxErrorMsg, alertErrorMsg].filter((m): m is string => m !== null).join("; ");
+    return { outcome: "dead_letter", bookkeepingError: combined.length > 0 ? combined : null };
   }
 
   const backoffMinutes = computeBackoffMinutes(row.attempts);
@@ -528,9 +628,11 @@ async function markFailed(deps: DispatcherDeps, row: OutboxRow, message: string)
     .update({ status: "failed", last_error: message, available_at: availableAt })
     .eq("id", row.id);
   if (error) {
-    console.error("[integration-dispatcher] failed to mark outbox row failed:", error.message ?? String(error));
+    const msg = error.message ?? String(error);
+    console.error("[integration-dispatcher] failed to mark outbox row failed:", msg);
+    return { outcome: "failed", bookkeepingError: msg };
   }
-  return "failed";
+  return { outcome: "failed", bookkeepingError: null };
 }
 
 /** Design decision (documented per the brief): plain INSERT + swallow 23505,
@@ -543,8 +645,12 @@ async function markFailed(deps: DispatcherDeps, row: OutboxRow, message: string)
  *  insert lets Postgres's own conflict resolution do the right thing
  *  against the real index, and a 23505 here is expected/benign (an alert
  *  for this exact outbox row is already open) — swallowed same as every
- *  other non-fatal logging path in this codebase. */
-async function insertJobAlert(deps: DispatcherDeps, row: OutboxRow, message: string): Promise<void> {
+ *  other non-fatal logging path in this codebase. Returns the write error
+ *  message (null for a clean insert OR a benign 23505 dedup hit) — folded
+ *  by markFailed into EventOutcome.bookkeepingError (review round 1,
+ *  finding 3) so a REAL insert failure (FK violation, RLS, etc.) is no
+ *  longer invisible outside a console log line. */
+async function insertJobAlert(deps: DispatcherDeps, row: OutboxRow, message: string): Promise<string | null> {
   const fingerprint = `integration:${row.id}`;
   const { error } = await deps.supabase.from("job_alerts").insert({
     job_number: row.aggregate_id,
@@ -555,22 +661,30 @@ async function insertJobAlert(deps: DispatcherDeps, row: OutboxRow, message: str
     action_path: `/jobs/${row.aggregate_id}`,
   });
   if (error && error.code !== "23505") {
-    console.error("[integration-dispatcher] failed to insert job_alerts row:", error.message ?? String(error));
+    const msg = error.message ?? String(error);
+    console.error("[integration-dispatcher] failed to insert job_alerts row:", msg);
+    return msg;
   }
+  return null;
 }
 
+/** Returns the succeeded-no-op skip reason (job.scheduled's stale/cancelled
+ *  guard) or undefined for every other outcome — see processJobScheduled's
+ *  doc comment (review round 1, finding 1). */
 async function processEvent(
   deps: DispatcherDeps,
   row: OutboxRow,
   resolvePipeline: () => Promise<GhlPipeline>,
-): Promise<void> {
+): Promise<string | undefined> {
   switch (row.event_type) {
     case "job.scheduled":
       return await processJobScheduled(deps, row);
     case "ghl.stage.requested":
-      return await processGhlStageRequested(deps, row, resolvePipeline);
+      await processGhlStageRequested(deps, row, resolvePipeline);
+      return undefined;
     case "job.cancelled":
-      return await processJobCancelled(deps, row);
+      await processJobCancelled(deps, row);
+      return undefined;
     default:
       // R6 (orchestrator ruling): no special-casing for an unknown
       // event_type — it takes the ordinary failure path and dead-letters at
@@ -614,15 +728,27 @@ export async function runDispatch(deps: DispatcherDeps, opts?: { limit?: number 
 
   for (const row of claimed) {
     try {
-      await processEvent(deps, row, resolvePipeline);
-      await markSucceeded(deps, row.id);
-      results.push({ id: row.id, event_type: row.event_type, outcome: "succeeded" });
+      const detail = await processEvent(deps, row, resolvePipeline);
+      const bookkeepingError = await markSucceeded(deps, row.id);
+      results.push({
+        id: row.id,
+        event_type: row.event_type,
+        outcome: "succeeded",
+        ...(detail ? { detail } : {}),
+        ...(bookkeepingError ? { bookkeepingError } : {}),
+      });
       succeeded++;
     } catch (err: any) {
       const message = err?.message ?? String(err);
       console.error(`[integration-dispatcher] event ${row.id} (${row.event_type}) failed:`, message);
-      const outcome = await markFailed(deps, row, message);
-      results.push({ id: row.id, event_type: row.event_type, outcome, detail: message });
+      const { outcome, bookkeepingError } = await markFailed(deps, row, message);
+      results.push({
+        id: row.id,
+        event_type: row.event_type,
+        outcome,
+        detail: message,
+        ...(bookkeepingError ? { bookkeepingError } : {}),
+      });
       if (outcome === "dead_letter") deadLettered++;
       else failed++;
     }

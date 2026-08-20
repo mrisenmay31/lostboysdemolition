@@ -388,6 +388,10 @@ Deno.test("job.scheduled: stale calendar_sync_revision is a succeeded no-op with
   assertEquals(summary.succeeded, 1);
   assertEquals(summary.failed, 0);
   assertEquals(supabase._calls.jobsUpdates.length, 0);
+  // Review round 1, finding 1: the skip reason must survive into the
+  // summary — a stale-revision no-op and a real calendar write used to be
+  // indistinguishable.
+  assert(summary.results[0].detail?.includes("stale revision"));
 });
 
 Deno.test("job.scheduled: cancelled job is a succeeded no-op with no calendar/slack calls", async () => {
@@ -398,6 +402,7 @@ Deno.test("job.scheduled: cancelled job is a succeeded no-op with no calendar/sl
   const summary = await runDispatch(deps);
   assertEquals(summary.succeeded, 1);
   assertEquals(supabase._calls.jobsUpdates.length, 0);
+  assert(summary.results[0].detail?.includes("cancelled"));
 });
 
 Deno.test("job.scheduled: one calendar failure leaves the event retryable with backoff", async () => {
@@ -516,6 +521,73 @@ Deno.test("job.scheduled: slack re-notifies when the event's created_at is newer
   assertEquals(slackCallCount, 1);
 });
 
+// ── job.scheduled: required-leg misconfiguration THROWS (review round 1,
+//    finding 2 — orchestrator fix policy). Every leg the payload requires
+//    must be delivered or the event fails loudly, matching job.cancelled's
+//    existing policy — no more silent "succeeded" while a crew's calendar/
+//    Slack channel is unset or the crew string doesn't map to Crew 1-4. ───
+
+Deno.test("job.scheduled: unmappable crew string throws — no calendar/slack calls made", async () => {
+  const row = makeOutboxRow({
+    payload: {
+      job_number: "JOB-2001",
+      crew: "Jackson", // not one of Crew 1-4
+      start_date: "2026-08-18",
+      end_date: "2026-08-19",
+      calendar_sync_revision: 1,
+    },
+  });
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({ claimRows: [row], jobsByNumber: { "JOB-2001": jobRow } });
+  const deps = makeDeps({ supabase }); // every network dep rejects if called
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assertEquals(summary.succeeded, 0);
+  assert(summary.results[0].detail?.includes("Jackson"));
+  assertEquals(supabase._calls.jobsUpdates.length, 0);
+});
+
+Deno.test("job.scheduled: unset crew calendar id throws", async () => {
+  const row = makeOutboxRow();
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({ claimRows: [row], jobsByNumber: { "JOB-2001": jobRow } });
+  const deps = makeDeps({
+    supabase,
+    calendarIds: { main: "cal-main", crew1: "", crew2: "cal-crew2", crew3: "cal-crew3", crew4: "cal-crew4" },
+    createCalendarEvent: () => Promise.reject(new Error("should not be called — main leg must not run before validation")),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assert(summary.results[0].detail?.includes("no calendar configured"));
+});
+
+Deno.test("job.scheduled: unset crew Slack channel throws", async () => {
+  const row = makeOutboxRow();
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({ claimRows: [row], jobsByNumber: { "JOB-2001": jobRow } });
+  const deps = makeDeps({
+    supabase,
+    slackChannels: { crew1: "", crew2: "C2", crew3: "C3", crew4: "C4" },
+    createCalendarEvent: () => Promise.reject(new Error("should not be called — validated before any network call")),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assert(summary.results[0].detail?.includes("no Slack channel configured"));
+});
+
+Deno.test("job.scheduled: unset main calendar throws", async () => {
+  const row = makeOutboxRow();
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({ claimRows: [row], jobsByNumber: { "JOB-2001": jobRow } });
+  const deps = makeDeps({
+    supabase,
+    calendarIds: { main: "", crew1: "cal-crew1", crew2: "cal-crew2", crew3: "cal-crew3", crew4: "cal-crew4" },
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assert(summary.results[0].detail?.includes("main calendar not configured"));
+});
+
 // ── ghl.stage.requested ───────────────────────────────────────────────────
 
 Deno.test("ghl.stage.requested: asserts pipeline membership — wrong pipeline fails, no stage PUT", async () => {
@@ -612,6 +684,97 @@ Deno.test("ghl.stage.requested: fetchPipelines is called once per batch even wit
   assertEquals(fetchPipelinesCalls, 1);
 });
 
+// ── ghl.stage.requested: needle stripping + ambiguity/empty-id guards
+//    (review round 1, finding 4). Mirrors web/src/lib/ghl/pipeline.ts's
+//    resolveStage exactly: strip the parenthetical before matching, and
+//    throw (never silently pick) on an ambiguous or id-less match. ────────
+
+Deno.test('ghl.stage.requested: "Closed Lost / Declined"-shaped live rename still matches the literal payload value', async () => {
+  const row = makeOutboxRow({
+    event_type: "ghl.stage.requested",
+    payload: { stage: "Closed Lost (Declined)", job_number: "JOB-2001", ghl_opportunity_id: "opp-1" },
+  });
+  const supabase = createMockSupabase({ claimRows: [row] });
+  let putArgs: [string, string] | null = null;
+  const renamedPipelines: GhlPipeline[] = [
+    {
+      id: "pipeline-job",
+      name: "Job Pipeline",
+      // Live-renamed wording (CLAUDE.md's own pipeline table), no
+      // parenthetical — the raw payload value "Closed Lost (Declined)"
+      // would NOT be a substring of this without needle stripping.
+      stages: [{ id: "stage-closed-lost", name: "Closed Lost / Declined" }],
+    },
+  ];
+  const deps = makeDeps({
+    supabase,
+    fetchPipelines: () => Promise.resolve(renamedPipelines),
+    fetchOpportunity: () => Promise.resolve({ opportunity: { id: "opp-1", pipelineId: "pipeline-job" } }),
+    updateOpportunityStage: (opportunityId: string, stageId: string) => {
+      putArgs = [opportunityId, stageId];
+      return Promise.resolve({});
+    },
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.succeeded, 1);
+  assertEquals(putArgs, ["opp-1", "stage-closed-lost"]);
+});
+
+Deno.test("ghl.stage.requested: ambiguous stage match throws, no PUT", async () => {
+  const row = makeOutboxRow({
+    event_type: "ghl.stage.requested",
+    payload: { stage: "Closed Lost (Declined)", job_number: "JOB-2001", ghl_opportunity_id: "opp-1" },
+  });
+  const supabase = createMockSupabase({ claimRows: [row] });
+  const ambiguousPipelines: GhlPipeline[] = [
+    {
+      id: "pipeline-job",
+      name: "Job Pipeline",
+      // Two live stages both contain the cleaned needle "closed lost".
+      stages: [
+        { id: "stage-closed-lost-a", name: "Closed Lost (Declined)" },
+        { id: "stage-closed-lost-b", name: "Closed Lost - Refunded" },
+      ],
+    },
+  ];
+  let putCalled = false;
+  const deps = makeDeps({
+    supabase,
+    fetchPipelines: () => Promise.resolve(ambiguousPipelines),
+    fetchOpportunity: () => {
+      putCalled = true; // proxy: fetchOpportunity must not even be reached
+      return Promise.reject(new Error("should not be called"));
+    },
+    updateOpportunityStage: () => Promise.resolve({}),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assert(summary.results[0].detail?.includes("AMBIGUOUS"));
+  assertEquals(putCalled, false);
+});
+
+Deno.test("ghl.stage.requested: matched stage with no usable id throws", async () => {
+  const row = makeOutboxRow({
+    event_type: "ghl.stage.requested",
+    payload: { stage: "Job Scheduled", job_number: "JOB-2001", ghl_opportunity_id: "opp-1" },
+  });
+  const supabase = createMockSupabase({ claimRows: [row] });
+  const idlessPipelines: GhlPipeline[] = [
+    {
+      id: "pipeline-job",
+      name: "Job Pipeline",
+      stages: [{ id: "", name: "Job Scheduled" }],
+    },
+  ];
+  const deps = makeDeps({
+    supabase,
+    fetchPipelines: () => Promise.resolve(idlessPipelines),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assert(summary.results[0].detail?.includes("no id"));
+});
+
 // ── job.cancelled ─────────────────────────────────────────────────────────
 
 Deno.test("job.cancelled: deletes both managed events, treats 404 as gone (via the deps contract), clears ids", async () => {
@@ -699,6 +862,86 @@ Deno.test("job.cancelled: no Slack, no GHL calls", async () => {
   const summary = await runDispatch(deps);
   assertEquals(summary.succeeded, 1);
   assertEquals(supabase._calls.syncLogInserts.length, 0);
+});
+
+// ── Bookkeeping-write failure visibility (review round 1, finding 3).
+//    markSucceeded/markFailed/insertJobAlert used to only console.error on
+//    their own write failure while the summary reported a clean outcome —
+//    a row stuck in 'processing' silently gets re-claimed and reprocessed
+//    on the next run. bookkeepingError must surface it. ────────────────────
+
+Deno.test("bookkeeping failure on the SUCCESS path is surfaced as bookkeepingError, outcome stays succeeded", async () => {
+  const row = makeOutboxRow();
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({
+    claimRows: [row],
+    jobsByNumber: { "JOB-2001": jobRow },
+    outboxUpdateError: { message: "connection reset" },
+  });
+  const deps = makeDeps({
+    supabase,
+    createCalendarEvent: () => Promise.resolve({ id: "evt-x" }),
+    postSlackMessage: () => Promise.resolve({ ok: true }),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.succeeded, 1);
+  assertEquals(summary.results[0].outcome, "succeeded");
+  assertEquals(summary.results[0].bookkeepingError, "connection reset");
+});
+
+Deno.test("bookkeeping failure on the FAILED (non-dead-letter) path is surfaced as bookkeepingError", async () => {
+  const row = makeOutboxRow({ attempts: 1 });
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({
+    claimRows: [row],
+    jobsByNumber: { "JOB-2001": jobRow },
+    outboxUpdateError: { message: "write timeout" },
+  });
+  const deps = makeDeps({
+    supabase,
+    createCalendarEvent: () => Promise.reject(new Error("network blip")),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.failed, 1);
+  assertEquals(summary.results[0].outcome, "failed");
+  assertEquals(summary.results[0].bookkeepingError, "write timeout");
+});
+
+Deno.test("bookkeeping failure on the DEAD_LETTER path folds outbox-update AND job_alerts-insert errors together", async () => {
+  const row = makeOutboxRow({ attempts: 5 });
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({
+    claimRows: [row],
+    jobsByNumber: { "JOB-2001": jobRow },
+    outboxUpdateError: { message: "outbox write failed" },
+    jobAlertInsertError: { code: "42501", message: "permission denied for table job_alerts" },
+  });
+  const deps = makeDeps({
+    supabase,
+    createCalendarEvent: () => Promise.reject(new Error("permanent failure")),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.dead_lettered, 1);
+  assertEquals(summary.results[0].outcome, "dead_letter");
+  assert(summary.results[0].bookkeepingError?.includes("outbox write failed"));
+  assert(summary.results[0].bookkeepingError?.includes("permission denied for table job_alerts"));
+});
+
+Deno.test("a benign 23505 job_alerts dedup hit is NOT surfaced as a bookkeeping error", async () => {
+  const row = makeOutboxRow({ attempts: 5 });
+  const jobRow = makeJobRow();
+  const supabase = createMockSupabase({
+    claimRows: [row],
+    jobsByNumber: { "JOB-2001": jobRow },
+    jobAlertInsertError: { code: "23505", message: "duplicate key value violates unique constraint" },
+  });
+  const deps = makeDeps({
+    supabase,
+    createCalendarEvent: () => Promise.reject(new Error("permanent failure")),
+  });
+  const summary = await runDispatch(deps);
+  assertEquals(summary.dead_lettered, 1);
+  assertEquals(summary.results[0].bookkeepingError, undefined);
 });
 
 // ── Unknown event type / batch isolation ────────────────────────────────────
