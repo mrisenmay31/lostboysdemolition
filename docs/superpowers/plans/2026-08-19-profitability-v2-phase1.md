@@ -172,10 +172,11 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
 - Consumes: pending `integration_outbox` rows (Task 1 table, Task 4 producers).
 - Produces: `claim_integration_events(p_limit)` (`for update skip locked`); idempotent all-day Calendar create/update (inclusive dates → exclusive `end.date`, `extendedProperties.private.managedBy`); GHL stage projection; one crew-safe Slack schedule message; retry `min(60, 2**attempts)` minutes; dead-letter at attempt 5 + `job_alerts`; 5-min self-gating cron with `x-webhook-secret`; explicit cancel/postpone/closed-lost actions.
 
-- [ ] **Step 1 (Sonnet, TDD):** the outbound subset of the v2 Step-1 test list (all except the three inbound/channel cases), incl. `crew calendar omits financial fields` and `same idempotency key is never delivered twice after success`.
-- [ ] **Step 2 (orchestrator):** Runbook cycle for both migrations; `deno test supabase/functions/integration-dispatcher` + full suites.
-- [ ] **Step 3 (Opus review + fix round).**
-- [ ] **Step 4 (orchestrator):** Commit (`feat: deliver scheduled jobs through a retryable integration outbox`), push. Matt-approved prod apply + function deploy (posture recorded), dispatcher secret set, cron live. Live probe with a TEST job.
+- [x] **Step 1 (Sonnet, TDD):** DONE 2026-08-20 — three concurrent lanes (SQL migrations ∥ dispatcher function ∥ web scheduleActions), disjoint files. 40 dispatcher tests (outbound subset incl. both named cases + cancel/config-throw/bookkeeping coverage), 19 web tests, pgTAP plan(65). Additions vs the v2 text, all orchestrator-ruled (see BUILD_LOG): `cancel_scheduled_job` RPC + `job.cancelled` event with calendar-event cleanup; claim RPC reclaims stale AND NULL-locked `processing` rows; missing crew/calendar/channel config THROWS (dead-letters loudly) instead of silently succeeding.
+- [x] **Step 2 (orchestrator):** DONE — runbook cycle on branch `v2-phase1-task5a` (probes a–d FAITHFUL; RED 13/13 not-ok + documented 42883 abort; all 3 migrations applied; GREEN **65/65 first execution**; branch deleted). Full suites: deno **371/371**, web **556/556**, build green, golden-321 intact.
+- [x] **Step 3 (Opus review + fix round):** DONE — SQL: approved w/ 2 Important → 1 fix round → re-review clean. FN: needs-fixes (4 Important, silent-success family) → 1 fix round → re-review all addressed. WEB: approved clean, 0 fix rounds. Deferred minors recorded in the SDD ledger + BUILD_LOG.
+- [x] **Step 4a (orchestrator):** Committed and pushed (`ba8993e` web, `5cadc53`+`d24d3a0` SQL, `78b6a75`+`fb945dc` dispatcher).
+- [ ] **Step 4b (Matt-gated):** prod apply of the 3 migrations (cron file needs the `__WEBHOOK_SECRET__` → `GHL_WEBHOOK_SECRET` substitution at apply time), `integration-dispatcher` deploy `--no-verify-jwt` + posture readback, cron live, live probe with a TEST job.
 
 ### Task 6 (Session 5 — v2 Task 5B): Inbound Calendar sync — spike first
 

@@ -42,6 +42,105 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-20 — v2 Phase 1 Session 4: Task 5A (outbound dispatcher) BUILT + BRANCH-VALIDATED 65/65; prod apply and deploy AWAIT MATT
+
+Session 4 of the Phase 1 plan, local session, subagent-driven per the plan's lane structure:
+**three concurrent Sonnet lanes** (SQL migrations ∥ `integration-dispatcher` edge function ∥ web
+`scheduleActions`), disjoint file ownership, adversarial Opus review per lane + scoped re-reviews
+per fix round. Commits `ba8993e` (web) → `5cadc53` (SQL) → `78b6a75` (dispatcher) → `fb945dc`
+(dispatcher fix round) → `d24d3a0` (SQL fix round); pushed. **NOTHING TOUCHED PRODUCTION** — the
+three migrations are committed but NOT applied to prod, the function is NOT deployed, the cron is
+NOT live. All three are Matt's explicit go (see "Open for Matt" below).
+
+**What was built (v2 Task 5A = phase-plan Task 5):**
+- `20260820150000_outbox_claim_rpc.sql` — `claim_integration_events(p_limit)`: SKIP LOCKED batch
+  claim ordered by `available_at, created_at`, limit 1..100, marks processing/locked_at/attempts+1,
+  returns post-update rows in claim order (materialized-CTE + re-sort; reviewer verified the plan
+  shape via live `EXPLAIN`). Claimable = due pending/failed OR abandoned processing —
+  **including `locked_at IS NULL`** (ruling R12, fix round: the literal 15-minute predicate left a
+  NULL-locked processing row permanently stranded).
+- `20260820151000_job_cancellation_rpc.sql` — `cancel_scheduled_job(p_job_number, p_resolution
+  ['postponed'|'closed_lost'], p_reason, p_actor, p_actor_name)`: scheduled→cancelled only
+  (FOR UPDATE serialized; any other status raises), preserves all facts, `job_events` 6→5/6→12,
+  enqueues `job.cancelled:<job>:rev<N>` (payload snapshots both gcal event ids + crew for cleanup)
+  and, when GHL-linked, `ghl.stage.requested:<job>:cancel:rev<N>` (stage 'Quote Accepted' /
+  'Closed Lost (Declined)'). **Five byte-pinned raise texts are a cross-lane API** consumed by the
+  web classifier — pinned in the migration header; none collide with `classifyScheduleError`'s
+  needles (one interpolation caveat recorded: a status label 'accepted' can appear formatted-in —
+  harmless because cancel errors route through `classifyCancelError`, never the schedule one).
+- `20260820152000_schedule_integration_dispatcher.sql` — pg_cron `integration-dispatcher` at
+  `*/5 * * * *` (crew-night-before pattern; `__WEBHOOK_SECRET__` placeholder — **substitute the
+  real `GHL_WEBHOOK_SECRET` value at prod apply or every fire 401s**; no DST dance needed at a
+  fixed interval).
+- `supabase/functions/integration-dispatcher/` — DI-style handlers (zero env/fetch in handlers;
+  index.ts is the env surface + `x-webhook-secret` 401 check). `job.scheduled`: stale-guard
+  (cancelled job or newer `calendar_sync_revision` → succeeded no-op with the reason threaded into
+  the DispatchSummary), main+crew all-day calendar legs (spec body + `extendedProperties.private
+  {jobNumber, scheduleRevision, managedBy:"lostboys-estimator"}`, inclusive→exclusive end date,
+  create-vs-update on stored event id, 404→create fallback with documented orphan limitation R11),
+  BL-5 boundary held (main description may carry `Estimate: $X`; crew never carries pricing —
+  pinned by tests), one crew Slack message via `_shared/slack.ts` (idempotent:
+  `slack_notified_at > event.created_at` skips), per-leg persistence so retries can't duplicate.
+  `ghl.stage.requested`: pipeline resolved by substring, **stage needle uses pipeline.ts's
+  parenthetical-stripping strategy + ambiguity/empty-id guards** (fix round), pipeline-membership
+  asserted before the PUT (`{pipelineStageId}` only), `sync_log` `app_to_ghl`/`updated`.
+  `job.cancelled`: deletes the payload-named managed events (404/410 = already gone), clears
+  `gcal_*_event_id`. Failure path: retry backoff `min(60, 2**attempts)` minutes; attempt ≥5 →
+  `dead_letter` + `job_alerts` (`integration:<outbox-id>`, at_risk, `/jobs/<job>`); **missing
+  crew/calendar/channel config for a required leg THROWS** (dead-letters loudly — review fix; was
+  a silent success) and **outbox bookkeeping write failures surface as `bookkeepingError`** on the
+  outcome (review fix; the summary can no longer lie). `_shared/google.ts` gained additive
+  `updateCalendarEvent` + `deleteCalendarEvent`.
+- `web/src/lib/jobs/scheduleActions.ts` — `cancelScheduledJob()` server module: Zod-validated,
+  `p_actor` always null (no-login model), `classifyCancelError` needle-matching the five pinned
+  raise texts (reviewer verified zero collision with `classifyScheduleError` and Zod v4 API use).
+
+**Review chain:** WEB approved clean (0 fix rounds; 5 deferred minors incl. partial
+normalize-mapping assertion + no array-shape guard on the RPC return). SQL approved w/ 2 Important
+→ 1 fix round (I1 fixture-scoping + bounded pre-drain so the suite survives a production dry-run
+with real due rows; I2 = R12 NULL-locked reclaim + 4 new assertions, plan 61→65) → re-review both
+addressed, arithmetic independently recounted, raise texts byte-unchanged. FN needs-fixes (4
+Important, all silent-success family) → 1 fix round (+11 tests) → re-review all 4 addressed, no
+new breakage. Deferred minors all recorded in the SDD ledger (`.superpowers/sdd/…/progress.md`)
+— notables for later: Slack post→stamp-fail double-post window; full-body calendar PUT wipes
+human-added event fields (spec-mandated, records alongside R11); index.ts passes caller `limit`
+through unvalidated (cron unaffected); M7 cross-lane note for 5B — cancel doesn't bump revision,
+so a backed-off `job.scheduled` retry can post-date its own cancel; ordering falls to
+`available_at`.
+
+**Runbook record (verbatim per §3):** branch `v2-phase1-task5a` (id
+`40fd5559-1bd4-4ec3-a30c-bbf7dc1f968d`, ref `bmljvducvpnzvydbgtkr`, $0.01344/hr confirmed,
+deleted after). Probes: (a) 32 migrations, head `20260819191046` = prod ✓ (b) 5 definers
+proconfig+proacl character-identical ✓ (c) `on_auth_user_created` present ✓ (d) 12 legacy
+policies ✓ → FAITHFUL. Row baseline (prod): outbox 0, job_alerts 0, jobs 2, job_events 33,
+estimates 16, users/crews/time_entries 0/0/0, cron 2 (crew-night-before-a/b). pgTAP 1.3.3
+branch-only. RED = 13/13 not-ok (existence sections via TAP-capture; behavior sections
+42883-abort pre-migration — documented pattern). All 3 migrations applied to branch (exact repo
+bytes; cron with placeholder per precedent) → **GREEN = 65/65 on first execution, zero
+failures.** Suites at close: deno **371/371** (canonical task), web **556/556**, `npm run build`
+green, golden-321 intact.
+
+**Rulings taken this session (full list + costs in the SDD ledger):** R1 3-lane concurrency;
+R2/R12 crash-recovery claim arms; R3 cancellation as its own RPC/migration (additive to the plan's
+file list); R4 `job.cancelled` + calendar-event cleanup (unspecced but a cancelled job's event
+must not stay live on a crew calendar); R5 `GHL_WEBHOOK_SECRET` + placeholder over the spec's
+Vault; R6 unknown event types ride the normal retry path; R7 Slack timestamp-compare idempotency;
+R8 audience-aware calendar description on the spec body; R9 orchestrator-authored raise texts;
+R10 single pgTAP suite; R11 404→create fallback w/ documented orphan; fix-round ruling:
+required-leg missing config throws.
+
+**Open for Matt (blocking Task 5A close-out / Step 4b):**
+1. **Prod apply** of the 3 migrations — cron file MUST get the `__WEBHOOK_SECRET__` substitution
+   at apply time. Recommended order: deploy the function FIRST, then apply the cron migration
+   (avoids 5 minutes of 404 fires; deferred minor M8).
+2. **Deploy** `integration-dispatcher --no-verify-jwt` + `functions list` readback (deviation 6
+   posture; same invariant class as ghl-job-webhook).
+3. **Live probe** with a TEST job after both (schedule → outbox → dispatcher fire → calendar/Slack
+   /GHL, then cancel → cleanup; re-cancel hygiene as always).
+Then Session 5 = Task 5B (inbound calendar — OPENS WITH THE WATCH-CHANNEL SPIKE). Standing Matt
+to-dos unchanged: phone smoke + real estimate ≥1426 on the branch preview; authenticated JOB-1104
+webhook fire; merge decision.
+
 ### 2026-08-19 — v2 Phase 1 Session 3 SHIPPED: Task 4 — schedule_estimate APPLIED TO PRODUCTION, ghl-job-webhook v20 DEPLOYED (flag UNSET, behavior-neutral)
 
 **Same-session update — Matt approved both gates ("1 and 2 approved. Go ahead and deploy"), plus
