@@ -35,12 +35,37 @@ shipped.
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
 | Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18** — Task 0A runbook + doc corrections done; **Task 0B BL-7 `workforce_profiles` migration APPLIED TO PRODUCTION** (19/19 assertions green, live-verified). BL-7 CLOSED. Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`; v1 archived. Next: v2 Phase 1 (Tasks 1–5), gated on Matt's phone smoke + one real estimate | 2026-08-18 |
+| Job Dashboard prototype | — | 🟡 **Review prototype ready** — standalone responsive HTML with fictitious estimates/jobs, Work in Motion navigation, estimate details, live job health, P&L comparisons, and non-persistent preview actions. This is a UX reference only; no production application code or data flow changed. | 2026-08-20 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-20 — Job Dashboard interactive review prototype landed (docs only)
+
+Added a directly openable, mobile-responsive Job Dashboard prototype for Dane's workflow review,
+plus its approved design specification, implementation plan, and dependency-free model test. The
+prototype covers the four Work in Motion stages (Estimates, Scheduled, Jobs in Progress, Jobs
+Complete), overall business totals, exception/attention queues, live job health, estimate details,
+and a job-level estimate/current/actual/forecast P&L. Revenue follows the approved presentation:
+Approved Revenue + Approved Change Order Revenue = Total Revenue; pending or unapproved change
+orders remain outside revenue. P&L presentation is Revenue → Direct Costs → Gross Profit →
+Overhead Allocation → Processing Fees → Job Profit → Job Profit Margin.
+
+All sample names and figures are fictitious. Preview forms are deliberately non-persistent and
+state that nothing is permanently saved. The artifact is a UX reference, not production Next.js
+code: the production implementation will reuse the existing Supabase profitability model and
+`calculateJobHealth` logic through `/jobs` and `/jobs/[jobNumber]` in later, separately reviewed
+implementation slices. No migrations, edge functions, integrations, deployed services, or live
+data changed in this session.
+
+Verification on the publication branch: canonical `deno task test` baseline remained green at
+317/317; `node tests/job-dashboard-prototype.test.mjs` verifies the 14-record sample model,
+financial arithmetic, stage grouping, health states, required copy, embedded-script syntax, and
+responsive/accessibility contracts. The standalone file had also been visually reviewed at wide
+and narrow widths before landing.
 
 ### 2026-08-18 — Profitability v2 Phase 0 SHIPPED: Task 0A docs + Task 0B BL-7 boundary APPLIED TO PRODUCTION
 

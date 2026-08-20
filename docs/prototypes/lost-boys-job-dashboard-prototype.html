@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Interactive Lost Boys Demolition Job Dashboard concept using fictitious data.">
+  <title>Lost Boys Demolition — Job Dashboard Prototype</title>
+  <style>
+    :root {
+      --ink: #192534;
+      --ink-soft: #2b3949;
+      --muted: #697585;
+      --muted-light: #98a2ae;
+      --surface: #ffffff;
+      --canvas: #edf0f3;
+      --canvas-warm: #f7f8fa;
+      --line: #dfe4e9;
+      --line-soft: #edf0f3;
+      --accent: #e45a34;
+      --accent-soft: #fff0ea;
+      --success: #27834e;
+      --success-soft: #e8f6ee;
+      --warning: #9f6700;
+      --warning-soft: #fff4d8;
+      --danger: #b63831;
+      --danger-soft: #fde9e7;
+      --info: #315f8a;
+      --info-soft: #eaf2f9;
+      --radius: 14px;
+      --shadow: 0 14px 36px rgba(25, 37, 52, .08);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: var(--canvas); color: var(--ink); font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    button, input, select, textarea { font: inherit; }
+    button { color: inherit; }
+    button, [role="button"] { -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible { outline: 3px solid rgba(228, 90, 52, .32); outline-offset: 2px; }
+    .skip-link { position: fixed; top: -60px; left: 12px; z-index: 100; background: var(--ink); color: white; padding: 10px 14px; border-radius: 8px; }
+    .skip-link:focus { top: 12px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+    .app-shell { min-height: 100vh; }
+    .app-header { position: sticky; top: 0; z-index: 30; height: 68px; display: flex; align-items: center; gap: 12px; padding: 0 max(22px, calc((100vw - 1220px) / 2)); background: rgba(255, 255, 255, .96); border-bottom: 1px solid var(--line); backdrop-filter: blur(12px); }
+    .brand-lockup { display: flex; align-items: center; gap: 10px; min-width: max-content; border: 0; background: transparent; cursor: pointer; padding: 0; }
+    .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: var(--accent); color: white; font-size: 11px; font-weight: 900; letter-spacing: -.02em; }
+    .brand-name { font-size: 13px; font-weight: 850; }
+    .desktop-nav { display: flex; gap: 5px; margin-left: 24px; }
+    .nav-button { border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 9px 11px; cursor: pointer; font-size: 12px; font-weight: 750; }
+    .nav-button:hover, .nav-button.active { background: var(--canvas-warm); color: var(--ink); }
+    .header-spacer { flex: 1; }
+    .demo-chip { border: 1px solid #f0c6b9; border-radius: 999px; background: var(--accent-soft); color: #af4327; padding: 6px 9px; font-size: 10px; font-weight: 850; text-transform: uppercase; letter-spacing: .06em; }
+    .avatar { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: #f0b541; color: var(--ink); font-size: 11px; font-weight: 900; }
+    .page-container { width: min(1220px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 48px; }
+    .business-snapshot { overflow: hidden; border-radius: 20px; background: var(--ink); color: white; box-shadow: var(--shadow); }
+    .snapshot-inner { padding: 28px; }
+    .snapshot-heading { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 22px; }
+    .eyebrow { margin: 0 0 7px; color: #f09070; font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .snapshot-heading h1, .page-heading h1 { margin: 0; letter-spacing: -.035em; }
+    .snapshot-heading h1 { font-size: clamp(27px, 4vw, 38px); }
+    .snapshot-heading p { margin: 7px 0 0; color: #b4bfcb; font-size: 13px; }
+    .period-select { margin-left: auto; min-width: 150px; border: 1px solid #415063; border-radius: 9px; background: #263545; color: white; padding: 10px 35px 10px 12px; cursor: pointer; font-size: 12px; font-weight: 750; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .metric-card { min-width: 0; border: 1px solid #374657; border-radius: 12px; background: #222f3f; padding: 16px; }
+    .metric-label { display: block; color: #adb8c5; font-size: 11px; }
+    .metric-value { display: block; margin-top: 8px; font-size: clamp(22px, 2.4vw, 31px); font-weight: 850; letter-spacing: -.045em; font-variant-numeric: tabular-nums; }
+    .metric-note { display: block; margin-top: 5px; color: #7dd5a3; font-size: 10px; line-height: 1.35; }
+    .metric-note.estimate { color: #f0bd65; }
+    .content-section { margin-top: 24px; }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 2px 11px; }
+    .section-heading h2 { margin: 0; font-size: 17px; letter-spacing: -.02em; }
+    .section-heading p { margin: 3px 0 0; color: var(--muted); font-size: 11px; }
+    .text-button { border: 0; background: transparent; color: #c34a2c; padding: 6px 0; cursor: pointer; font-size: 11px; font-weight: 850; }
+    .stage-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .stage-card { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); padding: 17px; text-align: left; cursor: pointer; box-shadow: 0 4px 12px rgba(25, 37, 52, .03); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+    .stage-card:hover { transform: translateY(-2px); border-color: #efb6a5; box-shadow: 0 10px 24px rgba(25, 37, 52, .08); }
+    .stage-icon { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: var(--canvas); color: var(--muted); font-size: 14px; }
+    .stage-card.accent { border-color: #efb6a5; background: #fffaf8; }
+    .stage-card.accent .stage-icon { background: #fce6de; color: #c1492c; }
+    .stage-name { display: block; padding-right: 36px; font-size: 13px; font-weight: 850; }
+    .stage-count { display: block; margin-top: 13px; font-size: 29px; font-weight: 850; letter-spacing: -.04em; }
+    .stage-value { display: block; margin-top: 3px; overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+    .dashboard-columns { display: grid; grid-template-columns: 1.14fr .86fr; gap: 14px; }
+    .panel { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: 0 4px 12px rgba(25, 37, 52, .03); }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 15px 16px; border-bottom: 1px solid var(--line-soft); }
+    .panel-header h3 { margin: 0; font-size: 13px; }
+    .panel-header span { color: var(--muted); font-size: 10px; }
+    .attention-row, .health-row { width: 100%; display: grid; align-items: center; gap: 11px; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; padding: 13px 16px; text-align: left; cursor: pointer; }
+    .attention-row { grid-template-columns: 9px 1fr auto; }
+    .health-row { grid-template-columns: 1fr auto; }
+    .attention-row:last-child, .health-row:last-child { border-bottom: 0; }
+    .attention-row:hover, .health-row:hover { background: #fbfcfd; }
+    .signal-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--danger); }
+    .signal-dot.watch { background: #dfa328; }
+    .row-title { display: block; font-size: 12px; font-weight: 800; }
+    .row-meta { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.35; }
+    .row-action { color: #c34a2c; font-size: 10px; font-weight: 850; }
+    .status-pill { display: inline-flex; align-items: center; min-width: max-content; border-radius: 999px; padding: 5px 8px; font-size: 9px; font-weight: 850; }
+    .status-pill.track { background: var(--success-soft); color: var(--success); }
+    .status-pill.watch { background: var(--warning-soft); color: var(--warning); }
+    .status-pill.risk { background: var(--danger-soft); color: var(--danger); }
+    .status-pill.neutral { background: var(--canvas); color: var(--muted); }
+    .workspace-shell { border: 1px solid var(--line); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); overflow: hidden; }
+    .workspace-body { padding: 22px; background: var(--canvas-warm); }
+    .page-heading { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 17px; }
+    .page-heading h1 { font-size: clamp(25px, 3vw, 34px); }
+    .page-heading p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .page-actions { display: flex; gap: 8px; margin-left: auto; }
+    .button { min-height: 38px; border: 1px solid var(--line); border-radius: 9px; background: white; padding: 8px 12px; cursor: pointer; font-size: 11px; font-weight: 800; }
+    .button:hover { background: #f8f9fb; }
+    .button.primary { border-color: var(--accent); background: var(--accent); color: white; }
+    .button.primary:hover { background: #cf4d29; }
+    .stage-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+    .stage-tab { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); border-radius: 10px; background: white; padding: 11px 12px; cursor: pointer; color: var(--muted); font-size: 11px; font-weight: 800; }
+    .stage-tab strong { margin-left: auto; border-radius: 999px; background: var(--canvas); padding: 3px 7px; color: var(--ink); font-size: 9px; }
+    .stage-tab.active { border-color: var(--ink); background: var(--ink); color: white; }
+    .stage-tab.active strong { background: #344355; color: white; }
+    .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 11px; }
+    .search-control { position: relative; flex: 1; max-width: 360px; }
+    .search-control span { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+    .search-input, .filter-select { min-height: 39px; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink); font-size: 11px; }
+    .search-input { width: 100%; padding: 9px 11px 9px 33px; }
+    .filter-select { min-width: 130px; padding: 8px 30px 8px 10px; }
+    .freshness-note { margin-left: auto; color: var(--muted); font-size: 9px; }
+    .record-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 11px; background: white; }
+    .record-table { width: 100%; border-collapse: collapse; min-width: 780px; }
+    .record-table th { background: #f2f4f6; color: #707b89; padding: 10px 12px; text-align: left; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; }
+    .record-table td { padding: 13px 12px; border-top: 1px solid var(--line-soft); font-size: 11px; vertical-align: middle; }
+    .record-table tbody tr { cursor: pointer; }
+    .record-table tbody tr:hover { background: #fbfcfd; }
+    .record-name { display: block; font-size: 12px; font-weight: 850; }
+    .record-meta { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; }
+    .numeric { font-variant-numeric: tabular-nums; font-weight: 750; }
+    .negative { color: var(--danger); }
+    .chevron { color: var(--muted-light); font-size: 18px; }
+    .mobile-cards { display: none; gap: 9px; }
+    .mobile-record { border: 1px solid var(--line); border-radius: 11px; background: white; padding: 14px; cursor: pointer; text-align: left; }
+    .mobile-record-top { display: flex; align-items: flex-start; gap: 9px; }
+    .mobile-record-top .status-pill { margin-left: auto; }
+    .mobile-record-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 13px; padding-top: 11px; border-top: 1px solid var(--line-soft); }
+    .mobile-record-grid span { display: block; color: var(--muted); font-size: 8px; }
+    .mobile-record-grid strong { display: block; margin-top: 4px; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .empty-state { border: 1px dashed #cfd5dc; border-radius: 12px; background: white; padding: 40px 20px; text-align: center; }
+    .empty-state h3 { margin: 0; font-size: 16px; }
+    .empty-state p { margin: 7px 0 0; color: var(--muted); font-size: 11px; }
+    .detail-placeholder { border: 1px solid var(--line); border-radius: 16px; background: white; padding: 40px; text-align: center; box-shadow: var(--shadow); }
+    .detail-placeholder h1 { margin: 0; font-size: 26px; }
+    .detail-placeholder p { margin: 9px auto 18px; max-width: 560px; color: var(--muted); line-height: 1.55; }
+    .detail-shell { border: 1px solid var(--line); border-radius: 18px; background: var(--canvas-warm); overflow: hidden; box-shadow: var(--shadow); }
+    .detail-body { padding: 22px; }
+    .breadcrumb { margin-bottom: 12px; color: var(--muted); font-size: 10px; }
+    .breadcrumb button { border: 0; background: transparent; color: #c34a2c; padding: 0; cursor: pointer; font-weight: 800; }
+    .detail-heading { display: flex; align-items: flex-start; gap: 14px; }
+    .detail-heading h1 { margin: 0; font-size: clamp(24px, 3vw, 34px); letter-spacing: -.035em; }
+    .detail-heading p { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .detail-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px; margin-left: auto; }
+    .detail-status { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 10px; }
+    .detail-tabs { display: flex; gap: 3px; overflow-x: auto; margin: 17px 0 14px; border-bottom: 1px solid var(--line); }
+    .detail-tab { flex: 0 0 auto; border: 0; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); padding: 10px 12px; cursor: pointer; font-size: 10px; font-weight: 850; }
+    .detail-tab.active { border-color: var(--accent); color: #c1492c; }
+    .summary-grid { display: grid; grid-template-columns: 1.15fr repeat(3, .85fr); gap: 9px; margin-bottom: 11px; }
+    .health-card { border-radius: 12px; background: var(--danger); color: white; padding: 15px; }
+    .health-card.track { background: #1f7043; }
+    .health-card.watch { background: #a16a08; }
+    .health-label, .summary-card label { display: block; font-size: 8px; font-weight: 850; letter-spacing: .08em; text-transform: uppercase; }
+    .health-label { color: rgba(255,255,255,.72); }
+    .health-main { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+    .health-main strong { font-size: 22px; letter-spacing: -.03em; }
+    .confidence-pill { margin-left: auto; border: 1px solid rgba(255,255,255,.34); border-radius: 999px; padding: 4px 7px; font-size: 8px; font-weight: 850; }
+    .health-card p { margin: 6px 0 0; color: rgba(255,255,255,.78); font-size: 9px; line-height: 1.45; }
+    .summary-card { border: 1px solid var(--line); border-radius: 12px; background: white; padding: 15px; }
+    .summary-card label { color: var(--muted); }
+    .summary-card strong { display: block; margin-top: 7px; font-size: 21px; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+    .summary-card small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+    .summary-card small.unfavorable { color: var(--danger); }
+    .health-explanation { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 10px; border: 1px solid #efc7bb; border-radius: 11px; background: #fff7f4; padding: 11px 13px; margin-bottom: 11px; }
+    .health-explanation.track { border-color: #c4e1d0; background: #f3faf6; }
+    .health-explanation.watch { border-color: #ecd8a5; background: #fffaf0; }
+    .explanation-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: #f6dcd5; color: var(--danger); font-weight: 900; }
+    .health-explanation.track .explanation-icon { background: #dff1e7; color: var(--success); }
+    .health-explanation.watch .explanation-icon { background: #faedca; color: var(--warning); }
+    .health-explanation strong { display: block; font-size: 11px; }
+    .health-explanation span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .detail-grid { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, .65fr); gap: 11px; }
+    .pnl-panel { border: 1px solid var(--line); border-radius: 12px; background: white; overflow: hidden; }
+    .pnl-header { display: flex; align-items: center; gap: 10px; padding: 13px 14px; border-bottom: 1px solid var(--line); }
+    .pnl-header h2 { margin: 0; font-size: 13px; }
+    .pnl-header span { margin-left: auto; color: var(--muted); font-size: 9px; }
+    .pnl-scroll { overflow-x: auto; }
+    .pnl-table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 10px; font-variant-numeric: tabular-nums; }
+    .pnl-table th { background: #f2f4f6; color: #6d7886; padding: 9px 8px; text-align: right; font-size: 8px; letter-spacing: .04em; text-transform: uppercase; }
+    .pnl-table th:first-child, .pnl-table td:first-child { padding-left: 13px; text-align: left; }
+    .pnl-table td { border-top: 1px solid var(--line-soft); padding: 7px 8px; text-align: right; }
+    .pnl-table .section-row td { background: #eef1f4; color: #5f6a77; padding-top: 7px; padding-bottom: 7px; font-size: 8px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+    .pnl-table .indent { padding-left: 23px; }
+    .pnl-table .subtotal td { background: #f8f9fa; border-top-color: #d7dde3; font-weight: 900; }
+    .pnl-table .gross-profit td { background: #f1f6fa; color: #294967; font-weight: 900; }
+    .pnl-table .job-profit td { background: #e8f6ee; color: #216941; font-weight: 900; }
+    .pnl-table .job-margin td { border-top: 0; background: #ddf0e5; color: #185b38; font-weight: 900; }
+    .pnl-table .unfavorable { color: var(--danger); font-weight: 900; }
+    .pnl-table .favorable { color: var(--success); font-weight: 850; }
+    .pnl-note { margin: 0; padding: 10px 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 8px; line-height: 1.45; }
+    .mobile-cost-toggle { display: none; width: calc(100% - 20px); margin: 10px; }
+    .side-stack { display: grid; align-content: start; gap: 10px; }
+    .side-panel { border: 1px solid var(--line); border-radius: 11px; background: white; overflow: hidden; }
+    .side-panel h3 { margin: 0; padding: 12px 13px; border-bottom: 1px solid var(--line-soft); font-size: 11px; }
+    .progress-body { padding: 13px; }
+    .progress-top { display: flex; justify-content: space-between; font-size: 10px; font-weight: 850; }
+    .progress-bar { height: 7px; overflow: hidden; border-radius: 99px; background: var(--canvas); margin: 8px 0 12px; }
+    .progress-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+    .progress-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .progress-metric { border: 1px solid var(--line-soft); border-radius: 8px; background: #fafbfc; padding: 8px; }
+    .progress-metric span { display: block; color: var(--muted); font-size: 8px; }
+    .progress-metric strong { display: block; margin-top: 4px; font-size: 12px; }
+    .recommended-action { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line-soft); background: transparent; padding: 11px 13px; text-align: left; cursor: pointer; }
+    .recommended-action:last-child { border-bottom: 0; }
+    .recommended-action:hover { background: #fbfcfd; }
+    .recommended-action strong { display: block; font-size: 10px; }
+    .recommended-action span { display: block; margin-top: 3px; color: var(--muted); font-size: 8px; line-height: 1.4; }
+    .recommended-action em { display: block; margin-top: 5px; color: #c1492c; font-size: 8px; font-style: normal; font-weight: 850; }
+    .detail-list-panel { border: 1px solid var(--line); border-radius: 12px; background: white; overflow: hidden; }
+    .detail-list-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 15px; border-bottom: 1px solid var(--line); }
+    .detail-list-header h2 { margin: 0; font-size: 14px; }
+    .detail-list { margin: 0; padding: 0; list-style: none; }
+    .detail-list li { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 14px 15px; border-bottom: 1px solid var(--line-soft); }
+    .detail-list li:last-child { border-bottom: 0; }
+    .detail-list strong { display: block; font-size: 11px; }
+    .detail-list span { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.45; }
+    .detail-list time { color: var(--muted); font-size: 9px; }
+    .estimate-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 9px; margin-bottom: 11px; }
+    .estimate-layout { display: grid; grid-template-columns: 1.15fr .85fr; gap: 11px; }
+    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0; }
+    .info-cell { padding: 13px 15px; border-bottom: 1px solid var(--line-soft); }
+    .info-cell:nth-child(odd) { border-right: 1px solid var(--line-soft); }
+    .info-cell label { display: block; color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .06em; }
+    .info-cell strong { display: block; margin-top: 4px; font-size: 11px; line-height: 1.4; }
+    .cost-breakdown { width: 100%; border-collapse: collapse; font-size: 10px; }
+    .cost-breakdown td { padding: 8px 13px; border-top: 1px solid var(--line-soft); }
+    .cost-breakdown td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+    .cost-breakdown .subtotal td { background: #f8f9fa; font-weight: 900; }
+    .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; padding: 18px; background: rgba(12, 21, 31, .64); }
+    .modal-card { width: min(560px, 100%); max-height: min(760px, calc(100vh - 36px)); overflow-y: auto; border-radius: 16px; background: white; box-shadow: 0 24px 70px rgba(0,0,0,.26); }
+    .modal-header { display: flex; align-items: center; gap: 10px; padding: 17px 18px; border-bottom: 1px solid var(--line); }
+    .modal-header h2 { margin: 0; font-size: 17px; }
+    .modal-close { margin-left: auto; width: 34px; height: 34px; border: 1px solid var(--line); border-radius: 9px; background: white; cursor: pointer; font-size: 18px; }
+    .modal-body { padding: 18px; }
+    .prototype-notice { border: 1px solid #efc6b9; border-radius: 9px; background: var(--accent-soft); color: #923b26; padding: 10px 11px; font-size: 10px; font-weight: 750; line-height: 1.45; }
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; margin-top: 15px; }
+    .field { display: grid; gap: 5px; }
+    .field.full { grid-column: 1 / -1; }
+    .field label { font-size: 10px; font-weight: 800; }
+    .field input, .field select, .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 9px; background: white; padding: 10px 11px; color: var(--ink); font-size: 11px; }
+    .field textarea { min-height: 90px; resize: vertical; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .toast { position: fixed; right: 18px; bottom: 18px; z-index: 100; max-width: 360px; border-radius: 11px; background: var(--ink); color: white; padding: 12px 14px; box-shadow: var(--shadow); font-size: 11px; font-weight: 750; animation: toast-in .2s ease-out; }
+    @keyframes toast-in { from { transform: translateY(8px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .mobile-bottom-nav { display: none; }
+
+    @media (max-width: 900px) {
+      .metric-grid, .stage-grid { grid-template-columns: 1fr 1fr; }
+      .dashboard-columns { grid-template-columns: 1fr; }
+      .desktop-nav { display: none; }
+      .page-container { padding-bottom: 88px; }
+      .mobile-bottom-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 25; display: grid; grid-template-columns: repeat(4, 1fr); min-height: 62px; border-top: 1px solid var(--line); background: rgba(255,255,255,.97); backdrop-filter: blur(12px); }
+      .mobile-bottom-nav button { border: 0; background: transparent; color: var(--muted); padding: 8px 5px; font-size: 9px; font-weight: 750; }
+      .mobile-bottom-nav button.active { color: var(--accent); }
+      .mobile-bottom-nav span { display: block; margin-bottom: 3px; font-size: 16px; }
+    }
+
+    @media (max-width: 760px) {
+      .app-header { height: 60px; padding: 0 14px; }
+      .brand-name { display: none; }
+      .demo-chip { font-size: 8px; }
+      .page-container { width: min(100% - 24px, 620px); padding-top: 16px; }
+      .snapshot-inner { padding: 19px 16px; }
+      .snapshot-heading { align-items: stretch; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+      .snapshot-heading h1 { font-size: 25px; }
+      .snapshot-heading p { font-size: 10px; }
+      .period-select { width: 100%; min-width: 0; margin-left: 0; padding: 8px 27px 8px 9px; font-size: 10px; }
+      .metric-grid { gap: 7px; }
+      .metric-card { padding: 12px; }
+      .metric-label { font-size: 9px; }
+      .metric-value { margin-top: 6px; font-size: 20px; }
+      .metric-note { font-size: 8px; }
+      .content-section { margin-top: 18px; }
+      .stage-grid { gap: 8px; }
+      .stage-card { padding: 14px 12px; }
+      .stage-count { font-size: 24px; }
+      .stage-icon { width: 26px; height: 26px; }
+      .dashboard-columns { gap: 9px; }
+      .attention-row { grid-template-columns: 8px 1fr auto; padding: 12px; }
+      .row-action { display: none; }
+      .workspace-body { padding: 14px 12px; }
+      .page-heading { align-items: center; }
+      .page-heading h1 { font-size: 23px; }
+      .page-heading p { font-size: 10px; }
+      .page-actions .button:first-child { display: none; }
+      .stage-tabs { display: flex; overflow-x: auto; padding-bottom: 3px; }
+      .stage-tab { flex: 1 0 auto; min-width: 104px; padding: 9px 10px; }
+      .toolbar { flex-wrap: wrap; }
+      .search-control { max-width: none; flex-basis: 100%; }
+      .filter-select { flex: 1; min-width: 0; }
+      .freshness-note { display: none; }
+      .desktop-table { display: none; }
+      .mobile-cards { display: grid; }
+      .detail-body { padding: 14px 12px; }
+      .detail-heading { display: block; }
+      .detail-actions { justify-content: flex-start; margin: 13px 0 0; }
+      .detail-actions .button:first-child { display: none; }
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+      .health-card { grid-column: 1 / -1; }
+      .summary-card:nth-child(4) { display: none; }
+      .health-explanation { grid-template-columns: 30px 1fr; }
+      .health-explanation .button { display: none; }
+      .detail-grid, .estimate-layout { grid-template-columns: 1fr; }
+      .side-stack { grid-template-columns: 1fr; }
+      .pnl-table { min-width: 520px; }
+      .pnl-table th:nth-child(2), .pnl-table td:nth-child(2), .pnl-table th:nth-child(4), .pnl-table td:nth-child(4) { display: none; }
+      .pnl-table .cost-detail { display: none; }
+      .pnl-table.show-costs .cost-detail { display: table-row; }
+      .mobile-cost-toggle { display: block; }
+      .estimate-summary { grid-template-columns: 1fr 1fr; }
+      .form-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+    }
+
+    @media (max-width: 420px) {
+      .demo-chip { display: none; }
+      .stage-grid { grid-template-columns: 1fr 1fr; }
+      .stage-name { font-size: 11px; }
+      .stage-value { font-size: 8px; }
+      .mobile-record-grid { grid-template-columns: 1fr 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#app">Skip to dashboard</a>
+  <main id="app" tabindex="-1"></main>
+  <div id="modal-root"></div>
+  <div id="toast-root" aria-live="polite" aria-atomic="true"></div>
+
+  <script id="prototype-data">
+    (() => {
+      const costs = (labor, materials, rentals, dumpFees, subcontractors, other) => ({
+        labor, materials, rentals, dumpFees, subcontractors, other
+      });
+
+      const column = (approvedRevenue, approvedChangeOrderRevenue, directCosts, overhead, processingFees) => ({
+        approvedRevenue, approvedChangeOrderRevenue, directCosts, overhead, processingFees
+      });
+
+      const financials = (original, current, actual, forecast) => ({ original, current, actual, forecast });
+
+      const estimateFinancial = (revenue, labor, materials, rentals, dumpFees, subcontractors, other, overhead, processingFees) => {
+        const totalDirectCosts = labor + materials + rentals + dumpFees + subcontractors + other;
+        const grossProfit = revenue - totalDirectCosts;
+        const jobProfit = grossProfit - overhead - processingFees;
+        return {
+          revenue,
+          directCosts: costs(labor, materials, rentals, dumpFees, subcontractors, other),
+          totalDirectCosts,
+          grossProfit,
+          overhead,
+          processingFees,
+          jobProfit,
+          jobProfitMargin: revenue ? jobProfit / revenue : 0
+        };
+      };
+
+      const records = [
+        {
+          id: 'EST-2018', name: 'Oak Street Garage Removal', kind: 'estimate', stageGroup: 'estimates',
+          stage: 'Quote Sent', client: 'Aaron Cole', company: 'Cole Residential',
+          address: '2148 Oak Street, Denver, CO 80205', estimator: 'Jackson', estimateValue: 18450,
+          periods: ['august', 'ytd'], lastActivity: 'Quote sent Aug 18', nextAction: 'Follow up Aug 22',
+          age: '2 days', scope: 'Detached two-car garage removal, slab breakup, haul-off, and site cleanup.',
+          laborAssumption: '3 employees × 2 days · 48 productive hours',
+          estimateFinancial: estimateFinancial(18450, 3456, 750, 1850, 2100, 0, 420, 2700, 554),
+          activity: ['Estimate created by Jackson', 'Scope reviewed by Dane', 'Quote emailed to Aaron Cole']
+        },
+        {
+          id: 'EST-2021', name: 'Summit Dental Selective Demo', kind: 'estimate', stageGroup: 'estimates',
+          stage: 'Estimate in Progress', client: 'Summit Dental Partners', company: 'Summit Dental Partners',
+          address: '8800 East Hampden Avenue, Denver, CO 80231', estimator: 'Dane', estimateValue: 32100,
+          periods: ['august', 'ytd'], lastActivity: 'Site walk Aug 19', nextAction: 'Complete scope and price',
+          age: '1 day', scope: 'Selective interior demolition for dental-suite renovation.',
+          laborAssumption: '4 employees × 4 days · 128 productive hours',
+          estimateFinancial: estimateFinancial(32100, 9216, 1300, 2400, 2850, 1200, 600, 4800, 963),
+          activity: ['Lead qualified by Jackson', 'Site walk completed by Dane', 'Estimate draft started']
+        },
+        {
+          id: 'EST-2016', name: 'Glenarm Home Interior Demo', kind: 'estimate', stageGroup: 'estimates',
+          stage: 'Quote Accepted', client: 'Tessa Morgan', company: '',
+          address: '1832 Glenarm Place, Denver, CO 80202', estimator: 'Jackson', estimateValue: 24750,
+          periods: ['august', 'ytd'], lastActivity: 'Accepted Aug 19', nextAction: 'Schedule job to mint JOB number',
+          age: 'Accepted yesterday', scope: 'Full non-structural interior demolition and debris removal.',
+          laborAssumption: '4 employees × 3 days · 96 productive hours',
+          estimateFinancial: estimateFinancial(24750, 6912, 900, 1700, 2400, 0, 500, 3600, 743),
+          activity: ['Quote emailed Aug 15', 'Customer accepted electronically Aug 19', 'Awaiting app scheduling']
+        },
+        {
+          id: 'EST-2024', name: 'Cherry Creek Basement Demo', kind: 'estimate', stageGroup: 'estimates',
+          stage: 'Intake/Qualification', client: 'Elliot Shaw', company: '',
+          address: '451 Cook Street, Denver, CO 80206', estimator: 'Jackson', estimateValue: 51500,
+          periods: ['august', 'ytd'], lastActivity: 'Lead received Aug 20', nextAction: 'Confirm site-walk availability',
+          age: '4 hours', scope: 'Basement demolition request awaiting qualification and site verification.',
+          laborAssumption: 'Not yet available',
+          estimateFinancial: estimateFinancial(51500, 14400, 2600, 3900, 4200, 1800, 900, 7200, 1545),
+          activity: ['Lead created from GHL', 'Contact information prefilled', 'Qualification pending']
+        },
+        {
+          id: 'JOB-1046', name: 'Highland Bath Removal', kind: 'job', stageGroup: 'scheduled',
+          stage: 'Job Scheduled', client: 'Maya Dalton', company: '', address: '3420 West Highland Avenue, Denver, CO 80211',
+          estimator: 'Jackson', schedule: 'Aug 21–22', scheduleDetail: 'All-day · 2 days', crew: 'Crew A',
+          calendarSync: 'Synced', readiness: 'Ready', periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Pre-start',
+          health: { label: 'Ready', tone: 'track' }, attention: '', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 2,
+          laborHours: 0, healthReason: 'Crew, calendar event, and approved budget are ready for job start.',
+          financials: financials(
+            column(12600, 0, costs(2880, 450, 650, 900, 0, 220), 1800, 378),
+            column(12600, 0, costs(2880, 450, 650, 900, 0, 220), 1800, 378),
+            column(12600, 0, costs(0, 0, 0, 0, 0, 0), 0, 378),
+            column(12600, 0, costs(2880, 450, 650, 900, 0, 220), 1800, 378)
+          ),
+          changeOrders: [], checklists: [], activity: ['Quote accepted Aug 17', 'Scheduled by Dane Aug 18', 'Google Calendar synced']
+        },
+        {
+          id: 'JOB-1047', name: 'Lakewood Retail Strip-Out', kind: 'job', stageGroup: 'scheduled',
+          stage: 'Job Scheduled', client: 'FrontRange Retail Group', company: 'FrontRange Retail Group',
+          address: '7350 West Colfax Avenue, Lakewood, CO 80214', estimator: 'Dane', schedule: 'Aug 24–26',
+          scheduleDetail: 'All-day · 3 days', crew: 'Missing', calendarSync: 'Synced', readiness: 'Needs crew',
+          periods: ['august', 'ytd'], confidence: 'Medium', dataFreshness: 'Pre-start', health: { label: 'Needs Attention', tone: 'watch' },
+          attention: 'Crew assignment required', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 3, laborHours: 0,
+          healthReason: 'The approved job is scheduled, but no crew has been assigned.',
+          financials: financials(
+            column(28400, 0, costs(7200, 1500, 2200, 2700, 500, 600), 4300, 852),
+            column(28400, 0, costs(7200, 1500, 2200, 2700, 500, 600), 4300, 852),
+            column(28400, 0, costs(0, 0, 0, 0, 0, 0), 0, 852),
+            column(28400, 0, costs(7200, 1500, 2200, 2700, 500, 600), 4300, 852)
+          ),
+          changeOrders: [], checklists: [], activity: ['Quote accepted Aug 16', 'Scheduled Aug 19', 'Crew assignment still missing']
+        },
+        {
+          id: 'JOB-1048', name: 'Arvada Pool House Removal', kind: 'job', stageGroup: 'scheduled',
+          stage: 'Job Scheduled', client: 'Sawyer Construction', company: 'Sawyer Construction',
+          address: '8425 West 72nd Place, Arvada, CO 80005', estimator: 'Jackson', schedule: 'Aug 28–29',
+          scheduleDetail: 'All-day · 2 days', crew: 'Crew B', calendarSync: 'Synced', readiness: 'Ready', periods: ['august', 'ytd'],
+          confidence: 'High', dataFreshness: 'Pre-start', health: { label: 'Ready', tone: 'track' }, attention: '', progress: 0,
+          crewDaysUsed: 0, crewDaysRemaining: 2, laborHours: 0,
+          healthReason: 'The approved pre-start change is included in the current job budget.',
+          financials: financials(
+            column(15800, 0, costs(3456, 700, 1500, 1600, 0, 300), 2300, 474),
+            column(15800, 1440, costs(3744, 850, 1650, 1750, 0, 380), 2450, 517),
+            column(15800, 1440, costs(0, 0, 0, 0, 0, 0), 0, 517),
+            column(15800, 1440, costs(3744, 850, 1650, 1750, 0, 380), 2450, 517)
+          ),
+          changeOrders: [{ id: 'CO-002', amount: 1440, status: 'Approved', approval: 'Written approval recorded by Jackson' }],
+          checklists: [], activity: ['Base quote accepted', 'CO-002 approved before start', 'Scheduled by Dane']
+        },
+        {
+          id: 'JOB-1042', name: 'Riverside Retail Interior', kind: 'job', stageGroup: 'in-progress',
+          stage: 'Job in Progress', client: 'Apex Commercial Group', company: 'Apex Commercial Group',
+          address: '1812 Riverside Drive, Denver, CO 80223', estimator: 'Jackson', schedule: 'Aug 17–20',
+          scheduleDetail: 'All-day · Day 3 of 4', crew: 'Crew A', calendarSync: 'Synced', periods: ['august', 'ytd'],
+          confidence: 'Medium', dataFreshness: '18 hours old', progress: 75, crewDaysUsed: 3, crewDaysRemaining: 1.5,
+          laborHours: 126, attention: 'Labor forecast exceeds budget',
+          healthReason: 'Labor is the primary source of forecast erosion. Forecast labor is $4,320 over the current budget, and the foreman reports 1.5 crew-days remaining.',
+          financials: financials(
+            column(36300, 0, costs(8640, 3800, 2100, 2400, 1000, 600), 5500, 1540),
+            column(36300, 1500, costs(9000, 4200, 2400, 2700, 1000, 740), 5300, 1140),
+            column(36300, 1500, costs(10920, 4050, 2300, 2550, 1000, 490), 2010, 1140),
+            column(36300, 1500, costs(13320, 4450, 2700, 3150, 1000, 640), 4560, 1140)
+          ),
+          changeOrders: [
+            { id: 'CO-001', amount: 1500, status: 'Approved', approval: 'Verbal approval recorded by Jackson; internally approved by Dane' },
+            { id: 'CO-003', amount: 2200, status: 'Pending', approval: 'Customer request documented; pricing and Dane approval are still pending' }
+          ],
+          checklists: ['Aug 17 start checklist', 'Aug 17 end-of-day checklist', 'Aug 18 end-of-day checklist', 'Aug 19 end-of-day checklist'],
+          activity: ['Job started by foreman', 'CO-001 approved', 'Remaining crew-days increased from 1.0 to 1.5', 'Bill data last refreshed 18 hours ago']
+        },
+        {
+          id: 'JOB-1038', name: 'Westbrook Kitchen Demo', kind: 'job', stageGroup: 'in-progress',
+          stage: 'Job in Progress', client: 'Maria Ellison', company: '', address: '1058 Westbrook Lane, Denver, CO 80220',
+          estimator: 'Jackson', schedule: 'Aug 20–21', scheduleDetail: 'All-day · Day 1 of 2', crew: 'Crew B', calendarSync: 'Synced',
+          periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Fresh', progress: 45, crewDaysUsed: 1, crewDaysRemaining: 1,
+          laborHours: 34, attention: 'Forecast profit retention below plan',
+          healthReason: 'Forecast profit retention is below the approved plan after a longer-than-expected first day.',
+          financials: financials(
+            column(14580, 0, costs(3600, 850, 800, 1400, 0, 350), 2000, 438),
+            column(14580, 0, costs(3800, 900, 850, 1500, 0, 450), 2000, 438),
+            column(14580, 0, costs(3350, 780, 780, 1120, 0, 470), 1400, 438),
+            column(14580, 0, costs(4070, 950, 900, 1700, 0, 800), 2022, 438)
+          ),
+          changeOrders: [], checklists: ['Aug 20 start checklist', 'Aug 20 progress update'],
+          activity: ['Job started at 7:06 AM', 'Foreman reported 45% complete', 'Forecast moved to Watch']
+        },
+        {
+          id: 'JOB-1045', name: 'Federal Boulevard Offices', kind: 'job', stageGroup: 'in-progress',
+          stage: 'Job in Progress', client: 'Northline Builders', company: 'Northline Builders',
+          address: '4100 Federal Boulevard, Denver, CO 80211', estimator: 'Dane', schedule: 'Aug 19–21',
+          scheduleDetail: 'All-day · Day 2 of 3', crew: 'Crew C', calendarSync: 'Synced', periods: ['august', 'ytd'],
+          confidence: 'High', dataFreshness: 'Fresh', progress: 62, crewDaysUsed: 2, crewDaysRemaining: 1, laborHours: 78,
+          attention: '', healthReason: 'Fresh actuals and the crew forecast support the approved plan.',
+          financials: financials(
+            column(29100, 0, costs(6500, 1800, 1800, 2100, 800, 700), 5650, 873),
+            column(29100, 0, costs(6600, 1900, 1800, 2200, 800, 700), 5707, 873),
+            column(29100, 0, costs(4900, 1750, 1600, 1850, 800, 600), 3800, 873),
+            column(29100, 0, costs(6400, 1850, 1750, 2200, 800, 800), 5667, 873)
+          ),
+          changeOrders: [], checklists: ['Aug 19 start checklist', 'Aug 19 end-of-day checklist', 'Aug 20 progress update'],
+          activity: ['Job started Aug 19', 'Bill and labor data refreshed today', 'Forecast remains On Track']
+        },
+        {
+          id: 'JOB-1034', name: 'Mountain View Offices', kind: 'job', stageGroup: 'complete',
+          stage: 'Job Completed', client: 'Peakstone Development', company: 'Peakstone Development',
+          address: '6855 South Havana Street, Centennial, CO 80112', estimator: 'Dane', schedule: 'Aug 10–13',
+          completedDate: 'Aug 13', crew: 'Crew A', calendarSync: 'Synced', periods: ['august', 'ytd'], confidence: 'Medium',
+          dataFreshness: 'Late cost Aug 20', health: { label: 'Reconciliation Required', tone: 'risk' },
+          progress: 100, crewDaysUsed: 4, crewDaysRemaining: 0, laborHours: 142, attention: '$680 late Bill transaction',
+          healthReason: 'A late Bill transaction requires reconciliation. The prior financial-close snapshot remains preserved.',
+          financials: financials(
+            column(32980, 0, costs(9100, 1900, 2100, 2700, 0, 600), 5000, 989),
+            column(32980, 0, costs(9100, 1900, 2100, 2700, 0, 600), 5000, 989),
+            column(32980, 0, costs(9400, 2050, 2100, 3380, 0, 620), 5100, 989),
+            column(32980, 0, costs(9400, 2050, 2100, 3380, 0, 620), 5100, 989)
+          ),
+          changeOrders: [], checklists: ['Start checklist', 'Three end-of-day checklists', 'Completion checklist'],
+          activity: ['Job completed Aug 13', 'Financially closed Aug 18', '$680 late dump transaction received Aug 20', 'Reconciliation reopened']
+        },
+        {
+          id: 'JOB-1031', name: 'Cedar Ridge Garage Removal', kind: 'job', stageGroup: 'complete',
+          stage: 'Paid/Closed (Won)', client: 'Drew Harmon', company: '', address: '772 Cedar Ridge Road, Golden, CO 80401',
+          estimator: 'Jackson', schedule: 'Jul 29–30', completedDate: 'Jul 30', crew: 'Crew B', calendarSync: 'Synced',
+          periods: ['july', 'ytd'], confidence: 'High', dataFreshness: 'Final', health: { label: 'Closed · Favorable', tone: 'track' },
+          progress: 100, crewDaysUsed: 2, crewDaysRemaining: 0, laborHours: 54, attention: '',
+          healthReason: 'The job is paid, financially closed, and finished above the approved job-profit plan.',
+          financials: financials(
+            column(11800, 0, costs(3600, 300, 700, 1000, 0, 200), 1500, 354),
+            column(11800, 0, costs(3600, 300, 700, 1000, 0, 200), 1500, 354),
+            column(11800, 0, costs(3350, 280, 650, 920, 0, 180), 1450, 354),
+            column(11800, 0, costs(3350, 280, 650, 920, 0, 180), 1450, 354)
+          ),
+          changeOrders: [], checklists: ['Start checklist', 'End-of-day checklist', 'Completion checklist'],
+          activity: ['Completed Jul 30', 'Invoice paid Aug 8', 'Financial close approved by Dane']
+        },
+        {
+          id: 'JOB-1036', name: 'Capitol Hill Retail Demo', kind: 'job', stageGroup: 'complete',
+          stage: 'Invoice Review', client: 'Juniper Retail LLC', company: 'Juniper Retail LLC',
+          address: '901 East Colfax Avenue, Denver, CO 80218', estimator: 'Dane', schedule: 'Aug 14–16', completedDate: 'Aug 16',
+          crew: 'Crew C', calendarSync: 'Synced', periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Fresh',
+          health: { label: 'Ready for Invoice Review', tone: 'track' }, progress: 100, crewDaysUsed: 3, crewDaysRemaining: 0,
+          laborHours: 98, attention: 'Invoice review waiting for Dane',
+          healthReason: 'Operational work is complete and actual costs are fresh. Dane can begin invoice review.',
+          financials: financials(
+            column(22140, 0, costs(6100, 1100, 1300, 1800, 0, 400), 3400, 664),
+            column(22140, 0, costs(6100, 1100, 1300, 1800, 0, 400), 3400, 664),
+            column(22140, 0, costs(5950, 1070, 1250, 1750, 0, 380), 3350, 664),
+            column(22140, 0, costs(5950, 1070, 1250, 1750, 0, 380), 3350, 664)
+          ),
+          changeOrders: [], checklists: ['Start checklist', 'Two end-of-day checklists', 'Completion checklist'],
+          activity: ['Completed Aug 16', 'Final costs refreshed Aug 19', 'Moved to Invoice Review queue']
+        },
+        {
+          id: 'JOB-1037', name: 'Boulder Kitchen Demo', kind: 'job', stageGroup: 'complete',
+          stage: 'Invoice Sent', client: 'Lena Ortiz', company: '', address: '1438 Spruce Street, Boulder, CO 80302',
+          estimator: 'Jackson', schedule: 'Aug 12–13', completedDate: 'Aug 13', crew: 'Crew B', calendarSync: 'Synced',
+          periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Final', health: { label: 'Invoice Sent', tone: 'track' },
+          progress: 100, crewDaysUsed: 2, crewDaysRemaining: 0, laborHours: 61, attention: '',
+          healthReason: 'The invoice has been sent and the job remains open for payment and final reconciliation.',
+          financials: financials(
+            column(15760, 0, costs(4100, 700, 800, 1300, 0, 260), 2300, 473),
+            column(15760, 0, costs(4100, 700, 800, 1300, 0, 260), 2300, 473),
+            column(15760, 0, costs(4200, 680, 780, 1250, 0, 250), 2320, 473),
+            column(15760, 0, costs(4200, 680, 780, 1250, 0, 250), 2320, 473)
+          ),
+          changeOrders: [], checklists: ['Start checklist', 'End-of-day checklist', 'Completion checklist'],
+          activity: ['Completed Aug 13', 'Invoice approved by Dane', 'Invoice sent Aug 18']
+        }
+      ];
+
+      window.JobDashboardData = Object.freeze({
+        periods: Object.freeze([
+          { id: 'august', label: 'August 2026' },
+          { id: 'july', label: 'July 2026' },
+          { id: 'ytd', label: 'Year to Date' }
+        ]),
+        records: Object.freeze(records)
+      });
+    })();
+  </script>
+
+  <script id="prototype-model">
+    window.JobDashboardModel = (() => {
+      const sum = (values) => values.reduce((total, value) => total + (Number(value) || 0), 0);
+      const money = (value) => new Intl.NumberFormat('en-US', {
+        style: 'currency', currency: 'USD', maximumFractionDigits: 0
+      }).format(value);
+      const percent = (value) => new Intl.NumberFormat('en-US', {
+        style: 'percent', maximumFractionDigits: 1
+      }).format(value);
+
+      function getPnl(record, columnName) {
+        const financial = record.financials[columnName];
+        const approvedRevenue = financial.approvedRevenue;
+        const changeOrderRevenue = financial.approvedChangeOrderRevenue;
+        const totalRevenue = approvedRevenue + changeOrderRevenue;
+        const totalDirectCosts = sum(Object.values(financial.directCosts));
+        const grossProfit = totalRevenue - totalDirectCosts;
+        const jobProfit = grossProfit - financial.overhead - financial.processingFees;
+        return {
+          approvedRevenue,
+          changeOrderRevenue,
+          totalRevenue,
+          directCosts: financial.directCosts,
+          totalDirectCosts,
+          grossProfit,
+          overhead: financial.overhead,
+          processingFees: financial.processingFees,
+          jobProfit,
+          jobProfitMargin: totalRevenue ? jobProfit / totalRevenue : 0
+        };
+      }
+
+      function getHealth(record) {
+        if (record.kind !== 'job' || record.stageGroup !== 'in-progress') return record.health;
+        const current = getPnl(record, 'current').jobProfit;
+        const forecast = getPnl(record, 'forecast').jobProfit;
+        const retention = current ? forecast / current : 0;
+        if (forecast < 0 || retention < 0.75) return { label: 'At Risk', tone: 'risk', retention };
+        if (retention < 0.9 || record.confidence !== 'High' || record.dataFreshness !== 'Fresh') {
+          return { label: 'Watch', tone: 'watch', retention };
+        }
+        return { label: 'On Track', tone: 'track', retention };
+      }
+
+      const getStageGroup = (record) => record.stageGroup;
+      const getStageRecords = (records, group) => records.filter((record) => getStageGroup(record) === group);
+
+      function searchRecords(records, query) {
+        const needle = query.trim().toLowerCase();
+        if (!needle) return records;
+        return records.filter((record) => [record.id, record.name, record.client, record.company, record.address]
+          .join(' ').toLowerCase().includes(needle));
+      }
+
+      function getPeriodMetrics(records, period) {
+        const included = records.filter((record) => record.periods.includes(period));
+        const official = included.filter((record) => record.kind === 'job');
+        const estimates = included.filter((record) => record.stageGroup === 'estimates' && record.stage !== 'Closed Lost');
+        return {
+          approvedRevenue: sum(official.map((record) => getPnl(record, 'current').totalRevenue)),
+          forecastJobProfit: sum(official.map((record) => getPnl(record, 'forecast').jobProfit)),
+          actualCommittedCosts: sum(official.map((record) => {
+            const pnl = getPnl(record, 'actual');
+            return pnl.totalDirectCosts + pnl.overhead + pnl.processingFees;
+          })),
+          openEstimateValue: sum(estimates.map((record) => record.estimateValue))
+        };
+      }
+
+      return {
+        money, percent, getPnl, getHealth, getStageGroup, getStageRecords, searchRecords, getPeriodMetrics
+      };
+    })();
+  </script>
+
+  <script id="prototype-app">
+    (() => {
+      const data = window.JobDashboardData;
+      const model = window.JobDashboardModel;
+      const app = document.getElementById('app');
+
+      const state = {
+        screen: 'dashboard',
+        period: 'august',
+        stage: 'in-progress',
+        query: '',
+        healthFilter: 'all',
+        selectedId: null,
+        detailTab: 'overview',
+        modal: null,
+        expandedCosts: false
+      };
+
+      const stageMeta = {
+        estimates: { label: 'Estimates', icon: '✎', description: 'Pre-job estimates and accepted quotes', valueLabel: 'open estimate value' },
+        scheduled: { label: 'Scheduled', icon: '◇', description: 'Approved jobs on the operational calendar', valueLabel: 'approved revenue' },
+        'in-progress': { label: 'In Progress', icon: '▶', description: 'Live job health and profitability', valueLabel: 'approved revenue' },
+        complete: { label: 'Complete', icon: '✓', description: 'Completed work through paid and closed', valueLabel: 'approved revenue' }
+      };
+
+      const escapeHtml = (value) => String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+
+      const periodLabel = () => data.periods.find((period) => period.id === state.period)?.label || 'August 2026';
+      const recordsForPeriod = () => data.records.filter((record) => record.periods.includes(state.period));
+      const recordById = (id) => data.records.find((record) => record.id === id);
+      const pnlCost = (pnl) => pnl.totalDirectCosts + pnl.overhead + pnl.processingFees;
+
+      const statusPill = (label, tone = 'neutral') => `<span class="status-pill ${tone}">${escapeHtml(label)}</span>`;
+
+      const appHeader = () => `
+        <header class="app-header">
+          <button class="brand-lockup" data-screen="dashboard" aria-label="Open Job Dashboard">
+            <span class="brand-mark" aria-hidden="true">LB</span>
+            <span class="brand-name">Lost Boys Demolition</span>
+          </button>
+          <nav class="desktop-nav" aria-label="Primary navigation">
+            <button class="nav-button ${state.screen === 'dashboard' ? 'active' : ''}" data-screen="dashboard">Job Dashboard</button>
+            <button class="nav-button ${state.screen === 'workspace' ? 'active' : ''}" data-screen="workspace">Jobs</button>
+            <button class="nav-button" data-stage="scheduled">Schedule</button>
+            <button class="nav-button" data-record-id="EST-2021">New Estimate</button>
+          </nav>
+          <span class="header-spacer"></span>
+          <span class="demo-chip">Fictitious demo data</span>
+          <span class="avatar" aria-label="Signed in as Dane">DR</span>
+        </header>`;
+
+      const mobileNav = () => `
+        <nav class="mobile-bottom-nav" aria-label="Mobile navigation">
+          <button class="${state.screen === 'dashboard' ? 'active' : ''}" data-screen="dashboard"><span aria-hidden="true">▦</span>Dashboard</button>
+          <button data-stage="scheduled"><span aria-hidden="true">◇</span>Schedule</button>
+          <button class="${state.screen === 'workspace' ? 'active' : ''}" data-screen="workspace"><span aria-hidden="true">☰</span>Jobs</button>
+          <button data-record-id="EST-2021"><span aria-hidden="true">＋</span>Estimate</button>
+        </nav>`;
+
+      function navigate(screen, options = {}) {
+        Object.assign(state, options, { screen });
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        render();
+      }
+
+      function renderDashboard() {
+        const periodRecords = recordsForPeriod();
+        const metrics = model.getPeriodMetrics(data.records, state.period);
+        const officialCount = periodRecords.filter((record) => record.kind === 'job').length;
+        const stageCards = Object.entries(stageMeta).map(([group, meta]) => {
+          const records = model.getStageRecords(periodRecords, group);
+          const value = group === 'estimates'
+            ? records.reduce((total, record) => total + record.estimateValue, 0)
+            : records.reduce((total, record) => total + model.getPnl(record, 'current').totalRevenue, 0);
+          return `
+            <button class="stage-card ${group === 'in-progress' ? 'accent' : ''}" data-stage="${group}" aria-label="Open ${meta.label}">
+              <span class="stage-icon" aria-hidden="true">${meta.icon}</span>
+              <span class="stage-name">${meta.label}</span>
+              <strong class="stage-count">${records.length}</strong>
+              <span class="stage-value">${model.money(value)} ${meta.valueLabel}</span>
+            </button>`;
+        }).join('');
+
+        const attentionRecords = periodRecords.filter((record) => record.attention).slice(0, 3);
+        const attentionRows = attentionRecords.length ? attentionRecords.map((record, index) => `
+          <button class="attention-row" data-record-id="${record.id}">
+            <span class="signal-dot ${index ? 'watch' : ''}" aria-hidden="true"></span>
+            <span><strong class="row-title">${escapeHtml(record.attention)}</strong><span class="row-meta">${escapeHtml(record.name)} · ${escapeHtml(record.id)}</span></span>
+            <span class="row-action">Review →</span>
+          </button>`).join('') : `
+          <div class="empty-state"><h3>No open exceptions</h3><p>There are no attention items for this period.</p></div>`;
+
+        const activeJobs = model.getStageRecords(periodRecords, 'in-progress');
+        const healthRows = activeJobs.length ? activeJobs.map((record) => {
+          const health = model.getHealth(record);
+          const forecast = model.getPnl(record, 'forecast');
+          return `
+            <button class="health-row" data-record-id="${record.id}">
+              <span><strong class="row-title">${escapeHtml(record.name)}</strong><span class="row-meta">${escapeHtml(record.id)} · ${model.money(forecast.jobProfit)} forecast profit · ${model.percent(forecast.jobProfitMargin)}</span></span>
+              ${statusPill(health.label, health.tone)}
+            </button>`;
+        }).join('') : `
+          <div class="empty-state"><h3>No live jobs</h3><p>No jobs are in progress for this period.</p></div>`;
+
+        return `
+          <div class="page-container">
+            <section class="business-snapshot" aria-labelledby="snapshot-heading">
+              <div class="snapshot-inner">
+                <div class="snapshot-heading">
+                  <div><p class="eyebrow">Job Dashboard</p><h1 id="snapshot-heading">${escapeHtml(periodLabel().replace(' 2026', ''))} Business Snapshot</h1><p>${officialCount} official jobs included · Demo updated Aug 20 at 3:42 PM</p></div>
+                  <label><span class="sr-only">Reporting period</span><select class="period-select" data-period>${data.periods.map((period) => `<option value="${period.id}" ${period.id === state.period ? 'selected' : ''}>${period.label}</option>`).join('')}</select></label>
+                </div>
+                <div class="metric-grid">
+                  <article class="metric-card"><span class="metric-label">Approved Revenue</span><strong class="metric-value">${model.money(metrics.approvedRevenue)}</strong><span class="metric-note">Official jobs active in this period</span></article>
+                  <article class="metric-card"><span class="metric-label">Forecast Job Profit</span><strong class="metric-value">${model.money(metrics.forecastJobProfit)}</strong><span class="metric-note">${metrics.approvedRevenue ? model.percent(metrics.forecastJobProfit / metrics.approvedRevenue) : 'Not available'} forecast margin</span></article>
+                  <article class="metric-card"><span class="metric-label">Actual + Committed Costs</span><strong class="metric-value">${model.money(metrics.actualCommittedCosts)}</strong><span class="metric-note">Posted actuals plus recorded commitments</span></article>
+                  <article class="metric-card"><span class="metric-label">Open Estimate Value</span><strong class="metric-value">${model.money(metrics.openEstimateValue)}</strong><span class="metric-note estimate">Kept separate from approved work</span></article>
+                </div>
+              </div>
+            </section>
+
+            <section class="content-section" aria-labelledby="work-heading">
+              <div class="section-heading"><div><h2 id="work-heading">Work in Motion</h2><p>Click a stage to see the work and decisions inside it.</p></div><button class="text-button" data-screen="workspace">View all jobs →</button></div>
+              <div class="stage-grid">${stageCards}</div>
+            </section>
+
+            <section class="content-section dashboard-columns">
+              <article class="panel" aria-labelledby="attention-heading"><div class="panel-header"><h3 id="attention-heading">Needs Attention</h3><span>${attentionRecords.length} open items</span></div>${attentionRows}</article>
+              <article class="panel" aria-labelledby="health-heading"><div class="panel-header"><h3 id="health-heading">Live Job Health</h3><span>${activeJobs.length} active jobs</span></div>${healthRows}</article>
+            </section>
+          </div>`;
+      }
+
+      const groupDescription = (group) => stageMeta[group]?.description || 'Current work records';
+
+      const stageSummary = (record, group) => {
+        if (group === 'estimates') return {
+          status: statusPill(record.stage, 'neutral'),
+          a: ['Estimate Value', model.money(record.estimateValue)],
+          b: ['Estimator', record.estimator],
+          c: ['Next Action', record.nextAction]
+        };
+        if (group === 'scheduled') {
+          const pnl = model.getPnl(record, 'current');
+          return {
+            status: statusPill(record.readiness, record.readiness === 'Ready' ? 'track' : 'watch'),
+            a: ['Schedule', record.schedule],
+            b: ['Crew', record.crew],
+            c: ['Approved Revenue', model.money(pnl.totalRevenue)]
+          };
+        }
+        if (group === 'in-progress') {
+          const pnl = model.getPnl(record, 'forecast');
+          const health = model.getHealth(record);
+          return {
+            status: statusPill(health.label, health.tone),
+            a: ['Progress', `${record.progress}%`],
+            b: ['Forecast Profit', model.money(pnl.jobProfit)],
+            c: ['Forecast Margin', model.percent(pnl.jobProfitMargin)]
+          };
+        }
+        const pnl = model.getPnl(record, 'actual');
+        return {
+          status: statusPill(record.health.label, record.health.tone),
+          a: ['Completed', record.completedDate],
+          b: ['Actual Job Profit', model.money(pnl.jobProfit)],
+          c: ['Actual Margin', model.percent(pnl.jobProfitMargin)]
+        };
+      };
+
+      function renderStageWorkspace() {
+        const periodRecords = recordsForPeriod();
+        const groupRecords = model.getStageRecords(periodRecords, state.stage);
+        let records = model.searchRecords(groupRecords, state.query);
+        if (state.healthFilter !== 'all') {
+          records = records.filter((record) => (record.kind === 'job' ? model.getHealth(record).tone : 'neutral') === state.healthFilter);
+        }
+
+        const tabs = Object.entries(stageMeta).map(([group, meta]) => {
+          const count = model.getStageRecords(periodRecords, group).length;
+          return `<button class="stage-tab ${state.stage === group ? 'active' : ''}" data-stage="${group}">${meta.label}<strong>${count}</strong></button>`;
+        }).join('');
+
+        const tableHead = {
+          estimates: ['Estimate', 'Stage', 'Estimate Value', 'Estimator', 'Next Action'],
+          scheduled: ['Job', 'Readiness', 'Schedule', 'Crew', 'Approved Revenue'],
+          'in-progress': ['Job', 'Health', 'Progress', 'Forecast Profit', 'Margin'],
+          complete: ['Job', 'Financial State', 'Completed', 'Actual Job Profit', 'Margin']
+        }[state.stage];
+
+        const rows = records.map((record) => {
+          const summary = stageSummary(record, state.stage);
+          return `<tr data-record-id="${record.id}" tabindex="0" aria-label="Open ${escapeHtml(record.name)}"><td><strong class="record-name">${escapeHtml(record.name)}</strong><span class="record-meta">${escapeHtml(record.id)} · ${escapeHtml(record.client)}</span></td><td>${summary.status}</td><td><span class="numeric">${escapeHtml(summary.a[1])}</span><span class="record-meta">${escapeHtml(summary.a[0])}</span></td><td><span class="numeric">${escapeHtml(summary.b[1])}</span><span class="record-meta">${escapeHtml(summary.b[0])}</span></td><td><span class="numeric">${escapeHtml(summary.c[1])}</span><span class="record-meta">${escapeHtml(summary.c[0])}</span></td><td class="chevron" aria-hidden="true">›</td></tr>`;
+        }).join('');
+
+        const cards = records.map((record) => {
+          const summary = stageSummary(record, state.stage);
+          return `<button class="mobile-record" data-record-id="${record.id}"><span class="mobile-record-top"><span><strong class="record-name">${escapeHtml(record.name)}</strong><span class="record-meta">${escapeHtml(record.id)} · ${escapeHtml(record.client)}</span></span>${summary.status}</span><span class="mobile-record-grid"><span>${escapeHtml(summary.a[0])}<strong>${escapeHtml(summary.a[1])}</strong></span><span>${escapeHtml(summary.b[0])}<strong>${escapeHtml(summary.b[1])}</strong></span><span>${escapeHtml(summary.c[0])}<strong>${escapeHtml(summary.c[1])}</strong></span></span></button>`;
+        }).join('');
+
+        const results = records.length ? `
+          <div class="record-table-wrap desktop-table"><table class="record-table"><thead><tr>${tableHead.map((heading) => `<th scope="col">${heading}</th>`).join('')}<th scope="col"><span class="sr-only">Open</span></th></tr></thead><tbody>${rows}</tbody></table></div>
+          <div class="mobile-cards">${cards}</div>` : `
+          <div class="empty-state"><h3>No matching records</h3><p>Clear the search or filter to see more work.</p></div>`;
+
+        return `
+          <div class="page-container">
+            <section class="workspace-shell">
+              <div class="workspace-body">
+                <div class="page-heading"><div><p class="eyebrow">Work in Motion</p><h1>${stageMeta[state.stage].label}</h1><p>${groupDescription(state.stage)} · ${groupRecords.length} records in ${escapeHtml(periodLabel())}</p></div><div class="page-actions"><button class="button" data-screen="dashboard">Back to Dashboard</button><button class="button primary" data-record-id="EST-2021">+ New Estimate</button></div></div>
+                <nav class="stage-tabs" aria-label="Job stages">${tabs}</nav>
+                <div class="toolbar">
+                  <label class="search-control"><span aria-hidden="true">⌕</span><span class="sr-only">Search records</span><input class="search-input" type="search" value="${escapeHtml(state.query)}" placeholder="Search job, client, address, or ID" data-search></label>
+                  <label><span class="sr-only">Health filter</span><select class="filter-select" data-health-filter><option value="all" ${state.healthFilter === 'all' ? 'selected' : ''}>All conditions</option><option value="track" ${state.healthFilter === 'track' ? 'selected' : ''}>On Track / Ready</option><option value="watch" ${state.healthFilter === 'watch' ? 'selected' : ''}>Watch / Needs Attention</option><option value="risk" ${state.healthFilter === 'risk' ? 'selected' : ''}>At Risk / Reconcile</option></select></label>
+                  <span class="freshness-note">Actuals shown through Aug 20 at 3:42 PM</span>
+                </div>
+                ${results}
+              </div>
+            </section>
+          </div>`;
+      }
+
+      const formatCost = (value) => value ? `(${model.money(Math.abs(value))})` : '—';
+      const formatVariance = (value, cost = false) => {
+        if (!value) return '—';
+        const sign = value > 0 ? '+' : '−';
+        return `${sign}${model.money(Math.abs(value))}${cost ? ' cost' : ''}`;
+      };
+
+      function renderPnl(record) {
+        const columns = ['original', 'current', 'actual', 'forecast'];
+        const pnls = Object.fromEntries(columns.map((column) => [column, model.getPnl(record, column)]));
+        const costLabels = {
+          labor: 'Labor', materials: 'Materials', rentals: 'Rentals', dumpFees: 'Dump Fees',
+          subcontractors: 'Subcontractors', other: 'Other Direct Costs'
+        };
+        const revenueCells = (key) => columns.map((column) => `<td>${model.money(pnls[column][key])}</td>`).join('');
+        const costCells = (key) => columns.map((column) => `<td>${formatCost(pnls[column][key])}</td>`).join('');
+        const directRows = Object.entries(costLabels).map(([key, label]) => {
+          const variance = pnls.forecast.directCosts[key] - pnls.current.directCosts[key];
+          const tone = variance > 0 ? 'unfavorable' : variance < 0 ? 'favorable' : '';
+          return `<tr class="${key === 'labor' ? '' : 'cost-detail'}"><td class="indent">${label}</td>${columns.map((column) => `<td>${formatCost(pnls[column].directCosts[key])}</td>`).join('')}<td class="${tone}">${formatVariance(variance, true)}</td></tr>`;
+        }).join('');
+        const totalDirectVariance = pnls.forecast.totalDirectCosts - pnls.current.totalDirectCosts;
+        const grossVariance = pnls.forecast.grossProfit - pnls.current.grossProfit;
+        const overheadVariance = pnls.forecast.overhead - pnls.current.overhead;
+        const processingVariance = pnls.forecast.processingFees - pnls.current.processingFees;
+        const profitVariance = pnls.forecast.jobProfit - pnls.current.jobProfit;
+        const marginVariance = pnls.forecast.jobProfitMargin - pnls.current.jobProfitMargin;
+
+        return `
+          <section class="pnl-panel" aria-labelledby="pnl-heading">
+            <div class="pnl-header"><h2 id="pnl-heading">Job Profit &amp; Loss Comparison</h2><span>Current approved budget and live forecast</span></div>
+            <div class="pnl-scroll">
+              <table class="pnl-table ${state.expandedCosts ? 'show-costs' : ''}">
+                <thead><tr><th scope="col">Revenue / Cost</th><th scope="col">Original Estimate</th><th scope="col">Current Approved</th><th scope="col">Actual + Committed</th><th scope="col">Forecast at Completion</th><th scope="col">Forecast Variance</th></tr></thead>
+                <tbody>
+                  <tr class="section-row"><td colspan="6">Revenue</td></tr>
+                  <tr><td class="indent">Approved Revenue</td>${revenueCells('approvedRevenue')}<td>—</td></tr>
+                  <tr><td class="indent">Approved Change Order Revenue</td>${revenueCells('changeOrderRevenue')}<td>—</td></tr>
+                  <tr class="subtotal"><td>Total Revenue</td>${revenueCells('totalRevenue')}<td>—</td></tr>
+                  <tr class="section-row"><td colspan="6">Direct Costs</td></tr>
+                  ${directRows}
+                  <tr class="subtotal"><td>Total Direct Costs</td>${costCells('totalDirectCosts')}<td class="${totalDirectVariance > 0 ? 'unfavorable' : totalDirectVariance < 0 ? 'favorable' : ''}">${formatVariance(totalDirectVariance, true)}</td></tr>
+                  <tr class="gross-profit"><td>Gross Profit</td>${revenueCells('grossProfit')}<td class="${grossVariance < 0 ? 'unfavorable' : grossVariance > 0 ? 'favorable' : ''}">${formatVariance(grossVariance)}</td></tr>
+                  <tr><td>Overhead Allocation</td>${costCells('overhead')}<td class="${overheadVariance > 0 ? 'unfavorable' : overheadVariance < 0 ? 'favorable' : ''}">${formatVariance(overheadVariance, true)}</td></tr>
+                  <tr><td>Processing Fees</td>${costCells('processingFees')}<td class="${processingVariance > 0 ? 'unfavorable' : processingVariance < 0 ? 'favorable' : ''}">${formatVariance(processingVariance, true)}</td></tr>
+                  <tr class="job-profit"><td>Job Profit</td>${revenueCells('jobProfit')}<td class="${profitVariance < 0 ? 'unfavorable' : profitVariance > 0 ? 'favorable' : ''}">${formatVariance(profitVariance)}</td></tr>
+                  <tr class="job-margin"><td>Job Profit Margin</td>${columns.map((column) => `<td>${model.percent(pnls[column].jobProfitMargin)}</td>`).join('')}<td class="${marginVariance < 0 ? 'unfavorable' : marginVariance > 0 ? 'favorable' : ''}">${marginVariance ? `${marginVariance > 0 ? '+' : '−'}${Math.abs(marginVariance * 100).toFixed(1)} pts` : '—'}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <button class="button mobile-cost-toggle" data-toggle-costs>${state.expandedCosts ? 'Hide direct-cost detail' : 'Show all direct costs'}</button>
+            <p class="pnl-note">For revenue, Actual + Committed means contractually approved revenue. For costs, it means posted actual costs plus recorded commitments. Pending changes remain outside Total Revenue.</p>
+          </section>`;
+      }
+
+      const detailTabs = (tabs) => `<nav class="detail-tabs" aria-label="Record detail sections">${tabs.map(([id, label]) => `<button class="detail-tab ${state.detailTab === id ? 'active' : ''}" data-detail-tab="${id}">${label}</button>`).join('')}</nav>`;
+
+      const renderActivity = (record) => `
+        <section class="detail-list-panel"><div class="detail-list-header"><h2>Activity History</h2><button class="button" data-modal="activity">Open Audit Preview</button></div><ol class="detail-list">${record.activity.map((item, index) => `<li><span><strong>${escapeHtml(item)}</strong><span>Recorded in the prototype audit history.</span></span><time>Event ${index + 1}</time></li>`).join('')}</ol></section>`;
+
+      function renderEstimateDetail(record) {
+        const financial = record.estimateFinancial;
+        const tabs = [['overview', 'Overview'], ['financials', 'Financials'], ['activity', 'Activity']];
+        let tabContent;
+        if (state.detailTab === 'activity') tabContent = renderActivity(record);
+        else {
+          const breakdownRows = Object.entries({
+            labor: 'Labor', materials: 'Materials', rentals: 'Rentals', dumpFees: 'Dump Fees', subcontractors: 'Subcontractors', other: 'Other Direct Costs'
+          }).map(([key, label]) => `<tr><td>${label}</td><td>${formatCost(financial.directCosts[key])}</td></tr>`).join('');
+          tabContent = `
+            <section class="estimate-summary">
+              <article class="summary-card"><label>Estimate Value</label><strong>${model.money(financial.revenue)}</strong><small>Pre-job opportunity value</small></article>
+              <article class="summary-card"><label>Estimated Job Profit</label><strong>${model.money(financial.jobProfit)}</strong><small>After overhead and processing fees</small></article>
+              <article class="summary-card"><label>Estimated Margin</label><strong>${model.percent(financial.jobProfitMargin)}</strong><small>Job Profit ÷ Total Revenue</small></article>
+              <article class="summary-card"><label>Quote Stage</label><strong style="font-size:15px">${escapeHtml(record.stage)}</strong><small>${escapeHtml(record.age)}</small></article>
+            </section>
+            <section class="estimate-layout">
+              <article class="detail-list-panel"><div class="detail-list-header"><h2>Estimate Information</h2><span class="status-pill neutral">Pre-job estimate</span></div><div class="info-grid"><div class="info-cell"><label>Client</label><strong>${escapeHtml(record.client)}</strong></div><div class="info-cell"><label>Estimator</label><strong>${escapeHtml(record.estimator)}</strong></div><div class="info-cell"><label>Job Site</label><strong>${escapeHtml(record.address)}</strong></div><div class="info-cell"><label>Labor Assumption</label><strong>${escapeHtml(record.laborAssumption)}</strong></div><div class="info-cell" style="grid-column:1/-1;border-right:0"><label>Scope</label><strong>${escapeHtml(record.scope)}</strong></div><div class="info-cell"><label>Last Activity</label><strong>${escapeHtml(record.lastActivity)}</strong></div><div class="info-cell"><label>Next Action</label><strong>${escapeHtml(record.nextAction)}</strong></div></div></article>
+              <article class="detail-list-panel"><div class="detail-list-header"><h2>Estimated Economics</h2></div><table class="cost-breakdown"><tbody><tr><td>Approved Revenue</td><td>${model.money(financial.revenue)}</td></tr>${breakdownRows}<tr class="subtotal"><td>Total Direct Costs</td><td>${formatCost(financial.totalDirectCosts)}</td></tr><tr><td>Gross Profit</td><td>${model.money(financial.grossProfit)}</td></tr><tr><td>Overhead Allocation</td><td>${formatCost(financial.overhead)}</td></tr><tr><td>Processing Fees</td><td>${formatCost(financial.processingFees)}</td></tr><tr class="subtotal"><td>Job Profit</td><td>${model.money(financial.jobProfit)}</td></tr><tr class="subtotal"><td>Job Profit Margin</td><td>${model.percent(financial.jobProfitMargin)}</td></tr></tbody></table></article>
+            </section>`;
+        }
+
+        return `
+          <div class="page-container"><section class="detail-shell"><div class="detail-body">
+            <div class="breadcrumb"><button data-back="workspace">${stageMeta.estimates.label}</button> &nbsp;›&nbsp; ${escapeHtml(record.id)}</div>
+            <div class="detail-heading"><div><p class="eyebrow">Estimate Record</p><h1>${escapeHtml(record.name)}</h1><p>${escapeHtml(record.id)} · ${escapeHtml(record.client)} · ${escapeHtml(record.address)}</p><div class="detail-status">${statusPill(record.stage, record.stage === 'Quote Accepted' ? 'track' : 'neutral')}<span class="status-pill neutral">Not yet an official job</span></div></div><div class="detail-actions"><button class="button" data-modal="estimate">Edit Estimate</button><button class="button" data-modal="activity">View History</button>${record.stage === 'Quote Accepted' ? '<button class="button primary" data-modal="schedule">Schedule Job</button>' : '<button class="button primary" data-modal="estimate">Continue Estimate</button>'}</div></div>
+            ${detailTabs(tabs)}${tabContent}
+          </div></section></div>`;
+      }
+
+      const listPanel = (title, items, emptyCopy, action = '') => `
+        <section class="detail-list-panel"><div class="detail-list-header"><h2>${title}</h2>${action}</div>${items.length ? `<ul class="detail-list">${items.join('')}</ul>` : `<div class="empty-state"><h3>${emptyCopy}</h3><p>No entries are recorded in this demonstration.</p></div>`}</section>`;
+
+      function renderJobDetail(record) {
+        const health = model.getHealth(record);
+        const current = model.getPnl(record, 'current');
+        const forecast = model.getPnl(record, 'forecast');
+        const forecastVariance = forecast.jobProfit - current.jobProfit;
+        const retention = current.jobProfit ? forecast.jobProfit / current.jobProfit : 0;
+        const tabs = [
+          ['overview', 'Overview'], ['financials', 'Financials'],
+          ['changes', `Change Orders · ${record.changeOrders.length}`],
+          ['checklists', `Checklists · ${record.checklists.length}`], ['activity', 'Activity']
+        ];
+        let tabContent;
+
+        if (state.detailTab === 'financials') tabContent = renderPnl(record);
+        else if (state.detailTab === 'changes') {
+          const items = record.changeOrders.map((change) => `<li><span><strong>${escapeHtml(change.id)} · ${model.money(change.amount)}</strong><span>${escapeHtml(change.approval)}${change.status !== 'Approved' ? ' · Excluded from Total Revenue' : ''}</span></span>${statusPill(change.status, change.status === 'Approved' ? 'track' : 'watch')}</li>`);
+          tabContent = listPanel('Change Orders', items, 'No change orders', '<button class="button primary" data-modal="change">+ Change Order</button>');
+        } else if (state.detailTab === 'checklists') {
+          const items = record.checklists.map((checklist, index) => `<li><span><strong>${escapeHtml(checklist)}</strong><span>Foreman submission · progress and remaining crew-days recorded</span></span><time>Entry ${index + 1}</time></li>`);
+          tabContent = listPanel('Job Checklists', items, 'No checklists yet', '<button class="button primary" data-modal="checklist">Open Checklist</button>');
+        } else if (state.detailTab === 'activity') tabContent = renderActivity(record);
+        else {
+          tabContent = `
+            <section class="summary-grid">
+              <article class="health-card ${health.tone}"><span class="health-label">Job Health</span><span class="health-main"><strong>${escapeHtml(health.label)}</strong><span class="confidence-pill">${escapeHtml(record.confidence)} confidence</span></span><p>Forecast retains ${model.percent(retention)} of current approved Job Profit.</p></article>
+              <article class="summary-card"><label>Forecast Job Profit</label><strong>${model.money(forecast.jobProfit)}</strong><small class="${forecastVariance < 0 ? 'unfavorable' : ''}">${forecastVariance < 0 ? '↓' : '↑'} ${model.money(Math.abs(forecastVariance))} vs current plan</small></article>
+              <article class="summary-card"><label>Forecast Margin</label><strong>${model.percent(forecast.jobProfitMargin)}</strong><small>Current plan ${model.percent(current.jobProfitMargin)}</small></article>
+              <article class="summary-card"><label>Total Revenue</label><strong>${model.money(current.totalRevenue)}</strong><small>${current.changeOrderRevenue ? `${model.money(current.changeOrderRevenue)} from approved changes` : 'No approved change revenue'}</small></article>
+            </section>
+            <section class="health-explanation ${health.tone}"><span class="explanation-icon" aria-hidden="true">${health.tone === 'track' ? '✓' : '!'}</span><span><strong>${health.tone === 'track' ? 'The current forecast supports the plan' : 'Why this job needs attention'}</strong><span>${escapeHtml(record.healthReason)}</span></span><button class="button" data-modal="activity">Review source data</button></section>
+            <section class="detail-grid">${renderPnl(record)}<aside class="side-stack"><section class="side-panel"><h3>Job Progress</h3><div class="progress-body"><div class="progress-top"><span>Reported completion</span><span>${record.progress}%</span></div><div class="progress-bar"><span style="width:${record.progress}%"></span></div><div class="progress-metrics"><div class="progress-metric"><span>Crew-days used</span><strong>${record.crewDaysUsed}</strong></div><div class="progress-metric"><span>Remaining</span><strong>${record.crewDaysRemaining}</strong></div><div class="progress-metric"><span>Labor hours</span><strong>${record.laborHours}</strong></div><div class="progress-metric"><span>Data freshness</span><strong>${escapeHtml(record.dataFreshness)}</strong></div></div></div></section><section class="side-panel"><h3>Recommended Actions</h3><button class="recommended-action" data-modal="checklist"><strong>Review remaining crew-days</strong><span>Confirm progress and the foreman’s completion forecast.</span><em>Open checklist →</em></button><button class="recommended-action" data-modal="actual"><strong>Review actual and committed costs</strong><span>Confirm labor, Bill transactions, and unposted commitments.</span><em>Add actual cost →</em></button>${record.changeOrders.length ? '<button class="recommended-action" data-detail-tab="changes"><strong>Review approved change revenue</strong><span>Confirm customer and internal approval history.</span><em>View change orders →</em></button>' : '<button class="recommended-action" data-modal="change"><strong>Document a scope change</strong><span>Preview the change-order workflow.</span><em>Add change order →</em></button>'}</section></aside></section>`;
+        }
+
+        return `
+          <div class="page-container"><section class="detail-shell"><div class="detail-body">
+            <div class="breadcrumb"><button data-back="workspace">${stageMeta[record.stageGroup].label}</button> &nbsp;›&nbsp; ${escapeHtml(record.id)}</div>
+            <div class="detail-heading"><div><p class="eyebrow">Live Job Profitability Health</p><h1>${escapeHtml(record.name)}</h1><p>${escapeHtml(record.id)} · ${escapeHtml(record.client)} · ${escapeHtml(record.address)}</p><div class="detail-status">${statusPill(record.stage, 'neutral')}<span class="status-pill neutral">${escapeHtml(record.schedule || record.completedDate || '')}</span><span class="status-pill neutral">${escapeHtml(record.crew)}</span></div></div><div class="detail-actions"><button class="button" data-modal="schedule">Edit Schedule</button><button class="button" data-modal="change">+ Change Order</button><button class="button primary" data-modal="actual">Add Actual Cost</button></div></div>
+            ${detailTabs(tabs)}${tabContent}
+          </div></section></div>`;
+      }
+
+      let lastFocusedElement = null;
+      const modalRoot = document.getElementById('modal-root');
+      const toastRoot = document.getElementById('toast-root');
+
+      const modalContent = (type, record) => {
+        const common = {
+          schedule: ['Edit Schedule', `<div class="field"><label for="start-date">Start date</label><input id="start-date" type="date" value="2026-08-20"></div><div class="field"><label for="end-date">Completion date</label><input id="end-date" type="date" value="2026-08-21"></div><div class="field full"><label for="crew">Assigned crew</label><select id="crew"><option>Crew A</option><option>Crew B</option><option>Crew C</option></select></div>`],
+          actual: ['Add Actual Cost', `<div class="field"><label for="cost-category">Cost category</label><select id="cost-category"><option>Labor</option><option>Materials</option><option>Rentals</option><option>Dump Fees</option><option>Subcontractors</option><option>Other Direct Costs</option></select></div><div class="field"><label for="cost-amount">Amount</label><input id="cost-amount" type="number" min="0" step=".01" value="680"></div><div class="field full"><label for="cost-note">Source or note</label><textarea id="cost-note">Unposted commitment for demonstration</textarea></div>`],
+          change: ['Add Change Order', `<div class="field full"><label for="change-description">Scope change</label><textarea id="change-description">Additional removal requested in the field.</textarea></div><div class="field"><label for="change-revenue">Approved revenue</label><input id="change-revenue" type="number" min="0" value="1500"></div><div class="field"><label for="change-cost">Budgeted cost</label><input id="change-cost" type="number" min="0" value="900"></div><div class="field"><label for="customer-approval">Customer approval</label><select id="customer-approval"><option>Written</option><option>Verbal — documented</option><option>Pending</option></select></div><div class="field"><label for="internal-approval">Internal approval</label><select id="internal-approval"><option>Dane — approved</option><option>Pending Dane review</option></select></div>`],
+          checklist: ['Job Checklist', `<div class="field"><label for="progress">Job completion</label><input id="progress" type="number" min="0" max="100" value="${record.progress || 0}"></div><div class="field"><label for="remaining-days">Crew-days remaining</label><input id="remaining-days" type="number" min="0" step=".5" value="${record.crewDaysRemaining || 0}"></div><div class="field full"><label for="checklist-note">Foreman notes</label><textarea id="checklist-note">Progress and remaining work entered for demonstration.</textarea></div>`],
+          estimate: ['Estimate Preview', `<div class="field"><label for="estimate-stage">Estimate stage</label><select id="estimate-stage"><option>${escapeHtml(record.stage)}</option><option>Quote Sent</option><option>Quote Accepted</option></select></div><div class="field"><label for="estimate-value">Estimate value</label><input id="estimate-value" type="number" min="0" value="${record.estimateValue || 0}"></div><div class="field full"><label for="estimate-note">Estimator note</label><textarea id="estimate-note">${escapeHtml(record.nextAction || '')}</textarea></div>`],
+          activity: ['Audit & Activity Preview', `<div class="field full"><label>Recorded history</label><div class="detail-list-panel"><ul class="detail-list">${(record.activity || []).map((item, index) => `<li><span><strong>${escapeHtml(item)}</strong><span>Immutable demo event ${index + 1}</span></span></li>`).join('')}</ul></div></div>`]
+        };
+        return common[type] || common.activity;
+      };
+
+      function openModal(type, record = recordById(state.selectedId)) {
+        if (!record) return;
+        lastFocusedElement = document.activeElement;
+        state.modal = type;
+        const [title, fields] = modalContent(type, record);
+        modalRoot.innerHTML = `
+          <div class="modal-backdrop" data-modal-backdrop>
+            <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+              <header class="modal-header"><h2 id="modal-title">${title}</h2><button class="modal-close" data-modal-close aria-label="Close preview">×</button></header>
+              <form data-preview-form><div class="modal-body"><div class="prototype-notice">Prototype only — this information will not be permanently saved.</div><div class="form-grid">${fields}</div><div class="modal-actions"><button class="button" type="button" data-modal-close>Cancel</button><button class="button primary" type="submit">Preview Submit</button></div></div></form>
+            </section>
+          </div>`;
+        requestAnimationFrame(() => modalRoot.querySelector('input, select, textarea, button')?.focus());
+      }
+
+      function closeModal() {
+        state.modal = null;
+        modalRoot.innerHTML = '';
+        if (lastFocusedElement instanceof HTMLElement) lastFocusedElement.focus();
+      }
+
+      function showToast(message) {
+        toastRoot.innerHTML = `<div class="toast">${escapeHtml(message)}</div>`;
+        window.setTimeout(() => { toastRoot.innerHTML = ''; }, 3200);
+      }
+
+      function render() {
+        let content;
+        if (state.screen === 'dashboard') content = renderDashboard();
+        else if (state.screen === 'workspace') content = renderStageWorkspace();
+        else {
+          const record = recordById(state.selectedId);
+          content = record?.kind === 'estimate' ? renderEstimateDetail(record) : renderJobDetail(record);
+        }
+        app.innerHTML = `<div class="app-shell">${appHeader()}${content}${mobileNav()}</div>`;
+      }
+
+      document.addEventListener('click', (event) => {
+        const modalClose = event.target.closest('[data-modal-close]');
+        if (modalClose) {
+          closeModal();
+          return;
+        }
+        if (event.target.matches('[data-modal-backdrop]')) {
+          closeModal();
+          return;
+        }
+        const modal = event.target.closest('[data-modal]');
+        if (modal) {
+          openModal(modal.dataset.modal);
+          return;
+        }
+        const detailTab = event.target.closest('[data-detail-tab]');
+        if (detailTab) {
+          state.detailTab = detailTab.dataset.detailTab;
+          render();
+          return;
+        }
+        const costToggle = event.target.closest('[data-toggle-costs]');
+        if (costToggle) {
+          state.expandedCosts = !state.expandedCosts;
+          render();
+          return;
+        }
+        const stage = event.target.closest('[data-stage]');
+        if (stage) {
+          navigate('workspace', { stage: stage.dataset.stage, query: '', healthFilter: 'all' });
+          return;
+        }
+        const record = event.target.closest('[data-record-id]');
+        if (record) {
+          const selected = recordById(record.dataset.recordId);
+          navigate('detail', { selectedId: record.dataset.recordId, stage: selected?.stageGroup || state.stage, detailTab: 'overview', expandedCosts: false });
+          return;
+        }
+        const screen = event.target.closest('[data-screen]');
+        if (screen) {
+          navigate(screen.dataset.screen);
+          return;
+        }
+        const back = event.target.closest('[data-back]');
+        if (back) navigate(back.dataset.back);
+      });
+
+      document.addEventListener('change', (event) => {
+        if (event.target.matches('[data-period]')) {
+          state.period = event.target.value;
+          render();
+        }
+        if (event.target.matches('[data-health-filter]')) {
+          state.healthFilter = event.target.value;
+          render();
+        }
+      });
+
+      document.addEventListener('input', (event) => {
+        if (!event.target.matches('[data-search]')) return;
+        const value = event.target.value;
+        state.query = value;
+        render();
+        const input = document.querySelector('[data-search]');
+        if (input) {
+          input.focus();
+          input.setSelectionRange(value.length, value.length);
+        }
+      });
+
+      document.addEventListener('submit', (event) => {
+        if (!event.target.matches('[data-preview-form]')) return;
+        event.preventDefault();
+        closeModal();
+        showToast('Prototype entry recorded for this demo only. Nothing was permanently saved.');
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && state.modal) {
+          closeModal();
+          return;
+        }
+        if (event.key === 'Tab' && state.modal) {
+          const focusable = [...modalRoot.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+          if (focusable.length) {
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault();
+              last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault();
+              first.focus();
+            }
+          }
+        }
+        const row = event.target.closest('tr[data-record-id]');
+        if (row && (event.key === 'Enter' || event.key === ' ')) {
+          event.preventDefault();
+          row.click();
+        }
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
