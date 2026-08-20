@@ -44,6 +44,69 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ### 2026-08-20 (later) — v2 Phase 1 Session 5: Task 5A live TEST-job probe RUN — dispatcher works end to end; 🔴 Slack bot is NOT in the crew channels
 
+**Same-session continuation — Task 5B Step 1 (the watch-channel spike) RUN and ✅ PASSED. 5B is GO.**
+
+The phase plan gated all of 5B behind one unproven question: can a Google Calendar watch channel
+deliver a push notification to a Supabase edge-function URL at all? If not, 5B degraded to
+reconciliation-polling-only. **It can. The fallback is not needed.**
+
+- **`google-calendar-webhook` v1 DEPLOYED** (`--no-verify-jwt`, readback `verify_jwt: false` ✓).
+  Deploy was clean: `ghl-job-webhook` held at v20 with an unchanged `sha256` and
+  `integration-dispatcher` was untouched — no collateral version bumps this time.
+- Auth posture verified both ways: secret-less admin POST → function-level
+  `{"error":"Unauthorized"}` 401 (proves verify_jwt=false routing + a clean boot past every
+  module-scope env read); a POST carrying `X-Goog-Channel-ID` with no Supabase auth → 200.
+- **`events.watch` on the main calendar → HTTP 200.** Channel `spike-5b-fd74753fa7b3`, resource
+  `dkMnfSltyPXxmK7Q1IZDuHMo2XI`, TTL 1 h. **Google delivered a real `sync` notification 0.3 s
+  later**, `X-Goog-Channel-Token` round-tripped intact, HTTP 200 returned. Channel then stopped
+  via `channels.stop` (204) — nothing left live.
+- Admin routes were driven **server-side via `net.http_post`**, with the shared secret extracted
+  from the live `integration-dispatcher` `cron.job.command` by regex — the Session 4 recipe,
+  reused. The secret never entered the session, the repo, or the logs. Note the header is built
+  with `jsonb_build_object('x-webhook-secret', '<v>')`, so the extraction regex is
+  `'x-webhook-secret'\s*,\s*'([^']+)'` — NOT the JSON-colon shape.
+
+**⚠️ Received wisdom disproved, cheaply.** Widely-cited sources — and the "Unauthorized WebHook
+callback channel" folklore — insist the callback domain must be verified in Search Console AND
+registered in the GCP console's Push section, which nobody at Lost Boys could ever do for
+`supabase.co`. **No domain verification was required.** Google's *current* official push guide
+mentions only the SSL requirement and is the accurate one; the domain-verification advice is
+stale and appears to be carried over from the Drive API, where it does still apply. **This was
+the single largest risk flag on Phase 1's risk list and it is now retired.**
+
+**Design facts banked for Step 2 (all live-observed, not assumed):**
+1. The notification body is **empty** (`bodyLength: 0`). Google never ships the changed event —
+   the inbound leg MUST fetch it by stored event id. The v2 spec already assumes this; now it is
+   confirmed rather than trusted.
+2. The channel token round-trips in `X-Goog-Channel-Token`, so the spec'd `token_hash`
+   verification is a viable auth mechanism.
+3. Google honored the requested TTL to the second, so renewal scheduling can trust the returned
+   `expiration` rather than guessing a ceiling.
+4. The notification route and the admin routes need **different** auth and cannot share one
+   check — Google sends no `x-webhook-secret`. The deployed stub already splits them.
+
+**Scope discipline:** the stub is a scaffold, not an implementation. It contains **zero database
+access by design** (notifications are observed through edge-function logs), no token persistence
+or verification, and no writes to `jobs`/`job_schedule_exceptions` — all of that is Step 2's
+contract, and building it before the spike answered would have prejudged the answer. 11 unit
+tests cover request classification, X-Goog extraction, and the `events.watch`/`channels.stop`
+request shapes, including a test pinning that an unauthorized-callback rejection comes back as
+readable data rather than a thrown exception. Canonical `deno task test` now **382 passing**
+(371 + 11), golden-321 gate intact.
+
+**Not observed, deliberately:** an `exists` (real event-change) notification as distinct from the
+`sync` handshake. Transport and headers are identical apart from `X-Goog-Resource-State`, so it
+does not gate the decision — but Step 2's first integration test should pin it.
+
+**Next:** Task 6 Step 2 — `calendar_watch_channels` registry migration, renewal-before-expiry,
+overlap dedup, reconciliation fallback poll, revision-guarded date-only inbound writes,
+`job_schedule_exceptions` + `resolveDeletedCalendarEvent`. That is a full build task and takes
+the normal gate: Sonnet lanes → adversarial Opus review → runbook cycle → Matt-approved prod
+apply. **Cross-lane input from the 5A probe (ledger M7): cancel does NOT bump
+`calendar_sync_revision`, so `job.scheduled:…:revN` and `job.cancelled:…:revN` share a rev and
+ordering falls to `available_at` — the inbound revision guard must not assume rev monotonicity
+distinguishes them.**
+
 Session 5, local. Matt chose "5A live probe first" and "real channels, TEST-labeled, clean up
 after". The probe was run directly against production via the RPCs (the scheduling UI is on the
 branch, not on prod Vercel — driving it through the UI is the Task 7 gate E2E, not this step).
