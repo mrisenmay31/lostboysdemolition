@@ -345,6 +345,8 @@ Create `supabase/migrations/20260818151000_profitability_core_schema.sql` with t
 ```sql
 create type public.job_health_status as enum ('on_track','watch','at_risk');
 create type public.forecast_confidence as enum ('high','medium','low');
+-- NOTE: `payment_processing` is a capture category only. It is EXCLUDED from the Total Direct
+-- Costs subtotal and rendered below Gross Profit as "Processing Fees". See Task 6 → Step 4.
 create type public.cost_category as enum (
   'direct_labor','materials','rentals','dump','subcontractors',
   'other_direct','payment_processing'
@@ -1365,7 +1367,7 @@ git commit -m "feat: deliver scheduled jobs through a retryable integration outb
 
 ## Phase 2 — Manual profitability
 
-### Task 6: Job repository, portfolio, and Live Job Profitability Health Dashboard
+### Task 6: Job repository, Job Dashboard, and live job profitability detail
 
 **Files:**
 - Create: `web/src/lib/jobs/map.ts`
@@ -1404,7 +1406,7 @@ Test Postgres numeric strings, missing optional values, original/current/actual/
 
 Normalize all numeric columns before passing them to the pure engine. Insert a `job_forecast_snapshots` row only when the calculated inputs differ from the latest snapshot watermarks; update `jobs.last_forecast_at`.
 
-- [ ] **Step 3: Build the portfolio**
+- [ ] **Step 3: Build the Job Dashboard**
 
 Each card shows job, client, foreman/crew, workday, forecast profit dollars/percentage, forecast versus approved hours, crew-days remaining, health, confidence, leading reason, and next action. Add filters for Active, Job Completed, Invoice/Reconciliation, Financially Closed, Reconciliation Required, and Canceled. Closed jobs remain searchable and never disappear from historical reporting.
 
@@ -1415,13 +1417,36 @@ Render in this order:
 1. Identity/status header
 2. Health banner with plain-language leading reason
 3. Forecast profit and original expectation
-4. Financial comparison table
+4. Financial comparison table — see the presentation rule below
 5. Labor variance card; collapsed by default, expandable into productivity and rate variance
 6. Change orders
 7. Action queue
 8. Expandable time, cost, revenue, checklist, and audit sections
 
 Never render sensitive financial values in components reused by `/ops`.
+
+**Presentation rule for `payment_processing` (ratified 2026-08-21).** `payment_processing` is a
+member of the `cost_category` enum for *capture* purposes, but it MUST NOT be included in the
+Total Direct Costs subtotal. The locked financial presentation is:
+
+```
+Approved Revenue + Approved Change Order Revenue = Total Revenue
+  − Total Direct Costs   (direct_labor, materials, rentals, dump, subcontractors, other_direct
+                          — explicitly EXCLUDING payment_processing)
+  = Gross Profit
+  − Overhead Allocation  (from overhead_expense_entries, allocated on productive hours)
+  − Processing Fees      (the payment_processing category, rendered on its own line here)
+  = Job Profit
+  Job Profit Margin = Job Profit ÷ Total Revenue
+```
+
+A repository or component that naively sums `job_cost_entries` by category into Total Direct Costs
+will compute a Gross Profit that does not match this presentation. Filter `payment_processing` out
+of the subtotal and render it below Gross Profit.
+
+The enum is deliberately left unchanged: it is already applied to production, and removing a value
+from a live Postgres enum requires recreating the type and rewriting every dependent column — an
+unjustified migration risk for what is a presentation concern.
 
 - [ ] **Step 5: Verify responsive behavior**
 
@@ -1435,7 +1460,7 @@ npm test -- --run src/lib/jobs src/lib/profitability
 npm run lint
 npm run build
 git add src/lib/jobs 'src/app/(app)/jobs' 'src/app/(app)/layout.tsx'
-git commit -m "feat: add live job profitability dashboard and portfolio"
+git commit -m "feat: add job dashboard and live job profitability detail"
 ```
 
 ---
@@ -2188,7 +2213,7 @@ ENABLE_BILL_AUTOMATION=false
 ENABLE_PROFITABILITY_SLACK=true
 ```
 
-Create owner-only RPC `enable_profitability_workflow()` that atomically stores `clock_timestamp()` in `workflow_configuration.launch_at` and enables scheduling. Jobs before the stored timestamp remain legacy and are excluded from the new portfolio by default. This avoids an unreviewed placeholder timestamp. Timekeeping/BILL remain manual/imported until their production credentials and webhook tests pass.
+Create owner-only RPC `enable_profitability_workflow()` that atomically stores `clock_timestamp()` in `workflow_configuration.launch_at` and enables scheduling. Jobs before the stored timestamp remain legacy and are excluded from the new Job Dashboard by default. This avoids an unreviewed placeholder timestamp. Timekeeping/BILL remain manual/imported until their production credentials and webhook tests pass.
 
 - [ ] **Step 3: Write launch runbook**
 
@@ -2237,7 +2262,7 @@ git add docs/runbooks web/src/app/api/health web/src/lib/__tests__ CLAUDE.md BUI
 git commit -m "docs: ship live job profitability workflow runbooks and verification"
 ```
 
-**Final acceptance gate:** Dane can open the portfolio, identify the most at-risk active job, understand its leading variance, review original versus current versus actual/forecast financials, approve a documented change order, and financially close a completed job. The final record reconciles approved time, job-coded costs, allocated overhead, final net Stripe-invoiced revenue, actual processing cost, and immutable audit history. Dane can then open the same job after closure, inspect closure v1, receive a late cost, see `Reconciliation Required`, re-close to v2, and compare both snapshots. GHL and Google Calendar show the approved operational stages/schedule without becoming the financial source of truth.
+**Final acceptance gate:** Dane can open the Job Dashboard, identify the most at-risk active job, understand its leading variance, review original versus current versus actual/forecast financials, approve a documented change order, and financially close a completed job. The final record reconciles approved time, job-coded costs, allocated overhead, final net Stripe-invoiced revenue, actual processing cost, and immutable audit history. Dane can then open the same job after closure, inspect closure v1, receive a late cost, see `Reconciliation Required`, re-close to v2, and compare both snapshots. GHL and Google Calendar show the approved operational stages/schedule without becoming the financial source of truth.
 
 ---
 
@@ -2305,7 +2330,7 @@ Tasks 1–15
 - Change orders require customer plus Dane approval before current approved revenue/budget changes.
 - Actual labor, nonlabor cost, overhead, processing cost, net invoiced revenue, and collections remain distinct.
 - Direct Stripe invoicing and webhook status, Synder→QuickBooks, and GHL status/link projection are verified end to end.
-- Dashboard and portfolio are usable at mobile and desktop widths.
+- The Job Dashboard and the job detail view are usable at mobile and desktop widths.
 - External corrections update forecasts without duplication and retain audits.
 - Financial closure creates immutable versions; late facts reopen reconciliation and re-close without rewriting history.
 - `ghl-job-webhook` remains deployed with JWT verification disabled and its setting is read back after deployment.

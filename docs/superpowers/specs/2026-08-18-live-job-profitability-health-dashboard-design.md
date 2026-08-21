@@ -207,7 +207,7 @@ The job page presents:
 9. Action queue
 10. Time, expense, checklist, invoice, and audit details
 
-Dane also receives a portfolio view sorted At Risk, Watch, On Track, missing data, and reconciliation pending.
+Dane also receives a Job Dashboard view sorted At Risk, Watch, On Track, missing data, and reconciliation pending.
 
 ## 10. Labor reconciliation
 
