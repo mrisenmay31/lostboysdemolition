@@ -6,6 +6,43 @@ program — the complete technical contract) and
 plan — **live checkboxes, deviations 1–12, and the review-handoff blocks are current; work from
 this file**).
 
+## 🅿️ PARALLEL TRACK — Job Dashboard prototype (2026-08-21). Read this, then ignore it.
+
+**Nothing below about Phase 1 changed on 2026-08-21.** No migrations, no deploys, no prod applies,
+no `web/` changes. If you are resuming Phase 1, skip to the next section — this exists so you don't
+rediscover the branch or contradict its ratified decisions.
+
+Branch **`codex/job-dashboard-prototype`**, **draft PR #2**, based on `main` (v2 Phase 0), **NOT
+merged**. Commits `ed9c148` + `c2e117a`. A standalone HTML Job Dashboard for **Dane** to review the
+proposed experience before production code exists. **Awaiting Dane's feedback.**
+
+Matt confirmed 7 discrepancies I raised as ground truth and made four scoping calls; the sample
+financial model was fully re-derived. The full account is the 2026-08-21 `BUILD_LOG.md` entry on
+that branch. What matters to *this* track:
+
+- **Two v2 program-doc decisions were ratified and are now IN the repo on that branch — they are
+  not yet on the Phase 1 branch.** (a) **"portfolio" is removed** — 7 occurrences across
+  `2026-08-18-live-job-profitability-health-dashboard-v2.md` and its design spec; the term is
+  rejected, use "Job Dashboard". (b) **`payment_processing` is a CAPTURE category only**: excluded
+  from the Total Direct Costs subtotal, rendered below Gross Profit as "Processing Fees". The enum
+  stays as-is (it is applied to production; removing a live enum value means recreating the type
+  and rewriting dependent columns). Written into v2 Task 6 → Step 4 plus a pointer comment on the
+  enum. **If you touch the v2 plan on the Phase 1 branch, don't undo either.**
+- **The locked financial presentation:** Approved Revenue + Approved Change Order Revenue = Total
+  Revenue − Direct Costs = Gross Profit − Overhead Allocation − Processing Fees = Job Profit;
+  margin = Job Profit ÷ Total Revenue. Labor = hours × $26, overhead = **the same hours** × $23,
+  fees = 3.5%. 1 crew-day = 40 productive hours.
+- **Dump cost in the prototype is deliberately left at the CHARGED rate**, not the ratified $65/load.
+  At $65 every margin rises 5–7 points and the prototype becomes the first place Dane sees the dump
+  pad — a pricing conversation Matt stages separately, on real data. Do not "correct" this.
+- **Merge note:** landing this alongside `claude/last-session-review-f7tqxw` conflicts in
+  **`BUILD_LOG.md` only** (both add a top entry and edit the status table). Trivial, manual.
+- **Open on that track:** mobile layout never visually verified; production dashboard code is
+  **v2 Task 6, behind the Phase 1 gate** — reconcile the v2 plan before writing it. "Work in Motion"
+  stays as briefed (Matt disregarded folding it into Task 6).
+
+---
+
 ## What just happened — v2 Phase 1 Session 5 (2026-08-20, local): 5A probed live, 5B spike PASSED
 
 Branch: **`claude/last-session-review-f7tqxw`** (still NOT merged to main — Matt decides when).
