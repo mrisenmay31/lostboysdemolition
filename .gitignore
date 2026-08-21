@@ -20,3 +20,10 @@ supabase/.temp/
 *.tsbuildinfo
 *.log
 coverage/
+
+# Claude Code session transcripts exported to the working tree, e.g.
+# 2026-07-31-150137-lost-boys-demolition-ops-system-read-claudemd.txt
+# These are hundreds of KB of scrollback and must never be committed. The
+# date+time prefix keeps this from touching the tracked prompt .txt files in
+# docs/archive/, which carry no such prefix.
+20??-??-??-??????-*.txt
