@@ -102,12 +102,16 @@ Clicking a card opens a shared work-list screen filtered to that stage. The same
 
 Stage group membership:
 
-- **Estimates:** Intake/Qualification, Estimate in Progress, Quote Sent, and Quote Accepted. Quote Accepted remains pre-job until scheduling.
-- **Scheduled:** Job Scheduled.
-- **In Progress:** Job in Progress.
-- **Complete:** Job Completed, Invoice Review, Invoice Sent, and Paid/Closed (Won).
+Stage names mirror the live 12-stage GHL pipeline exactly (see `CLAUDE.md` → 12-Stage GHL Pipeline).
 
-Closed Lost records are available through an optional status filter but do not count toward Open Estimate Value or Work in Motion headline counts.
+- **Estimates:** New Lead, Intake / Qualification, Estimate in Progress, Quote Sent, and Quote Accepted. Quote Accepted remains pre-job until scheduling.
+- **Scheduled:** Job Scheduled.
+- **In Progress:** Job In Progress.
+- **Complete:** Job Completed, Invoice Review, Invoice Sent, and Paid / Closed Won.
+
+Closed Lost / Declined records are hidden from the default estimate list and excluded from Open
+Estimate Value and every Work in Motion count. They stay reachable through the condition filter, so
+no record disappears from history.
 
 ### 5.3 Job or Estimate Detail
 
@@ -234,6 +238,18 @@ Definitions:
 - **Job Profit** equals Gross Profit minus Overhead Allocation and Processing Fees.
 - **Job Profit Margin** equals Job Profit divided by Total Revenue.
 
+The sample data is generated from the ratified rate model rather than hand-entered, so the two
+cannot drift apart:
+
+- Labor equals productive hours × **$26/hr**.
+- Overhead Allocation equals the **same** productive hours × **$23/hr**, so allocated overhead always
+  moves in the same direction as labor.
+- Processing Fees equal **3.5%** of recognised revenue (the ratified card allowance, not the stale 3%).
+- A job that has not started posts no costs and no fee at all; its Actual + Committed profit rows
+  read “Not started” rather than showing revenue-minus-nothing as margin.
+- Dump fees remain modelled at the charged rate; separating charged dump revenue from true per-load
+  dump cost is a pricing decision held outside this prototype.
+
 The comparison columns are:
 
 - Original Estimate
@@ -255,13 +271,16 @@ The prototype will include enough fictitious records to demonstrate different de
 - Oak Street Garage Removal — Quote Sent.
 - Summit Dental Selective Demo — Estimate in Progress.
 - Glenarm Home Interior Demo — Quote Accepted but not scheduled.
-- Cherry Creek Basement Demo — Intake/Qualification.
+- Cherry Creek Basement Demo — Intake / Qualification.
+- Sloan's Lake Duplex Demo — Closed Lost / Declined; excluded from all counts and Open Estimate Value.
 
 ### Scheduled Jobs
 
-- Highland Bath Removal — ready, synced to Calendar.
+- Highland Bath Removal — ready, synced to Calendar, Crew 4 · Cade.
 - Lakewood Retail Strip-Out — missing crew assignment.
-- Arvada Pool House Removal — approved change before start.
+- Arvada Pool House Removal — approved change before start, Crew 2 · Alex.
+
+Crews are the live roster only: Crew 1 · Nick, Crew 2 · Alex, Crew 3 · Brady, Crew 4 · Cade.
 
 ### Jobs in Progress
 
@@ -347,6 +366,9 @@ Before delivery, verify:
 10. Preview actions clearly disclose that they do not permanently save.
 11. Layout remains usable at desktop, tablet, and narrow-phone widths.
 12. The interface contains no use of the word “portfolio.”
+13. Labor divided by $26 equals the productive hours displayed, and overhead divided by $23 equals
+    the same figure, on every record and every column.
+14. Stage names and crew names match the live pipeline and the live crew roster exactly.
 
 ## 15. Success Criterion
 

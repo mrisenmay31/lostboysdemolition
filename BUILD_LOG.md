@@ -35,13 +35,124 @@ shipped.
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
 | Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18** — Task 0A runbook + doc corrections done; **Task 0B BL-7 `workforce_profiles` migration APPLIED TO PRODUCTION** (19/19 assertions green, live-verified). BL-7 CLOSED. Canonical program `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md`; v1 archived. Next: v2 Phase 1 (Tasks 1–5), gated on Matt's phone smoke + one real estimate | 2026-08-18 |
-| Job Dashboard prototype | — | 🟡 **Review prototype ready** — standalone responsive HTML with fictitious estimates/jobs, Work in Motion navigation, estimate details, live job health, P&L comparisons, and non-persistent preview actions. This is a UX reference only; no production application code or data flow changed. | 2026-08-20 |
+| Job Dashboard prototype | — | 🟡 **Review prototype ready, financial model corrected 2026-08-21** — standalone responsive HTML with fictitious estimates/jobs, Work in Motion navigation, estimate details, live job health, P&L comparisons, and non-persistent preview actions. Sample data now derives labor/overhead/fees from the ratified rate model. Awaiting Dane's review. UX reference only; no production application code or data flow changed. | 2026-08-21 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-21 — Job Dashboard prototype: financial model corrected against ratified ground truth
+
+Matt reviewed the seven discrepancies raised against the 2026-08-20 prototype and confirmed all
+seven as ground truth. Four scoping decisions were taken, then the prototype's entire sample
+financial model was re-derived. **Prototype and its docs only — no production code, schema,
+integration, or live data touched.** Branch `codex/job-dashboard-prototype`, still based on `main`
+(v2 Phase 0), still not merged.
+
+**Decisions taken (Matt):**
+
+1. Dashboard headline relabelled **Total Revenue**, not "Approved Revenue" — the figure always was
+   Total Revenue ($210,600 for August, including $2,940 of approved change orders). The locked
+   hierarchy is unchanged: Approved Revenue + Approved Change Order Revenue = Total Revenue.
+2. **Re-derive all 14 records** rather than patch the visible errors.
+3. **Dump cost stays modelled near the charged rate.** Switching to the ratified
+   `estimated_dump_cost_per_load = $65` would have lifted every margin 5–7 points and made this
+   prototype the first place Dane sees the dump pad. That is a pricing conversation to stage
+   separately on real data (`DISCOVERY` §7, the four-pads finding), not a side effect of a mockup.
+4. **Hold margins, re-derive hours.** With labor at $26/hr and overhead at $23/hr welded to the same
+   productive-hour count, hours are the only free variable and they set the margin. There is no set
+   of hours that preserves both the margins shown and the crew-days shown — that gap *is* the labor-
+   hours shortfall from `DISCOVERY` §7, which the old data hid behind an implied $72/hr blended
+   labor rate. Margins were held; hours and crew-days were re-derived to match.
+
+**What changed in the prototype:**
+
+- **Labor, overhead, and processing fees are now derived, not hand-entered.** Each financial column
+  carries `productiveHours`; labor = `hours × $26`, overhead = `hours × $23` on the *same* hours,
+  fees = `3.5%` of recognised revenue. Rates live in one frozen `RATES` object. This is the
+  structural fix — the previous data had labor and overhead as independent hand-typed numbers, which
+  is why Riverside's forecast showed labor **+$4,320** while overhead moved **−$740**. Overhead now
+  moves with labor by construction (+$1,898 labor / +$1,679 overhead on the same job).
+- **Processing fees corrected 3.0% → 3.5%** on all records. The 3% figure was the stale Airtable row
+  `CLAUDE.md` warns is read by nothing; it had been reintroduced into a document Dane would read.
+- **Pre-start jobs post no costs and no fee.** The three scheduled jobs previously carried a
+  processing fee against zero costs, producing a fake $12,222 "Actual + Committed" profit on a
+  $12,600 job. Their profit rows now render *Not started*. (The back-solve returning negative hours
+  for those columns is what exposed this.)
+- **Crews mirror the live roster** — Crew 1 · Nick, Crew 2 · Alex, Crew 3 · Brady, Crew 4 · Cade.
+  All four now appear; the schedule picker offers the same four.
+- **Stages mirror the live 12-stage pipeline exactly** — `Intake / Qualification`, `Job In Progress`,
+  `Paid / Closed Won`. A `Closed Lost / Declined` estimate (EST-2009) was added, so the filter the
+  spec promised is now actually demonstrated; it is hidden by default and excluded from Open
+  Estimate Value and every Work in Motion count, reachable through the condition filter.
+
+**Margins and health scenarios were preserved to within 0.1pt.** All four teaching cases survive:
+Riverside At Risk (retention 60.5%), Westbrook Watch (79.6%), Federal Boulevard On Track (102.9%),
+Mountain View Reconciliation Required.
+
+**Verification:** `node tests/job-dashboard-prototype.test.mjs` PASS; `deno task test` 317 passed /
+0 failed; `git diff --check` clean; no "portfolio"; zero external references. Rendered and clicked
+through in a browser (served over localhost — the Chrome extension blocks `file://`; self-containment
+is verified separately by the zero-external-reference check). The test gained assertions that
+**enforce the rate model per record per column**, so labor and overhead cannot silently drift apart
+again, plus stage-name and crew-name allowlists.
+
+**Open, needing Matt:**
+
+- ~~The v2 program doc still says "portfolio."~~ **RESOLVED 2026-08-21 (Matt).** All **six**
+  occurrences removed from the ratified v2 plan — Task 6 title, Step 3, its commit message, the
+  launch-gate paragraph, the final acceptance gate, and the responsive-behaviour line — plus one in
+  `docs/superpowers/specs/2026-08-18-live-job-profitability-health-dashboard-design.md`. (I had
+  originally reported three; a full sweep found seven.) `docs/archive/` copies were deliberately
+  left untouched: superseded, provenance-only, and `CLAUDE.md` forbids planning from them.
+- ~~`payment_processing` placement is undecided.~~ **RATIFIED 2026-08-21 (Matt).** The enum stays as
+  it is — it is already applied to production, and removing a value from a live Postgres enum means
+  recreating the type and rewriting every dependent column, which is unjustified for a presentation
+  concern. `payment_processing` is a **capture category only**: it is EXCLUDED from the Total Direct
+  Costs subtotal and rendered below Gross Profit as "Processing Fees". The rule is now written into
+  the v2 plan at Task 6 → Step 4, with a pointer comment at the `cost_category` enum definition, so
+  a Task 6 implementer cannot miss it. Overhead continues to come from `overhead_expense_entries`,
+  allocated on productive hours.
+- ~~"Work in Motion" appears nowhere in the v2 plan.~~ **Disregarded 2026-08-21 (Matt's call).** Not
+  folded into Task 6. "Work in Motion" remains the prototype's primary headline area as originally
+  briefed.
+- ~~Mid-job "Actual + Committed" profit is still an artifact.~~ **FIXED 2026-08-21 (Matt).**
+  Riverside was showing $13,347 / 35.3% there — better than both the $11,325 plan and the $6,848
+  forecast — on the one job that needed attention. Revenue is recognised in full at approval while
+  costs post over weeks, so before operational completion that subtraction measures how far the
+  paperwork has got, not profit. **Gross Profit, Job Profit, and Job Profit Margin now render
+  *In progress*** in that column while `stageGroup === 'in-progress'`, matching the *Not started*
+  treatment for pre-start jobs. The cost rows stay — labor-to-date, dump-to-date and the rest are
+  the column's real value mid-job — and completed jobs are untouched, keeping full actuals for
+  financial close. One clean lifecycle rule: **Not started → In progress → real figures at
+  operational completion.**
+- **Cost-completion indicator added** as the honest replacement burn signal (Matt's call to build it
+  rather than put the question to Dane). `getCostCompletion()` returns posted cost ÷ current
+  approved cost budget, both measured as direct + overhead + fees, and the Job Progress card renders
+  it directly beneath reported completion so the two can be read against each other. It corroborates
+  health independently rather than contradicting it:
+
+  | Job | Health | Reported | Cost posted | Delta |
+  |---|---|---|---|---|
+  | JOB-1042 Riverside | At Risk | 75% | 92% | +17 pts |
+  | JOB-1038 Westbrook | Watch | 70% | 84% | +14 pts |
+  | JOB-1045 Federal Blvd | On Track | 72% | 79% | +7 pts |
+  | JOB-1034 Mountain View | Reconciliation Required | 100% | 106% | over budget |
+  | JOB-1031 Cedar Ridge | Closed · Favorable | 100% | 94% | under budget |
+
+  Jobs that have not started return `null` rather than 0%. The test asserts the ordering
+  (At Risk spending further ahead than Watch, Watch further than On Track), so sample data that
+  contradicts its own health labels fails the suite.
+- **Mobile layout not visually verified this session** — the screenshot capture would not honour a
+  window resize. Media queries are present and asserted by the test.
+- **Merge note:** merging this branch alongside `claude/last-session-review-f7tqxw` conflicts in
+  `BUILD_LOG.md` only (both add a top entry and edit the status table). Trivial, but manual.
+
+**Next:** Dane reviews. Production dashboard code is v2 Task 6, which sits behind the Phase 1 gate
+(Task 5B Step 2, the Slack bot invitations, and the calendar eyeball). Reconcile the v2 plan doc
+before writing dashboard code, not after.
 
 ### 2026-08-20 — Job Dashboard interactive review prototype landed (docs only)
 

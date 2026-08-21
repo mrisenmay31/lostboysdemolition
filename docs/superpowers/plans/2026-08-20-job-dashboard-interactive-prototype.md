@@ -60,20 +60,20 @@ vm.runInContext(script('prototype-data'), context);
 vm.runInContext(script('prototype-model'), context);
 
 const { JobDashboardData: data, JobDashboardModel: model } = context.window;
-assert.equal(data.records.length, 14);
+assert.equal(data.records.length, 15);
 
 const riverside = data.records.find((record) => record.id === 'JOB-1042');
 const pnl = model.getPnl(riverside, 'forecast');
 assert.equal(pnl.approvedRevenue, 36300);
 assert.equal(pnl.changeOrderRevenue, 1500);
 assert.equal(pnl.totalRevenue, 37800);
-assert.equal(pnl.totalDirectCosts, 25260);
-assert.equal(pnl.grossProfit, 12540);
-assert.equal(pnl.jobProfit, 6840);
+assert.equal(pnl.totalDirectCosts, 21326);
+assert.equal(pnl.grossProfit, 16474);
+assert.equal(pnl.jobProfit, 6848);
 assert.equal(Number(pnl.jobProfitMargin.toFixed(3)), 0.181);
 assert.equal(model.getHealth(riverside).label, 'At Risk');
 
-assert.equal(model.getStageRecords(data.records, 'estimates').length, 4);
+assert.equal(model.getStageRecords(data.records, 'estimates').length, 5);
 assert.equal(model.getStageRecords(data.records, 'scheduled').length, 3);
 assert.equal(model.getStageRecords(data.records, 'in-progress').length, 3);
 assert.equal(model.getStageRecords(data.records, 'complete').length, 4);
@@ -108,15 +108,15 @@ Create the semantic shell and `prototype-data` script:
       { id: 'EST-2018', name: 'Oak Street Garage Removal', kind: 'estimate', stageGroup: 'estimates', stage: 'Quote Sent', client: 'Aaron Cole', estimateValue: 18450 },
       { id: 'EST-2021', name: 'Summit Dental Selective Demo', kind: 'estimate', stageGroup: 'estimates', stage: 'Estimate in Progress', client: 'Summit Dental Partners', estimateValue: 32100 },
       { id: 'EST-2016', name: 'Glenarm Home Interior Demo', kind: 'estimate', stageGroup: 'estimates', stage: 'Quote Accepted', client: 'Tessa Morgan', estimateValue: 24750 },
-      { id: 'EST-2024', name: 'Cherry Creek Basement Demo', kind: 'estimate', stageGroup: 'estimates', stage: 'Intake/Qualification', client: 'Elliot Shaw', estimateValue: 51500 },
+      { id: 'EST-2024', name: 'Cherry Creek Basement Demo', kind: 'estimate', stageGroup: 'estimates', stage: 'Intake / Qualification', client: 'Elliot Shaw', estimateValue: 51500 },
       { id: 'JOB-1046', name: 'Highland Bath Removal', kind: 'job', stageGroup: 'scheduled', stage: 'Job Scheduled', client: 'Maya Dalton', approvedRevenue: 12600 },
       { id: 'JOB-1047', name: 'Lakewood Retail Strip-Out', kind: 'job', stageGroup: 'scheduled', stage: 'Job Scheduled', client: 'FrontRange Retail Group', approvedRevenue: 28400 },
       { id: 'JOB-1048', name: 'Arvada Pool House Removal', kind: 'job', stageGroup: 'scheduled', stage: 'Job Scheduled', client: 'Sawyer Construction', approvedRevenue: 17240 },
-      { id: 'JOB-1042', name: 'Riverside Retail Interior', kind: 'job', stageGroup: 'in-progress', stage: 'Job in Progress', client: 'Apex Commercial Group', approvedRevenue: 36300, approvedChangeOrderRevenue: 1500, forecastJobProfit: 6840 },
-      { id: 'JOB-1038', name: 'Westbrook Kitchen Demo', kind: 'job', stageGroup: 'in-progress', stage: 'Job in Progress', client: 'Maria Ellison', approvedRevenue: 14580, forecastJobProfit: 3120 },
-      { id: 'JOB-1045', name: 'Federal Boulevard Offices', kind: 'job', stageGroup: 'in-progress', stage: 'Job in Progress', client: 'Northline Builders', approvedRevenue: 29100, forecastJobProfit: 8760 },
+      { id: 'JOB-1042', name: 'Riverside Retail Interior', kind: 'job', stageGroup: 'in-progress', stage: 'Job In Progress', client: 'Apex Commercial Group', approvedRevenue: 36300, approvedChangeOrderRevenue: 1500, forecastJobProfit: 6840 },
+      { id: 'JOB-1038', name: 'Westbrook Kitchen Demo', kind: 'job', stageGroup: 'in-progress', stage: 'Job In Progress', client: 'Maria Ellison', approvedRevenue: 14580, forecastJobProfit: 3120 },
+      { id: 'JOB-1045', name: 'Federal Boulevard Offices', kind: 'job', stageGroup: 'in-progress', stage: 'Job In Progress', client: 'Northline Builders', approvedRevenue: 29100, forecastJobProfit: 8760 },
       { id: 'JOB-1034', name: 'Mountain View Offices', kind: 'job', stageGroup: 'complete', stage: 'Job Completed', client: 'Peakstone Development', approvedRevenue: 32980 },
-      { id: 'JOB-1031', name: 'Cedar Ridge Garage Removal', kind: 'job', stageGroup: 'complete', stage: 'Paid/Closed (Won)', client: 'Drew Harmon', approvedRevenue: 11800 },
+      { id: 'JOB-1031', name: 'Cedar Ridge Garage Removal', kind: 'job', stageGroup: 'complete', stage: 'Paid / Closed Won', client: 'Drew Harmon', approvedRevenue: 11800 },
       { id: 'JOB-1036', name: 'Capitol Hill Retail Demo', kind: 'job', stageGroup: 'complete', stage: 'Invoice Review', client: 'Juniper Retail LLC', approvedRevenue: 22140 },
       { id: 'JOB-1037', name: 'Boulder Kitchen Demo', kind: 'job', stageGroup: 'complete', stage: 'Invoice Sent', client: 'Lena Ortiz', approvedRevenue: 15760 }
     ];
@@ -125,7 +125,9 @@ Create the semantic shell and `prototype-data` script:
 </body>
 ```
 
-Use the exact 14-record manifest above. Add the fields required by the design—address, estimator, dates, crew, confidence, freshness, progress, crew-days, activity, exceptions, and original/current/actual/forecast financial columns—to each manifest entry. Riverside forecast values must reconcile to Total Revenue `$37,800`, Total Direct Costs `$25,260`, Gross Profit `$12,540`, Job Profit `$6,840`, and Job Profit Margin `18.1%`; the remaining job records must use internally consistent values that exercise On Track, Watch, missing-crew, invoice, closed, and Reconciliation Required states.
+Use the exact 14-record manifest above. Add the fields required by the design—address, estimator, dates, crew, confidence, freshness, progress, crew-days, activity, exceptions, and original/current/actual/forecast financial columns—to each manifest entry. Riverside forecast values must reconcile to Total Revenue `$37,800`, Total Direct Costs `$21,326`, Gross Profit `$16,474`, Job Profit `$6,848`, and Job Profit Margin `18.1%`; the remaining job records must use internally consistent values that exercise On Track, Watch, missing-crew, invoice, closed, and Reconciliation Required states.
+
+**Labor, overhead, and processing fees are derived, never hand-entered.** Each financial column carries a `productiveHours` figure; labor is `hours × $26`, overhead is `hours × $23` on the same hours, and processing fees are `3.5%` of recognised revenue. A pre-start column passes `{ started: false }` so it posts zero costs and zero fees. This is what keeps allocated overhead moving in the same direction as labor.
 
 - [ ] **Step 4: Implement the pure model**
 
@@ -463,7 +465,7 @@ Verify manually at wide and narrow browser widths:
 2. All four Work in Motion cards and tabs navigate.
 3. Search and health filtering change visible results.
 4. Every sample record opens.
-5. Riverside shows `$37,800` Total Revenue and `$6,840` forecast Job Profit.
+5. Riverside shows `$37,800` Total Revenue and `$6,848` forecast Job Profit.
 6. Change Orders, Checklists, Activity, schedule, and actual-cost previews open and close.
 7. Refresh returns to the dashboard and original data.
 

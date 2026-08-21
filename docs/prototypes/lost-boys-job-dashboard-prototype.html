@@ -331,6 +331,14 @@
       .stage-value { font-size: 8px; }
       .mobile-record-grid { grid-template-columns: 1fr 1fr 1fr; }
     }
+    .not-available { color: var(--muted); font-style: italic; font-variant-numeric: normal; }
+    .progress-note { margin: 6px 0 0; font-size: .78rem; color: var(--muted); line-height: 1.45; }
+    .progress-note.unfavorable { color: var(--danger); }
+    .progress-note.favorable { color: var(--success); }
+    .progress-bar.cost { margin-top: 8px; }
+    .progress-bar.cost span { background: var(--muted); }
+    .progress-bar.cost span.unfavorable { background: var(--danger); }
+    .progress-bar.cost span.favorable { background: var(--success); }
   </style>
 </head>
 <body>
@@ -341,23 +349,68 @@
 
   <script id="prototype-data">
     (() => {
-      const costs = (labor, materials, rentals, dumpFees, subcontractors, other) => ({
-        labor, materials, rentals, dumpFees, subcontractors, other
+      // Ratified Lost Boys rate model. Labor and allocated overhead are BOTH derived from the
+      // same productive-hour count, so overhead can never drift away from labor.
+      const RATES = Object.freeze({
+        laborPerHour: 26,
+        overheadPerHour: 23,
+        ccFeeRate: 0.035,
+        dumpChargePerLoad: 300,
+        hoursPerCrewDay: 40
       });
 
-      const column = (approvedRevenue, approvedChangeOrderRevenue, directCosts, overhead, processingFees) => ({
-        approvedRevenue, approvedChangeOrderRevenue, directCosts, overhead, processingFees
+      const nonLabor = (materials, rentals, dumpFees, subcontractors, other) => ({
+        materials, rentals, dumpFees, subcontractors, other
       });
+
+      const NO_COSTS = nonLabor(0, 0, 0, 0, 0);
+
+      // A financial column. `hours` drives labor and overhead; fees are 3.5% of recognised revenue.
+      // `started: false` marks a job that has not begun, so its actual column is a true zero
+      // rather than a revenue-minus-nothing figure that reads as profit.
+      const column = (approvedRevenue, approvedChangeOrderRevenue, hours, costs, options = {}) => {
+        const started = options.started !== false;
+        const totalRevenue = approvedRevenue + approvedChangeOrderRevenue;
+        return {
+          approvedRevenue,
+          approvedChangeOrderRevenue,
+          productiveHours: hours,
+          started,
+          directCosts: {
+            labor: Math.round(hours * RATES.laborPerHour),
+            materials: costs.materials,
+            rentals: costs.rentals,
+            dumpFees: costs.dumpFees,
+            subcontractors: costs.subcontractors,
+            other: costs.other
+          },
+          overhead: Math.round(hours * RATES.overheadPerHour),
+          processingFees: started ? Math.round(totalRevenue * RATES.ccFeeRate) : 0
+        };
+      };
 
       const financials = (original, current, actual, forecast) => ({ original, current, actual, forecast });
 
-      const estimateFinancial = (revenue, labor, materials, rentals, dumpFees, subcontractors, other, overhead, processingFees) => {
-        const totalDirectCosts = labor + materials + rentals + dumpFees + subcontractors + other;
+      const estimateFinancial = (revenue, hours, costs) => {
+        const labor = Math.round(hours * RATES.laborPerHour);
+        const overhead = Math.round(hours * RATES.overheadPerHour);
+        const processingFees = Math.round(revenue * RATES.ccFeeRate);
+        const directCosts = {
+          labor,
+          materials: costs.materials,
+          rentals: costs.rentals,
+          dumpFees: costs.dumpFees,
+          subcontractors: costs.subcontractors,
+          other: costs.other
+        };
+        const totalDirectCosts = labor + costs.materials + costs.rentals
+          + costs.dumpFees + costs.subcontractors + costs.other;
         const grossProfit = revenue - totalDirectCosts;
         const jobProfit = grossProfit - overhead - processingFees;
         return {
           revenue,
-          directCosts: costs(labor, materials, rentals, dumpFees, subcontractors, other),
+          productiveHours: hours,
+          directCosts,
           totalDirectCosts,
           grossProfit,
           overhead,
@@ -374,8 +427,8 @@
           address: '2148 Oak Street, Denver, CO 80205', estimator: 'Jackson', estimateValue: 18450,
           periods: ['august', 'ytd'], lastActivity: 'Quote sent Aug 18', nextAction: 'Follow up Aug 22',
           age: '2 days', scope: 'Detached two-car garage removal, slab breakup, haul-off, and site cleanup.',
-          laborAssumption: '3 employees × 2 days · 48 productive hours',
-          estimateFinancial: estimateFinancial(18450, 3456, 750, 1850, 2100, 0, 420, 2700, 554),
+          laborAssumption: '3 employees × 4 days · 124 productive hours',
+          estimateFinancial: estimateFinancial(18450, 124, nonLabor(750, 1850, 2100, 0, 420)),
           activity: ['Estimate created by Jackson', 'Scope reviewed by Dane', 'Quote emailed to Aaron Cole']
         },
         {
@@ -384,8 +437,8 @@
           address: '8800 East Hampden Avenue, Denver, CO 80231', estimator: 'Dane', estimateValue: 32100,
           periods: ['august', 'ytd'], lastActivity: 'Site walk Aug 19', nextAction: 'Complete scope and price',
           age: '1 day', scope: 'Selective interior demolition for dental-suite renovation.',
-          laborAssumption: '4 employees × 4 days · 128 productive hours',
-          estimateFinancial: estimateFinancial(32100, 9216, 1300, 2400, 2850, 1200, 600, 4800, 963),
+          laborAssumption: '4 employees × 7 days · 283 productive hours',
+          estimateFinancial: estimateFinancial(32100, 283, nonLabor(1300, 2400, 2850, 1200, 600)),
           activity: ['Lead qualified by Jackson', 'Site walk completed by Dane', 'Estimate draft started']
         },
         {
@@ -394,150 +447,160 @@
           address: '1832 Glenarm Place, Denver, CO 80202', estimator: 'Jackson', estimateValue: 24750,
           periods: ['august', 'ytd'], lastActivity: 'Accepted Aug 19', nextAction: 'Schedule job to mint JOB number',
           age: 'Accepted yesterday', scope: 'Full non-structural interior demolition and debris removal.',
-          laborAssumption: '4 employees × 3 days · 96 productive hours',
-          estimateFinancial: estimateFinancial(24750, 6912, 900, 1700, 2400, 0, 500, 3600, 743),
+          laborAssumption: '4 employees × 5 days · 212 productive hours',
+          estimateFinancial: estimateFinancial(24750, 212, nonLabor(900, 1700, 2400, 0, 500)),
           activity: ['Quote emailed Aug 15', 'Customer accepted electronically Aug 19', 'Awaiting app scheduling']
         },
         {
           id: 'EST-2024', name: 'Cherry Creek Basement Demo', kind: 'estimate', stageGroup: 'estimates',
-          stage: 'Intake/Qualification', client: 'Elliot Shaw', company: '',
+          stage: 'Intake / Qualification', client: 'Elliot Shaw', company: '',
           address: '451 Cook Street, Denver, CO 80206', estimator: 'Jackson', estimateValue: 51500,
           periods: ['august', 'ytd'], lastActivity: 'Lead received Aug 20', nextAction: 'Confirm site-walk availability',
           age: '4 hours', scope: 'Basement demolition request awaiting qualification and site verification.',
           laborAssumption: 'Not yet available',
-          estimateFinancial: estimateFinancial(51500, 14400, 2600, 3900, 4200, 1800, 900, 7200, 1545),
+          estimateFinancial: estimateFinancial(51500, 436, nonLabor(2600, 3900, 4200, 1800, 900)),
           activity: ['Lead created from GHL', 'Contact information prefilled', 'Qualification pending']
+        },
+        {
+          id: 'EST-2009', name: "Sloan's Lake Duplex Demo", kind: 'estimate', stageGroup: 'estimates',
+          stage: 'Closed Lost / Declined', closedLost: true, client: 'Priya Raman', company: '',
+          address: '2465 Stuart Street, Denver, CO 80212', estimator: 'Dane', estimateValue: 27400,
+          periods: ['august', 'ytd'], lastActivity: 'Declined Aug 12', nextAction: 'No action — customer chose another bid',
+          age: 'Closed 8 days ago', scope: 'Full duplex interior strip-out and detached shed removal.',
+          laborAssumption: '4 employees × 6 days · 230 productive hours',
+          estimateFinancial: estimateFinancial(27400, 230, nonLabor(1100, 2000, 2700, 0, 550)),
+          activity: ['Quote emailed Aug 6', 'Customer requested revised pricing Aug 10', 'Customer declined Aug 12']
         },
         {
           id: 'JOB-1046', name: 'Highland Bath Removal', kind: 'job', stageGroup: 'scheduled',
           stage: 'Job Scheduled', client: 'Maya Dalton', company: '', address: '3420 West Highland Avenue, Denver, CO 80211',
-          estimator: 'Jackson', schedule: 'Aug 21–22', scheduleDetail: 'All-day · 2 days', crew: 'Crew A',
+          estimator: 'Jackson', schedule: 'Aug 21–25', scheduleDetail: 'All-day · 2.4 crew-days planned', crew: 'Crew 4 · Cade',
           calendarSync: 'Synced', readiness: 'Ready', periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Pre-start',
-          health: { label: 'Ready', tone: 'track' }, attention: '', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 2,
+          health: { label: 'Ready', tone: 'track' }, attention: '', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 2.4,
           laborHours: 0, healthReason: 'Crew, calendar event, and approved budget are ready for job start.',
           financials: financials(
-            column(12600, 0, costs(2880, 450, 650, 900, 0, 220), 1800, 378),
-            column(12600, 0, costs(2880, 450, 650, 900, 0, 220), 1800, 378),
-            column(12600, 0, costs(0, 0, 0, 0, 0, 0), 0, 378),
-            column(12600, 0, costs(2880, 450, 650, 900, 0, 220), 1800, 378)
+            column(12600, 0, 94, nonLabor(450, 650, 900, 0, 220)),
+            column(12600, 0, 94, nonLabor(450, 650, 900, 0, 220)),
+            column(12600, 0, 0, NO_COSTS, { started: false }),
+            column(12600, 0, 94, nonLabor(450, 650, 900, 0, 220))
           ),
           changeOrders: [], checklists: [], activity: ['Quote accepted Aug 17', 'Scheduled by Dane Aug 18', 'Google Calendar synced']
         },
         {
           id: 'JOB-1047', name: 'Lakewood Retail Strip-Out', kind: 'job', stageGroup: 'scheduled',
           stage: 'Job Scheduled', client: 'FrontRange Retail Group', company: 'FrontRange Retail Group',
-          address: '7350 West Colfax Avenue, Lakewood, CO 80214', estimator: 'Dane', schedule: 'Aug 24–26',
-          scheduleDetail: 'All-day · 3 days', crew: 'Missing', calendarSync: 'Synced', readiness: 'Needs crew',
+          address: '7350 West Colfax Avenue, Lakewood, CO 80214', estimator: 'Dane', schedule: 'Aug 24–31',
+          scheduleDetail: 'All-day · 5.8 crew-days planned', crew: 'Missing', calendarSync: 'Synced', readiness: 'Needs crew',
           periods: ['august', 'ytd'], confidence: 'Medium', dataFreshness: 'Pre-start', health: { label: 'Needs Attention', tone: 'watch' },
-          attention: 'Crew assignment required', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 3, laborHours: 0,
+          attention: 'Crew assignment required', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 5.8, laborHours: 0,
           healthReason: 'The approved job is scheduled, but no crew has been assigned.',
           financials: financials(
-            column(28400, 0, costs(7200, 1500, 2200, 2700, 500, 600), 4300, 852),
-            column(28400, 0, costs(7200, 1500, 2200, 2700, 500, 600), 4300, 852),
-            column(28400, 0, costs(0, 0, 0, 0, 0, 0), 0, 852),
-            column(28400, 0, costs(7200, 1500, 2200, 2700, 500, 600), 4300, 852)
+            column(28400, 0, 232, nonLabor(1500, 2200, 2700, 500, 600)),
+            column(28400, 0, 232, nonLabor(1500, 2200, 2700, 500, 600)),
+            column(28400, 0, 0, NO_COSTS, { started: false }),
+            column(28400, 0, 232, nonLabor(1500, 2200, 2700, 500, 600))
           ),
           changeOrders: [], checklists: [], activity: ['Quote accepted Aug 16', 'Scheduled Aug 19', 'Crew assignment still missing']
         },
         {
           id: 'JOB-1048', name: 'Arvada Pool House Removal', kind: 'job', stageGroup: 'scheduled',
           stage: 'Job Scheduled', client: 'Sawyer Construction', company: 'Sawyer Construction',
-          address: '8425 West 72nd Place, Arvada, CO 80005', estimator: 'Jackson', schedule: 'Aug 28–29',
-          scheduleDetail: 'All-day · 2 days', crew: 'Crew B', calendarSync: 'Synced', readiness: 'Ready', periods: ['august', 'ytd'],
-          confidence: 'High', dataFreshness: 'Pre-start', health: { label: 'Ready', tone: 'track' }, attention: '', progress: 0,
-          crewDaysUsed: 0, crewDaysRemaining: 2, laborHours: 0,
+          address: '8425 West 72nd Place, Arvada, CO 80005', estimator: 'Jackson', schedule: 'Aug 26–31',
+          scheduleDetail: 'All-day · 3.1 crew-days planned', crew: 'Crew 2 · Alex', calendarSync: 'Synced', readiness: 'Ready',
+          periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Pre-start', health: { label: 'Ready', tone: 'track' },
+          attention: '', progress: 0, crewDaysUsed: 0, crewDaysRemaining: 3.1, laborHours: 0,
           healthReason: 'The approved pre-start change is included in the current job budget.',
           financials: financials(
-            column(15800, 0, costs(3456, 700, 1500, 1600, 0, 300), 2300, 474),
-            column(15800, 1440, costs(3744, 850, 1650, 1750, 0, 380), 2450, 517),
-            column(15800, 1440, costs(0, 0, 0, 0, 0, 0), 0, 517),
-            column(15800, 1440, costs(3744, 850, 1650, 1750, 0, 380), 2450, 517)
+            column(15800, 0, 116, nonLabor(700, 1500, 1600, 0, 300)),
+            column(15800, 1440, 125, nonLabor(850, 1650, 1750, 0, 380)),
+            column(15800, 1440, 0, NO_COSTS, { started: false }),
+            column(15800, 1440, 125, nonLabor(850, 1650, 1750, 0, 380))
           ),
           changeOrders: [{ id: 'CO-002', amount: 1440, status: 'Approved', approval: 'Written approval recorded by Jackson' }],
           checklists: [], activity: ['Base quote accepted', 'CO-002 approved before start', 'Scheduled by Dane']
         },
         {
           id: 'JOB-1042', name: 'Riverside Retail Interior', kind: 'job', stageGroup: 'in-progress',
-          stage: 'Job in Progress', client: 'Apex Commercial Group', company: 'Apex Commercial Group',
-          address: '1812 Riverside Drive, Denver, CO 80223', estimator: 'Jackson', schedule: 'Aug 17–20',
-          scheduleDetail: 'All-day · Day 3 of 4', crew: 'Crew A', calendarSync: 'Synced', periods: ['august', 'ytd'],
-          confidence: 'Medium', dataFreshness: '18 hours old', progress: 75, crewDaysUsed: 3, crewDaysRemaining: 1.5,
-          laborHours: 126, attention: 'Labor forecast exceeds budget',
-          healthReason: 'Labor is the primary source of forecast erosion. Forecast labor is $4,320 over the current budget, and the foreman reports 1.5 crew-days remaining.',
+          stage: 'Job In Progress', client: 'Apex Commercial Group', company: 'Apex Commercial Group',
+          address: '1812 Riverside Drive, Denver, CO 80223', estimator: 'Jackson', schedule: 'Aug 12–20',
+          scheduleDetail: 'All-day · Day 7 of 9 forecast', crew: 'Crew 1 · Nick', calendarSync: 'Synced', periods: ['august', 'ytd'],
+          confidence: 'Medium', dataFreshness: '18 hours old', progress: 75, crewDaysUsed: 6.5, crewDaysRemaining: 2.5,
+          laborHours: 260, attention: 'Labor forecast exceeds budget',
+          healthReason: 'Labor is the primary source of forecast erosion. Forecast productive hours are 73 over the current budget, which adds $3,577 of labor and allocated overhead, and the foreman reports 2.5 crew-days remaining.',
           financials: financials(
-            column(36300, 0, costs(8640, 3800, 2100, 2400, 1000, 600), 5500, 1540),
-            column(36300, 1500, costs(9000, 4200, 2400, 2700, 1000, 740), 5300, 1140),
-            column(36300, 1500, costs(10920, 4050, 2300, 2550, 1000, 490), 2010, 1140),
-            column(36300, 1500, costs(13320, 4450, 2700, 3150, 1000, 640), 4560, 1140)
+            column(36300, 0, 294, nonLabor(3800, 2100, 2400, 1000, 600)),
+            column(36300, 1500, 288, nonLabor(4200, 2400, 2700, 1000, 740)),
+            column(36300, 1500, 260, nonLabor(4050, 2300, 2550, 1000, 490)),
+            column(36300, 1500, 361, nonLabor(4450, 2700, 3150, 1000, 640))
           ),
           changeOrders: [
             { id: 'CO-001', amount: 1500, status: 'Approved', approval: 'Verbal approval recorded by Jackson; internally approved by Dane' },
             { id: 'CO-003', amount: 2200, status: 'Pending', approval: 'Customer request documented; pricing and Dane approval are still pending' }
           ],
-          checklists: ['Aug 17 start checklist', 'Aug 17 end-of-day checklist', 'Aug 18 end-of-day checklist', 'Aug 19 end-of-day checklist'],
-          activity: ['Job started by foreman', 'CO-001 approved', 'Remaining crew-days increased from 1.0 to 1.5', 'Bill data last refreshed 18 hours ago']
+          checklists: ['Aug 12 start checklist', 'Aug 12 end-of-day checklist', 'Aug 18 end-of-day checklist', 'Aug 19 end-of-day checklist'],
+          activity: ['Job started by foreman', 'CO-001 approved', 'Remaining crew-days increased from 1.5 to 2.5', 'Bill data last refreshed 18 hours ago']
         },
         {
           id: 'JOB-1038', name: 'Westbrook Kitchen Demo', kind: 'job', stageGroup: 'in-progress',
-          stage: 'Job in Progress', client: 'Maria Ellison', company: '', address: '1058 Westbrook Lane, Denver, CO 80220',
-          estimator: 'Jackson', schedule: 'Aug 20–21', scheduleDetail: 'All-day · Day 1 of 2', crew: 'Crew B', calendarSync: 'Synced',
-          periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Fresh', progress: 45, crewDaysUsed: 1, crewDaysRemaining: 1,
-          laborHours: 34, attention: 'Forecast profit retention below plan',
+          stage: 'Job In Progress', client: 'Maria Ellison', company: '', address: '1058 Westbrook Lane, Denver, CO 80220',
+          estimator: 'Jackson', schedule: 'Aug 19–21', scheduleDetail: 'All-day · Day 3 of 3', crew: 'Crew 2 · Alex', calendarSync: 'Synced',
+          periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Fresh', progress: 70, crewDaysUsed: 2.4, crewDaysRemaining: 0.7,
+          laborHours: 95, attention: 'Forecast profit retention below plan',
           healthReason: 'Forecast profit retention is below the approved plan after a longer-than-expected first day.',
           financials: financials(
-            column(14580, 0, costs(3600, 850, 800, 1400, 0, 350), 2000, 438),
-            column(14580, 0, costs(3800, 900, 850, 1500, 0, 450), 2000, 438),
-            column(14580, 0, costs(3350, 780, 780, 1120, 0, 470), 1400, 438),
-            column(14580, 0, costs(4070, 950, 900, 1700, 0, 800), 2022, 438)
+            column(14580, 0, 113, nonLabor(850, 800, 1400, 0, 350)),
+            column(14580, 0, 117, nonLabor(900, 850, 1500, 0, 450)),
+            column(14580, 0, 95, nonLabor(780, 780, 1120, 0, 470)),
+            column(14580, 0, 123, nonLabor(950, 900, 1700, 0, 800))
           ),
-          changeOrders: [], checklists: ['Aug 20 start checklist', 'Aug 20 progress update'],
-          activity: ['Job started at 7:06 AM', 'Foreman reported 45% complete', 'Forecast moved to Watch']
+          changeOrders: [], checklists: ['Aug 19 start checklist', 'Aug 20 progress update'],
+          activity: ['Job started at 7:06 AM', 'Foreman reported 70% complete', 'Forecast moved to Watch']
         },
         {
           id: 'JOB-1045', name: 'Federal Boulevard Offices', kind: 'job', stageGroup: 'in-progress',
-          stage: 'Job in Progress', client: 'Northline Builders', company: 'Northline Builders',
-          address: '4100 Federal Boulevard, Denver, CO 80211', estimator: 'Dane', schedule: 'Aug 19–21',
-          scheduleDetail: 'All-day · Day 2 of 3', crew: 'Crew C', calendarSync: 'Synced', periods: ['august', 'ytd'],
-          confidence: 'High', dataFreshness: 'Fresh', progress: 62, crewDaysUsed: 2, crewDaysRemaining: 1, laborHours: 78,
+          stage: 'Job In Progress', client: 'Northline Builders', company: 'Northline Builders',
+          address: '4100 Federal Boulevard, Denver, CO 80211', estimator: 'Dane', schedule: 'Aug 14–21',
+          scheduleDetail: 'All-day · Day 5 of 6', crew: 'Crew 3 · Brady', calendarSync: 'Synced', periods: ['august', 'ytd'],
+          confidence: 'High', dataFreshness: 'Fresh', progress: 72, crewDaysUsed: 4.4, crewDaysRemaining: 1.7, laborHours: 175,
           attention: '', healthReason: 'Fresh actuals and the crew forecast support the approved plan.',
           financials: financials(
-            column(29100, 0, costs(6500, 1800, 1800, 2100, 800, 700), 5650, 873),
-            column(29100, 0, costs(6600, 1900, 1800, 2200, 800, 700), 5707, 873),
-            column(29100, 0, costs(4900, 1750, 1600, 1850, 800, 600), 3800, 873),
-            column(29100, 0, costs(6400, 1850, 1750, 2200, 800, 800), 5667, 873)
+            column(29100, 0, 245, nonLabor(1800, 1800, 2100, 800, 700)),
+            column(29100, 0, 248, nonLabor(1900, 1800, 2200, 800, 700)),
+            column(29100, 0, 175, nonLabor(1750, 1600, 1850, 800, 600)),
+            column(29100, 0, 243, nonLabor(1850, 1750, 2200, 800, 800))
           ),
-          changeOrders: [], checklists: ['Aug 19 start checklist', 'Aug 19 end-of-day checklist', 'Aug 20 progress update'],
-          activity: ['Job started Aug 19', 'Bill and labor data refreshed today', 'Forecast remains On Track']
+          changeOrders: [], checklists: ['Aug 14 start checklist', 'Aug 19 end-of-day checklist', 'Aug 20 progress update'],
+          activity: ['Job started Aug 14', 'Bill and labor data refreshed today', 'Forecast remains On Track']
         },
         {
           id: 'JOB-1034', name: 'Mountain View Offices', kind: 'job', stageGroup: 'complete',
           stage: 'Job Completed', client: 'Peakstone Development', company: 'Peakstone Development',
-          address: '6855 South Havana Street, Centennial, CO 80112', estimator: 'Dane', schedule: 'Aug 10–13',
-          completedDate: 'Aug 13', crew: 'Crew A', calendarSync: 'Synced', periods: ['august', 'ytd'], confidence: 'Medium',
+          address: '6855 South Havana Street, Centennial, CO 80112', estimator: 'Dane', schedule: 'Aug 4–13',
+          completedDate: 'Aug 13', crew: 'Crew 1 · Nick', calendarSync: 'Synced', periods: ['august', 'ytd'], confidence: 'Medium',
           dataFreshness: 'Late cost Aug 20', health: { label: 'Reconciliation Required', tone: 'risk' },
-          progress: 100, crewDaysUsed: 4, crewDaysRemaining: 0, laborHours: 142, attention: '$680 late Bill transaction',
+          progress: 100, crewDaysUsed: 7.3, crewDaysRemaining: 0, laborHours: 293, attention: '$680 late Bill transaction',
           healthReason: 'A late Bill transaction requires reconciliation. The prior financial-close snapshot remains preserved.',
           financials: financials(
-            column(32980, 0, costs(9100, 1900, 2100, 2700, 0, 600), 5000, 989),
-            column(32980, 0, costs(9100, 1900, 2100, 2700, 0, 600), 5000, 989),
-            column(32980, 0, costs(9400, 2050, 2100, 3380, 0, 620), 5100, 989),
-            column(32980, 0, costs(9400, 2050, 2100, 3380, 0, 620), 5100, 989)
+            column(32980, 0, 284, nonLabor(1900, 2100, 2700, 0, 600)),
+            column(32980, 0, 284, nonLabor(1900, 2100, 2700, 0, 600)),
+            column(32980, 0, 293, nonLabor(2050, 2100, 3380, 0, 620)),
+            column(32980, 0, 293, nonLabor(2050, 2100, 3380, 0, 620))
           ),
-          changeOrders: [], checklists: ['Start checklist', 'Three end-of-day checklists', 'Completion checklist'],
+          changeOrders: [], checklists: ['Start checklist', 'Six end-of-day checklists', 'Completion checklist'],
           activity: ['Job completed Aug 13', 'Financially closed Aug 18', '$680 late dump transaction received Aug 20', 'Reconciliation reopened']
         },
         {
           id: 'JOB-1031', name: 'Cedar Ridge Garage Removal', kind: 'job', stageGroup: 'complete',
-          stage: 'Paid/Closed (Won)', client: 'Drew Harmon', company: '', address: '772 Cedar Ridge Road, Golden, CO 80401',
-          estimator: 'Jackson', schedule: 'Jul 29–30', completedDate: 'Jul 30', crew: 'Crew B', calendarSync: 'Synced',
+          stage: 'Paid / Closed Won', client: 'Drew Harmon', company: '', address: '772 Cedar Ridge Road, Golden, CO 80401',
+          estimator: 'Jackson', schedule: 'Jul 28–30', completedDate: 'Jul 30', crew: 'Crew 2 · Alex', calendarSync: 'Synced',
           periods: ['july', 'ytd'], confidence: 'High', dataFreshness: 'Final', health: { label: 'Closed · Favorable', tone: 'track' },
-          progress: 100, crewDaysUsed: 2, crewDaysRemaining: 0, laborHours: 54, attention: '',
+          progress: 100, crewDaysUsed: 2.4, crewDaysRemaining: 0, laborHours: 97, attention: '',
           healthReason: 'The job is paid, financially closed, and finished above the approved job-profit plan.',
           financials: financials(
-            column(11800, 0, costs(3600, 300, 700, 1000, 0, 200), 1500, 354),
-            column(11800, 0, costs(3600, 300, 700, 1000, 0, 200), 1500, 354),
-            column(11800, 0, costs(3350, 280, 650, 920, 0, 180), 1450, 354),
-            column(11800, 0, costs(3350, 280, 650, 920, 0, 180), 1450, 354)
+            column(11800, 0, 103, nonLabor(300, 700, 1000, 0, 200)),
+            column(11800, 0, 103, nonLabor(300, 700, 1000, 0, 200)),
+            column(11800, 0, 97, nonLabor(280, 650, 920, 0, 180)),
+            column(11800, 0, 97, nonLabor(280, 650, 920, 0, 180))
           ),
           changeOrders: [], checklists: ['Start checklist', 'End-of-day checklist', 'Completion checklist'],
           activity: ['Completed Jul 30', 'Invoice paid Aug 8', 'Financial close approved by Dane']
@@ -545,39 +608,40 @@
         {
           id: 'JOB-1036', name: 'Capitol Hill Retail Demo', kind: 'job', stageGroup: 'complete',
           stage: 'Invoice Review', client: 'Juniper Retail LLC', company: 'Juniper Retail LLC',
-          address: '901 East Colfax Avenue, Denver, CO 80218', estimator: 'Dane', schedule: 'Aug 14–16', completedDate: 'Aug 16',
-          crew: 'Crew C', calendarSync: 'Synced', periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Fresh',
-          health: { label: 'Ready for Invoice Review', tone: 'track' }, progress: 100, crewDaysUsed: 3, crewDaysRemaining: 0,
-          laborHours: 98, attention: 'Invoice review waiting for Dane',
+          address: '901 East Colfax Avenue, Denver, CO 80218', estimator: 'Dane', schedule: 'Aug 10–14', completedDate: 'Aug 14',
+          crew: 'Crew 3 · Brady', calendarSync: 'Synced', periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Fresh',
+          health: { label: 'Ready for Invoice Review', tone: 'track' }, progress: 100, crewDaysUsed: 4.7, crewDaysRemaining: 0,
+          laborHours: 188, attention: 'Invoice review waiting for Dane',
           healthReason: 'Operational work is complete and actual costs are fresh. Dane can begin invoice review.',
           financials: financials(
-            column(22140, 0, costs(6100, 1100, 1300, 1800, 0, 400), 3400, 664),
-            column(22140, 0, costs(6100, 1100, 1300, 1800, 0, 400), 3400, 664),
-            column(22140, 0, costs(5950, 1070, 1250, 1750, 0, 380), 3350, 664),
-            column(22140, 0, costs(5950, 1070, 1250, 1750, 0, 380), 3350, 664)
+            column(22140, 0, 192, nonLabor(1100, 1300, 1800, 0, 400)),
+            column(22140, 0, 192, nonLabor(1100, 1300, 1800, 0, 400)),
+            column(22140, 0, 188, nonLabor(1070, 1250, 1750, 0, 380)),
+            column(22140, 0, 188, nonLabor(1070, 1250, 1750, 0, 380))
           ),
-          changeOrders: [], checklists: ['Start checklist', 'Two end-of-day checklists', 'Completion checklist'],
-          activity: ['Completed Aug 16', 'Final costs refreshed Aug 19', 'Moved to Invoice Review queue']
+          changeOrders: [], checklists: ['Start checklist', 'Four end-of-day checklists', 'Completion checklist'],
+          activity: ['Completed Aug 14', 'Final costs refreshed Aug 19', 'Moved to Invoice Review queue']
         },
         {
           id: 'JOB-1037', name: 'Boulder Kitchen Demo', kind: 'job', stageGroup: 'complete',
           stage: 'Invoice Sent', client: 'Lena Ortiz', company: '', address: '1438 Spruce Street, Boulder, CO 80302',
-          estimator: 'Jackson', schedule: 'Aug 12–13', completedDate: 'Aug 13', crew: 'Crew B', calendarSync: 'Synced',
+          estimator: 'Jackson', schedule: 'Aug 10–13', completedDate: 'Aug 13', crew: 'Crew 4 · Cade', calendarSync: 'Synced',
           periods: ['august', 'ytd'], confidence: 'High', dataFreshness: 'Final', health: { label: 'Invoice Sent', tone: 'track' },
-          progress: 100, crewDaysUsed: 2, crewDaysRemaining: 0, laborHours: 61, attention: '',
+          progress: 100, crewDaysUsed: 3.3, crewDaysRemaining: 0, laborHours: 131, attention: '',
           healthReason: 'The invoice has been sent and the job remains open for payment and final reconciliation.',
           financials: financials(
-            column(15760, 0, costs(4100, 700, 800, 1300, 0, 260), 2300, 473),
-            column(15760, 0, costs(4100, 700, 800, 1300, 0, 260), 2300, 473),
-            column(15760, 0, costs(4200, 680, 780, 1250, 0, 250), 2320, 473),
-            column(15760, 0, costs(4200, 680, 780, 1250, 0, 250), 2320, 473)
+            column(15760, 0, 129, nonLabor(700, 800, 1300, 0, 260)),
+            column(15760, 0, 129, nonLabor(700, 800, 1300, 0, 260)),
+            column(15760, 0, 131, nonLabor(680, 780, 1250, 0, 250)),
+            column(15760, 0, 131, nonLabor(680, 780, 1250, 0, 250))
           ),
-          changeOrders: [], checklists: ['Start checklist', 'End-of-day checklist', 'Completion checklist'],
+          changeOrders: [], checklists: ['Start checklist', 'Two end-of-day checklists', 'Completion checklist'],
           activity: ['Completed Aug 13', 'Invoice approved by Dane', 'Invoice sent Aug 18']
         }
       ];
 
       window.JobDashboardData = Object.freeze({
+        rates: RATES,
         periods: Object.freeze([
           { id: 'august', label: 'August 2026' },
           { id: 'july', label: 'July 2026' },
@@ -642,12 +706,31 @@
           .join(' ').toLowerCase().includes(needle));
       }
 
+      const isOpenEstimate = (record) => record.stageGroup === 'estimates' && !record.closedLost;
+
+      // How much of the current approved cost budget has actually posted. Compared against the
+      // foreman's reported completion, this is the honest mid-job burn signal — it replaces the
+      // "actual profit" figure, which before completion only measures how far the paperwork has got.
+      function getCostCompletion(record) {
+        if (record.kind !== 'job' || record.financials.actual.started === false) return null;
+        const totalCost = (column) => {
+          const pnl = getPnl(record, column);
+          return pnl.totalDirectCosts + pnl.overhead + pnl.processingFees;
+        };
+        const posted = totalCost('actual');
+        const budget = totalCost('current');
+        if (!budget) return null;
+        return { posted, budget, pct: posted / budget };
+      }
+
       function getPeriodMetrics(records, period) {
         const included = records.filter((record) => record.periods.includes(period));
         const official = included.filter((record) => record.kind === 'job');
-        const estimates = included.filter((record) => record.stageGroup === 'estimates' && record.stage !== 'Closed Lost');
+        const estimates = included.filter(isOpenEstimate);
         return {
-          approvedRevenue: sum(official.map((record) => getPnl(record, 'current').totalRevenue)),
+          approvedRevenue: sum(official.map((record) => getPnl(record, 'current').approvedRevenue)),
+          changeOrderRevenue: sum(official.map((record) => getPnl(record, 'current').changeOrderRevenue)),
+          totalRevenue: sum(official.map((record) => getPnl(record, 'current').totalRevenue)),
           forecastJobProfit: sum(official.map((record) => getPnl(record, 'forecast').jobProfit)),
           actualCommittedCosts: sum(official.map((record) => {
             const pnl = getPnl(record, 'actual');
@@ -658,7 +741,7 @@
       }
 
       return {
-        money, percent, getPnl, getHealth, getStageGroup, getStageRecords, searchRecords, getPeriodMetrics
+        money, percent, getPnl, getHealth, getStageGroup, getStageRecords, searchRecords, getPeriodMetrics, isOpenEstimate, getCostCompletion
       };
     })();
   </script>
@@ -683,9 +766,9 @@
 
       const stageMeta = {
         estimates: { label: 'Estimates', icon: '✎', description: 'Pre-job estimates and accepted quotes', valueLabel: 'open estimate value' },
-        scheduled: { label: 'Scheduled', icon: '◇', description: 'Approved jobs on the operational calendar', valueLabel: 'approved revenue' },
-        'in-progress': { label: 'In Progress', icon: '▶', description: 'Live job health and profitability', valueLabel: 'approved revenue' },
-        complete: { label: 'Complete', icon: '✓', description: 'Completed work through paid and closed', valueLabel: 'approved revenue' }
+        scheduled: { label: 'Scheduled', icon: '◇', description: 'Approved jobs on the operational calendar', valueLabel: 'total revenue' },
+        'in-progress': { label: 'In Progress', icon: '▶', description: 'Live job health and profitability', valueLabel: 'total revenue' },
+        complete: { label: 'Complete', icon: '✓', description: 'Completed work through paid and closed', valueLabel: 'total revenue' }
       };
 
       const escapeHtml = (value) => String(value ?? '')
@@ -738,7 +821,8 @@
         const metrics = model.getPeriodMetrics(data.records, state.period);
         const officialCount = periodRecords.filter((record) => record.kind === 'job').length;
         const stageCards = Object.entries(stageMeta).map(([group, meta]) => {
-          const records = model.getStageRecords(periodRecords, group);
+          const records = model.getStageRecords(periodRecords, group)
+            .filter((record) => group !== 'estimates' || model.isOpenEstimate(record));
           const value = group === 'estimates'
             ? records.reduce((total, record) => total + record.estimateValue, 0)
             : records.reduce((total, record) => total + model.getPnl(record, 'current').totalRevenue, 0);
@@ -781,8 +865,8 @@
                   <label><span class="sr-only">Reporting period</span><select class="period-select" data-period>${data.periods.map((period) => `<option value="${period.id}" ${period.id === state.period ? 'selected' : ''}>${period.label}</option>`).join('')}</select></label>
                 </div>
                 <div class="metric-grid">
-                  <article class="metric-card"><span class="metric-label">Approved Revenue</span><strong class="metric-value">${model.money(metrics.approvedRevenue)}</strong><span class="metric-note">Official jobs active in this period</span></article>
-                  <article class="metric-card"><span class="metric-label">Forecast Job Profit</span><strong class="metric-value">${model.money(metrics.forecastJobProfit)}</strong><span class="metric-note">${metrics.approvedRevenue ? model.percent(metrics.forecastJobProfit / metrics.approvedRevenue) : 'Not available'} forecast margin</span></article>
+                  <article class="metric-card"><span class="metric-label">Total Revenue</span><strong class="metric-value">${model.money(metrics.totalRevenue)}</strong><span class="metric-note">${metrics.changeOrderRevenue ? `Includes ${model.money(metrics.changeOrderRevenue)} approved change orders` : 'Official jobs active in this period'}</span></article>
+                  <article class="metric-card"><span class="metric-label">Forecast Job Profit</span><strong class="metric-value">${model.money(metrics.forecastJobProfit)}</strong><span class="metric-note">${metrics.totalRevenue ? model.percent(metrics.forecastJobProfit / metrics.totalRevenue) : 'Not available'} forecast margin</span></article>
                   <article class="metric-card"><span class="metric-label">Actual + Committed Costs</span><strong class="metric-value">${model.money(metrics.actualCommittedCosts)}</strong><span class="metric-note">Posted actuals plus recorded commitments</span></article>
                   <article class="metric-card"><span class="metric-label">Open Estimate Value</span><strong class="metric-value">${model.money(metrics.openEstimateValue)}</strong><span class="metric-note estimate">Kept separate from approved work</span></article>
                 </div>
@@ -816,7 +900,7 @@
             status: statusPill(record.readiness, record.readiness === 'Ready' ? 'track' : 'watch'),
             a: ['Schedule', record.schedule],
             b: ['Crew', record.crew],
-            c: ['Approved Revenue', model.money(pnl.totalRevenue)]
+            c: ['Total Revenue', model.money(pnl.totalRevenue)]
           };
         }
         if (group === 'in-progress') {
@@ -840,20 +924,26 @@
 
       function renderStageWorkspace() {
         const periodRecords = recordsForPeriod();
-        const groupRecords = model.getStageRecords(periodRecords, state.stage);
+        // Closed Lost / Declined estimates stay out of the default view and every headline count;
+        // they remain reachable through the condition filter so nothing disappears from history.
+        const showingClosedLost = state.healthFilter === 'closed-lost';
+        const visibleEstimates = (list) => list.filter((record) => record.stageGroup !== 'estimates'
+          || (showingClosedLost ? record.closedLost : model.isOpenEstimate(record)));
+        const groupRecords = visibleEstimates(model.getStageRecords(periodRecords, state.stage));
         let records = model.searchRecords(groupRecords, state.query);
-        if (state.healthFilter !== 'all') {
+        if (state.healthFilter !== 'all' && !showingClosedLost) {
           records = records.filter((record) => (record.kind === 'job' ? model.getHealth(record).tone : 'neutral') === state.healthFilter);
         }
 
         const tabs = Object.entries(stageMeta).map(([group, meta]) => {
-          const count = model.getStageRecords(periodRecords, group).length;
+          const count = model.getStageRecords(periodRecords, group)
+            .filter((record) => group !== 'estimates' || model.isOpenEstimate(record)).length;
           return `<button class="stage-tab ${state.stage === group ? 'active' : ''}" data-stage="${group}">${meta.label}<strong>${count}</strong></button>`;
         }).join('');
 
         const tableHead = {
           estimates: ['Estimate', 'Stage', 'Estimate Value', 'Estimator', 'Next Action'],
-          scheduled: ['Job', 'Readiness', 'Schedule', 'Crew', 'Approved Revenue'],
+          scheduled: ['Job', 'Readiness', 'Schedule', 'Crew', 'Total Revenue'],
           'in-progress': ['Job', 'Health', 'Progress', 'Forecast Profit', 'Margin'],
           complete: ['Job', 'Financial State', 'Completed', 'Actual Job Profit', 'Margin']
         }[state.stage];
@@ -881,7 +971,7 @@
                 <nav class="stage-tabs" aria-label="Job stages">${tabs}</nav>
                 <div class="toolbar">
                   <label class="search-control"><span aria-hidden="true">⌕</span><span class="sr-only">Search records</span><input class="search-input" type="search" value="${escapeHtml(state.query)}" placeholder="Search job, client, address, or ID" data-search></label>
-                  <label><span class="sr-only">Health filter</span><select class="filter-select" data-health-filter><option value="all" ${state.healthFilter === 'all' ? 'selected' : ''}>All conditions</option><option value="track" ${state.healthFilter === 'track' ? 'selected' : ''}>On Track / Ready</option><option value="watch" ${state.healthFilter === 'watch' ? 'selected' : ''}>Watch / Needs Attention</option><option value="risk" ${state.healthFilter === 'risk' ? 'selected' : ''}>At Risk / Reconcile</option></select></label>
+                  <label><span class="sr-only">Health filter</span><select class="filter-select" data-health-filter><option value="all" ${state.healthFilter === 'all' ? 'selected' : ''}>All conditions</option><option value="track" ${state.healthFilter === 'track' ? 'selected' : ''}>On Track / Ready</option><option value="watch" ${state.healthFilter === 'watch' ? 'selected' : ''}>Watch / Needs Attention</option><option value="risk" ${state.healthFilter === 'risk' ? 'selected' : ''}>At Risk / Reconcile</option><option value="closed-lost" ${showingClosedLost ? 'selected' : ''}>Closed Lost / Declined</option></select></label>
                   <span class="freshness-note">Actuals shown through Aug 20 at 3:42 PM</span>
                 </div>
                 ${results}
@@ -904,7 +994,23 @@
           labor: 'Labor', materials: 'Materials', rentals: 'Rentals', dumpFees: 'Dump Fees',
           subcontractors: 'Subcontractors', other: 'Other Direct Costs'
         };
+        // The Actual + Committed column recognises revenue in full the moment a job is approved,
+        // while costs post over weeks. Before operational completion the difference is a timing
+        // artifact, not a profit, so the derived rows state their condition instead of a number.
+        const actualCaveat = (column) => {
+          if (column !== 'actual') return null;
+          if (record.financials.actual.started === false) return 'Not started';
+          if (record.stageGroup === 'in-progress') return 'In progress';
+          return null;
+        };
+        const notStarted = (column) => column === 'actual' && record.financials.actual.started === false;
         const revenueCells = (key) => columns.map((column) => `<td>${model.money(pnls[column][key])}</td>`).join('');
+        // A job that has not begun has no posted costs, so a derived profit for that column would
+        // read as real margin. Show the absence explicitly instead of a number.
+        const profitCells = (key) => columns.map((column) => {
+          const caveat = actualCaveat(column);
+          return `<td>${caveat ? `<span class="not-available">${caveat}</span>` : model.money(pnls[column][key])}</td>`;
+        }).join('');
         const costCells = (key) => columns.map((column) => `<td>${formatCost(pnls[column][key])}</td>`).join('');
         const directRows = Object.entries(costLabels).map(([key, label]) => {
           const variance = pnls.forecast.directCosts[key] - pnls.current.directCosts[key];
@@ -932,16 +1038,16 @@
                   <tr class="section-row"><td colspan="6">Direct Costs</td></tr>
                   ${directRows}
                   <tr class="subtotal"><td>Total Direct Costs</td>${costCells('totalDirectCosts')}<td class="${totalDirectVariance > 0 ? 'unfavorable' : totalDirectVariance < 0 ? 'favorable' : ''}">${formatVariance(totalDirectVariance, true)}</td></tr>
-                  <tr class="gross-profit"><td>Gross Profit</td>${revenueCells('grossProfit')}<td class="${grossVariance < 0 ? 'unfavorable' : grossVariance > 0 ? 'favorable' : ''}">${formatVariance(grossVariance)}</td></tr>
+                  <tr class="gross-profit"><td>Gross Profit</td>${profitCells('grossProfit')}<td class="${grossVariance < 0 ? 'unfavorable' : grossVariance > 0 ? 'favorable' : ''}">${formatVariance(grossVariance)}</td></tr>
                   <tr><td>Overhead Allocation</td>${costCells('overhead')}<td class="${overheadVariance > 0 ? 'unfavorable' : overheadVariance < 0 ? 'favorable' : ''}">${formatVariance(overheadVariance, true)}</td></tr>
                   <tr><td>Processing Fees</td>${costCells('processingFees')}<td class="${processingVariance > 0 ? 'unfavorable' : processingVariance < 0 ? 'favorable' : ''}">${formatVariance(processingVariance, true)}</td></tr>
-                  <tr class="job-profit"><td>Job Profit</td>${revenueCells('jobProfit')}<td class="${profitVariance < 0 ? 'unfavorable' : profitVariance > 0 ? 'favorable' : ''}">${formatVariance(profitVariance)}</td></tr>
-                  <tr class="job-margin"><td>Job Profit Margin</td>${columns.map((column) => `<td>${model.percent(pnls[column].jobProfitMargin)}</td>`).join('')}<td class="${marginVariance < 0 ? 'unfavorable' : marginVariance > 0 ? 'favorable' : ''}">${marginVariance ? `${marginVariance > 0 ? '+' : '−'}${Math.abs(marginVariance * 100).toFixed(1)} pts` : '—'}</td></tr>
+                  <tr class="job-profit"><td>Job Profit</td>${profitCells('jobProfit')}<td class="${profitVariance < 0 ? 'unfavorable' : profitVariance > 0 ? 'favorable' : ''}">${formatVariance(profitVariance)}</td></tr>
+                  <tr class="job-margin"><td>Job Profit Margin</td>${columns.map((column) => `<td>${actualCaveat(column) ? `<span class="not-available">${actualCaveat(column)}</span>` : model.percent(pnls[column].jobProfitMargin)}</td>`).join('')}<td class="${marginVariance < 0 ? 'unfavorable' : marginVariance > 0 ? 'favorable' : ''}">${marginVariance ? `${marginVariance > 0 ? '+' : '−'}${Math.abs(marginVariance * 100).toFixed(1)} pts` : '—'}</td></tr>
                 </tbody>
               </table>
             </div>
             <button class="button mobile-cost-toggle" data-toggle-costs>${state.expandedCosts ? 'Hide direct-cost detail' : 'Show all direct costs'}</button>
-            <p class="pnl-note">For revenue, Actual + Committed means contractually approved revenue. For costs, it means posted actual costs plus recorded commitments. Pending changes remain outside Total Revenue.</p>
+            <p class="pnl-note">For revenue, Actual + Committed means contractually approved revenue. For costs, it means posted actual costs plus recorded commitments. Pending changes remain outside Total Revenue. ${record.stageGroup === 'in-progress' ? 'Job profit is not shown in that column until the job is operationally complete — revenue is approved in full up front while costs are still posting, so the subtraction would overstate profit. Use Forecast at Completion, and the cost-posted figure alongside, while work is live.' : ''}</p>
           </section>`;
       }
 
@@ -1013,7 +1119,19 @@
               <article class="summary-card"><label>Total Revenue</label><strong>${model.money(current.totalRevenue)}</strong><small>${current.changeOrderRevenue ? `${model.money(current.changeOrderRevenue)} from approved changes` : 'No approved change revenue'}</small></article>
             </section>
             <section class="health-explanation ${health.tone}"><span class="explanation-icon" aria-hidden="true">${health.tone === 'track' ? '✓' : '!'}</span><span><strong>${health.tone === 'track' ? 'The current forecast supports the plan' : 'Why this job needs attention'}</strong><span>${escapeHtml(record.healthReason)}</span></span><button class="button" data-modal="activity">Review source data</button></section>
-            <section class="detail-grid">${renderPnl(record)}<aside class="side-stack"><section class="side-panel"><h3>Job Progress</h3><div class="progress-body"><div class="progress-top"><span>Reported completion</span><span>${record.progress}%</span></div><div class="progress-bar"><span style="width:${record.progress}%"></span></div><div class="progress-metrics"><div class="progress-metric"><span>Crew-days used</span><strong>${record.crewDaysUsed}</strong></div><div class="progress-metric"><span>Remaining</span><strong>${record.crewDaysRemaining}</strong></div><div class="progress-metric"><span>Labor hours</span><strong>${record.laborHours}</strong></div><div class="progress-metric"><span>Data freshness</span><strong>${escapeHtml(record.dataFreshness)}</strong></div></div></div></section><section class="side-panel"><h3>Recommended Actions</h3><button class="recommended-action" data-modal="checklist"><strong>Review remaining crew-days</strong><span>Confirm progress and the foreman’s completion forecast.</span><em>Open checklist →</em></button><button class="recommended-action" data-modal="actual"><strong>Review actual and committed costs</strong><span>Confirm labor, Bill transactions, and unposted commitments.</span><em>Add actual cost →</em></button>${record.changeOrders.length ? '<button class="recommended-action" data-detail-tab="changes"><strong>Review approved change revenue</strong><span>Confirm customer and internal approval history.</span><em>View change orders →</em></button>' : '<button class="recommended-action" data-modal="change"><strong>Document a scope change</strong><span>Preview the change-order workflow.</span><em>Add change order →</em></button>'}</section></aside></section>`;
+            <section class="detail-grid">${renderPnl(record)}<aside class="side-stack"><section class="side-panel"><h3>Job Progress</h3><div class="progress-body"><div class="progress-top"><span>Reported completion</span><span>${record.progress}%</span></div><div class="progress-bar"><span style="width:${record.progress}%"></span></div>${(() => {
+              const cost = model.getCostCompletion(record);
+              if (!cost) return '<p class="progress-note">No costs have posted yet.</p>';
+              const pct = Math.round(cost.pct * 100);
+              // Spending ahead of reported progress is the signal worth seeing.
+              const ahead = pct - record.progress;
+              const tone = ahead >= 10 ? 'unfavorable' : ahead <= -5 ? 'favorable' : '';
+              return `<div class="progress-top"><span>Cost posted vs approved budget</span><span>${pct}%</span></div>
+                <div class="progress-bar cost"><span class="${tone}" style="width:${Math.min(pct, 100)}%"></span></div>
+                <p class="progress-note ${tone}">${model.money(cost.posted)} of ${model.money(cost.budget)} approved cost budget posted${record.stageGroup === 'in-progress'
+                  ? ` · ${ahead > 0 ? `spending is ${ahead} pts ahead of reported completion` : ahead < 0 ? `spending is ${Math.abs(ahead)} pts behind reported completion` : 'spending is in line with reported completion'}`
+                  : ''}.</p>`;
+            })()}<div class="progress-metrics"><div class="progress-metric"><span>Crew-days used</span><strong>${record.crewDaysUsed}</strong></div><div class="progress-metric"><span>Remaining</span><strong>${record.crewDaysRemaining}</strong></div><div class="progress-metric"><span>Labor hours</span><strong>${record.laborHours}</strong></div><div class="progress-metric"><span>Data freshness</span><strong>${escapeHtml(record.dataFreshness)}</strong></div></div></div></section><section class="side-panel"><h3>Recommended Actions</h3><button class="recommended-action" data-modal="checklist"><strong>Review remaining crew-days</strong><span>Confirm progress and the foreman’s completion forecast.</span><em>Open checklist →</em></button><button class="recommended-action" data-modal="actual"><strong>Review actual and committed costs</strong><span>Confirm labor, Bill transactions, and unposted commitments.</span><em>Add actual cost →</em></button>${record.changeOrders.length ? '<button class="recommended-action" data-detail-tab="changes"><strong>Review approved change revenue</strong><span>Confirm customer and internal approval history.</span><em>View change orders →</em></button>' : '<button class="recommended-action" data-modal="change"><strong>Document a scope change</strong><span>Preview the change-order workflow.</span><em>Add change order →</em></button>'}</section></aside></section>`;
         }
 
         return `
@@ -1030,7 +1148,7 @@
 
       const modalContent = (type, record) => {
         const common = {
-          schedule: ['Edit Schedule', `<div class="field"><label for="start-date">Start date</label><input id="start-date" type="date" value="2026-08-20"></div><div class="field"><label for="end-date">Completion date</label><input id="end-date" type="date" value="2026-08-21"></div><div class="field full"><label for="crew">Assigned crew</label><select id="crew"><option>Crew A</option><option>Crew B</option><option>Crew C</option></select></div>`],
+          schedule: ['Edit Schedule', `<div class="field"><label for="start-date">Start date</label><input id="start-date" type="date" value="2026-08-20"></div><div class="field"><label for="end-date">Completion date</label><input id="end-date" type="date" value="2026-08-21"></div><div class="field full"><label for="crew">Assigned crew</label><select id="crew"><option>Crew 1 · Nick</option><option>Crew 2 · Alex</option><option>Crew 3 · Brady</option><option>Crew 4 · Cade</option></select></div>`],
           actual: ['Add Actual Cost', `<div class="field"><label for="cost-category">Cost category</label><select id="cost-category"><option>Labor</option><option>Materials</option><option>Rentals</option><option>Dump Fees</option><option>Subcontractors</option><option>Other Direct Costs</option></select></div><div class="field"><label for="cost-amount">Amount</label><input id="cost-amount" type="number" min="0" step=".01" value="680"></div><div class="field full"><label for="cost-note">Source or note</label><textarea id="cost-note">Unposted commitment for demonstration</textarea></div>`],
           change: ['Add Change Order', `<div class="field full"><label for="change-description">Scope change</label><textarea id="change-description">Additional removal requested in the field.</textarea></div><div class="field"><label for="change-revenue">Approved revenue</label><input id="change-revenue" type="number" min="0" value="1500"></div><div class="field"><label for="change-cost">Budgeted cost</label><input id="change-cost" type="number" min="0" value="900"></div><div class="field"><label for="customer-approval">Customer approval</label><select id="customer-approval"><option>Written</option><option>Verbal — documented</option><option>Pending</option></select></div><div class="field"><label for="internal-approval">Internal approval</label><select id="internal-approval"><option>Dane — approved</option><option>Pending Dane review</option></select></div>`],
           checklist: ['Job Checklist', `<div class="field"><label for="progress">Job completion</label><input id="progress" type="number" min="0" max="100" value="${record.progress || 0}"></div><div class="field"><label for="remaining-days">Crew-days remaining</label><input id="remaining-days" type="number" min="0" step=".5" value="${record.crewDaysRemaining || 0}"></div><div class="field full"><label for="checklist-note">Foreman notes</label><textarea id="checklist-note">Progress and remaining work entered for demonstration.</textarea></div>`],
