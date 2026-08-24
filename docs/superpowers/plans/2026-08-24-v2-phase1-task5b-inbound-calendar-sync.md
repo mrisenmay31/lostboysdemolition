@@ -10,6 +10,21 @@
 
 **Spec:** `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` Task 5 Step 6 (lines 1326–1346) + the dispatcher test list (lines 1260–1278, inbound subset) + the channel-lifecycle adjustment (4) in the landing note. Execution context: `docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md` Task 6 (5B), spike results in its Step 1 record. **The spike's banked design facts are binding inputs:** (a) notification body is empty — fetch by stored event id; (b) `X-Goog-Channel-Token` round-trips — `token_hash` auth is viable; (c) Google honors requested TTL — renewal can trust returned `expiration`; (d) the notification route and admin routes need different auth and the notification route must **always return 200**.
 
+> ## ⚡ Execution status (2026-08-24, same session as approval)
+>
+> **Tasks 1–3 COMPLETE** (all steps, all reviews clean after fix rounds — commits
+> `cf240a2..8553aa2`, pushed). **Task 4 Steps 1–2 COMPLETE**: per-lane adversarial reviews + fix
+> rounds + whole-slice final review + final fix wave all clean; runbook cycle done (branch
+> `v2-phase1-task5b`, probes a–d FAITHFUL, RED 32/32 not-ok, GREEN **147/147 first execution**,
+> branch deleted; suites deno 411/411 golden intact, web 596/596, build green). **Task 4 Steps 3–6
+> REMAIN — the Matt gate**: prod apply, deploy via the invariant, live probe (decision-9
+> prerequisites), session landing follow-through. Two ruled amendments to this plan's text, made
+> during execution and binding: (1) `resolve_schedule_exception`'s `dismiss` on a non-scheduled job
+> is an **acknowledge-and-close** (closes exception + alert, zero jobs/outbox writes) rather than
+> sharing raise text 8 — text 8 stays verbatim for `reschedule`; (2) `classifyManagedEvent` checks
+> `deleted` BEFORE `unmanaged` (Google may strip extendedProperties on cancelled resources; every
+> fetched event is ours by construction). Full record: the 2026-08-24 `BUILD_LOG.md` entry.
+
 ## Global Constraints
 
 - Every schema task follows `docs/runbooks/profitability-schema-validation.md` (8-step sequence, fidelity probes a–d, pgTAP on branches only, plain-SQL catalog assertions post-apply, verbatim BUILD_LOG record).

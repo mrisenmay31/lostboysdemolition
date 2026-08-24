@@ -189,8 +189,24 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
   **⚠️ The received wisdom is WRONG and cost nothing to disprove:** widely-cited sources (and the "Unauthorized WebHook callback channel" error folklore) say the callback domain must be verified in Search Console AND registered in the GCP console's Push section. **No domain verification was needed** — `*.supabase.co` was accepted as-is. Google's *current* official push guide mentions only the SSL requirement, and it is the accurate one; the domain-verification advice is stale (it still holds for the Drive API, which is likely the source of the confusion).
   **Design facts banked for Step 2:** (a) the notification body is **empty** (`bodyLength: 0`) — Google never sends the changed event, so the inbound leg MUST fetch it by stored event id, exactly as the v2 spec assumes; (b) the channel token round-trips in `X-Goog-Channel-Token`, so `token_hash` verification is a viable auth mechanism as specced; (c) Google honored the requested TTL to the second (1 h requested → `expiration` 1 h), so renewal scheduling can trust the returned `expiration`; (d) the notification route and the admin routes need **different** auth and cannot share one check — Google sends no `x-webhook-secret`.
   **Not observed, deliberately:** an `exists` (real event-change) notification, as distinct from the `sync` handshake. The transport and headers are identical apart from `X-Goog-Resource-State`, so this does not gate the decision — but Step 2's first integration test should pin it.
-- [ ] **Step 2 (Sonnet):** `calendar_watch_channels` registry migration + renewal-before-expiry + overlap dedup + reconciliation fallback poll; revision-guarded date-only inbound writes; deletion → `job_schedule_exceptions` + alert (never auto-unschedule); `resolveDeletedCalendarEvent` resolutions; the three inbound/channel test cases from the v2 list.
-- [ ] **Step 3:** Runbook cycle, Opus review, commit, Matt-approved prod apply + deploy. 5B gates separately from the phase gate.
+- [x] **Step 2 (Sonnet lanes, 2026-08-24):** DONE — built per the approved sub-plan
+  `docs/superpowers/plans/2026-08-24-v2-phase1-task5b-inbound-calendar-sync.md` (9 header
+  decisions + 2 recorded spec deviations are the authority). 3 concurrent lanes: registry/marks/RPC
+  migrations + pgTAP plan(147); `google-calendar-webhook` full rewrite (token-hash auth, channel
+  lifecycle with register-before-stop renewal, one shared push/poll reconcile path, 40 Deno tests);
+  `resolveDeletedCalendarEvent` + `/jobs/exceptions` UI (keyed on `exceptionId` — recorded
+  deviation; 40 web tests). Review chain: per-lane Opus reviews + fix rounds (headline fixes:
+  dismiss acknowledge-and-close for non-scheduled jobs; fail-closed NaN revision guard;
+  per-calendar failure isolation; marks recorded only AFTER a completed RPC outcome) + whole-slice
+  final review (merge-ready; mirror-loop termination and rev-key collision-freedom proven) + final
+  fix wave, all re-review-verified. Commits `cf240a2..8553aa2`, pushed.
+- [~] **Step 3 (PARTIAL — 2026-08-24):** Runbook cycle DONE (branch `v2-phase1-task5b`, probes a–d
+  FAITHFUL, RED 32/32 not-ok, GREEN **147/147 first execution**, branch deleted; full suites deno
+  **411/411** golden intact + web **596/596** + build green); reviews DONE; commits pushed.
+  **REMAINING = the Matt gate:** prod apply of the 3 migrations (exact repo files, server-side
+  secret substitution) + `google-calendar-webhook` deploy via the `--no-verify-jwt` invariant +
+  the live probe (prerequisite: Slack bot invited or `SLACK_TEST_CHANNEL_OVERRIDE`; `closed_lost`
+  teardown only). 5B gates separately from the phase gate.
 
 ### Task 7: Phase 1 gate + permanent cutover
 

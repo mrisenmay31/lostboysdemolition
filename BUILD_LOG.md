@@ -26,7 +26,7 @@ shipped.
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A/v2 | 🟢 Live (**v20**, `verify_jwt=false` read back) — Phase A keystone + BL-4/BL-5 + **v2 Task 4 gates (2026-08-19): `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` flag (UNSET in prod ⇒ legacy minting unchanged) + unconditional `launch_workflow` compat check.** Deploy probed (function-level 401 + clean logs); authenticated live fire = Matt to-do (JOB-1104 re-drag, BL-5 procedure) | 2026-08-19 |
-| `google-calendar-webhook` | 5B | 🟢 Live (**v1**, `verify_jwt=false` read back) — **SPIKE SCAFFOLD, not an implementation.** Proved Google Calendar push → Supabase edge function works (no domain verification needed). Zero DB access; Step 2 replaces it | 2026-08-20 |
+| `google-calendar-webhook` | 5B | 🟡 Live (**v1** spike, `verify_jwt=false` read back) — **Step 2 REWRITE BUILT + FULLY REVIEWED on the branch 2026-08-24** (token-hash auth, channel lifecycle, revision-guarded date-only inbound writes, deletion exceptions; 40 Deno tests; branch pgTAP 147/147). **NOT deployed — awaits Matt's prod apply + deploy + probe.** Deployed v1 remains the zero-DB spike until then | 2026-08-24 |
 | Crew Slack delivery | — | 🔴 **BROKEN — bot not in the crew channels** (`not_in_channel`, found live 2026-08-20). One successful post in system history (Crew 1, 2026-08-13); crews 2/3/4 never delivered. **Blocks the Phase 1 gate — Matt must invite the bot** | 2026-08-20 |
 | `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lostboysdemolition.vercel.app** (URL changed 2026-08-18; old `lbd-estimates.vercel.app` deleted, now 404s) — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
@@ -36,13 +36,108 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. Next: Session 4 (Task 5A outbound dispatcher) | 2026-08-19 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. Then Task 7 = Phase 1 gate | 2026-08-24 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-24 — v2 Phase 1 Session 6: Task 5B Step 2 BUILT AND FULLY REVIEWED on the branch — inbound Calendar sync awaits Matt's prod apply + deploy + probe
+
+**Branch `claude/last-session-review-f7tqxw`, 7 commits `cf240a2..8553aa2`, pushed. NO prod applies,
+NO deploys, NO GHL/Calendar/Slack traffic this session** — everything stops at the Matt gate per
+the plan. Plan: `docs/superpowers/plans/2026-08-24-v2-phase1-task5b-inbound-calendar-sync.md`
+(approved by Matt this session; its 9 header decisions + 2 recorded spec deviations are the
+authority). Executed via subagent-driven development: 3 concurrent Sonnet lanes (disjoint files,
+one worktree), adversarial Opus review per lane + fix rounds + scoped re-reviews, a whole-slice
+final review on the strongest model, one final fix wave, all clean.
+
+**What was built (on the branch, NOT yet live):**
+- **SQL** (`20260824150000_calendar_watch_registry.sql`, `20260824151000_calendar_inbound_rpcs.sql`,
+  `20260824152000_schedule_calendar_maintenance.sql` + `supabase/tests/calendar_inbound_sync_test.sql`,
+  pgTAP plan(147)): `watch_channel_status` enum; `calendar_watch_channels` registry (partial unique
+  `one_active` per calendar); `calendar_inbound_marks` dedup table (keyed on **calendar_id** —
+  resource_id is reassigned on channel renewal, so calendar_id is the stable dedup identity);
+  partial unique `job_schedule_exceptions_one_open`; `sync_log.direction` widened to add
+  `'google_to_supabase'` (live constraint name pre-verified); three plain-INVOKER pinned RPCs —
+  `apply_calendar_date_change` (date-only writes, echo-termination dates-equal check BEFORE the
+  revision guard, M7 `not_scheduled` benign skip), `open_calendar_deletion_exception` (M7-inert for
+  the dispatcher's own cancel cleanup; opens exception + `at_risk` alert), `resolve_schedule_exception`
+  (reschedule/postponed/closed_lost/dismiss; postponed+closed_lost reuse `cancel_scheduled_job`
+  verbatim; 8 byte-pinned raise texts, none colliding with sibling classifiers); cron
+  `calendar-sync-maintenance` at `7,37 * * * *` with the `__WEBHOOK_SECRET__` placeholder.
+- **Edge function** (`google-calendar-webhook` REWRITTEN — the deployed v1 spike is replaced by
+  this code at deploy time): token-hash (SHA-256) notification auth accepting `active|superseded`
+  channels, always-200 notification route; one shared code path for push and poll
+  (`reconcileCalendar`: fetch stored event ids, `classifyManagedEvent` comparator, RPC calls);
+  channel lifecycle (`maintain` action: register-before-stop renewal at 24h threshold, 7-day TTL,
+  per-scheduled-job `calendar_watch:<cal>` alerts on registration failure, reconcile sweep, 30-day
+  mark prune); `getCalendarEvent` added to `_shared/google.ts` (additive; 404/410 = data, not error).
+  40 Deno tests.
+- **Web** (`exceptionActions.ts` + `/jobs/exceptions` page/form): `resolveDeletedCalendarEvent`
+  (keyed on `exceptionId` — recorded deviation from the v2 spec's `jobNumber`, since a job can hold
+  two open exceptions), `classifyResolveError` routing all pinned texts + nested cancel raises,
+  friendly error mapping server-side (`not_open` → refresh the stale list), America/Denver
+  timestamps. 40 vitest tests. **No pricing anywhere on the page** (final review swept it).
+
+**Runbook cycle (verbatim record):** branch `v2-phase1-task5b` (id
+`0af7d90e-dcc6-4d0c-888f-e3be5b513423`, ref `fzotihznlugbizdqrtdf`, $0.01344/hr confirmed, deleted
+post-validation). Probes a–d **FAITHFUL**
+(35 applied, head `20260820152300`; 5 definers present+pinned; `on_auth_user_created` present; 12
+legacy policies). Prod baseline rows: jobs 3, exceptions 0, alerts 0, outbox 4, job_events 36,
+sync_log 1074, users/crews/time_entries 0/0/0. **RED:** existence/ACL subset **32/32 not-ok**
+(captured via the Session-3 tap_out recipe). Applied all 3 migrations to the branch. **GREEN:
+147/147 ok, first execution.** Orchestrator gates: `deno task test` **411/411** (golden-321
+intact), web vitest **596/596**, `npm run build` green. Task-3 reviewer's schema ⚠️ closed live:
+the web module's exact select ran clean against the landed table on the branch.
+
+**Review chain (all findings fixed and re-verified; full detail was in the SDD ledger, now
+summarized here):** Task 1 — I1: an exception whose job left `scheduled` had NO terminal
+resolution (all four resolutions raised); ruled fix: `dismiss` on a non-scheduled job is now an
+acknowledge-and-close (closes exception + alert, ZERO jobs/outbox writes, additive
+`note: 'acknowledged_no_side_effects'`; raise text 8 kept verbatim for `reschedule`). Task 2 —
+three Importants: stranded dedup mark on RPC failure; `Number(scheduleRevision)` NaN failing OPEN
+into the write path (now `Number.isFinite` → `revision_anomaly`); no per-calendar failure isolation
+in either maintenance loop (now isolated, prune unconditional); plus a ruled comparator reorder
+(deleted-check before managedBy — Google may strip extendedProperties on cancelled resources) and a
+guard for missing `end.date`. Task 3 — classified error codes now actually reach the UI; Denver
+timestamps. **Final whole-slice review (strongest model): merge-ready.** All 8 cross-cutting seams
+verified: the inbound mirror loop provably terminates (dispatcher's stale guard can never skip the
+mirror of an applied change); rev-scoped idempotency keys are collision-free under every
+interleaving across all four outbox writers; a mirrored date change re-notifies the crew once (R7
+semantics — Matt should know: **editing dates on the calendar now pings the crew channel**, plan
+decision 3). Its one Important — a residual claim-before-RPC crash-strand window — was fixed in the
+final wave (check-then-act: marks recorded only AFTER a completed RPC outcome; `deleteMark`
+compensation removed) and re-review-verified.
+
+**Deferred (triaged by the final review, none merge-blocking; FIX SOON bucket):** filter the
+exceptions list on `kind='calendar_deleted'` before any second kind gains a writer; crew-calendar
+function test (highest-value gap — probe step exercises it live); case-2 sync test hardening;
+registry hygiene bundle (superseded→expired transition, `updated_at` bumps, `calendarKeyFor` null
+logging); `job_alerts.resolved_by` stamp; pgTAP additions (M5); exception-resolution `job_events`
+row for postponed/closed_lost; fold the inline server action into `jobs/actions.ts`. Noted for v2
+Task 6/12: `calendar_watch:*` alerts have no resolution path yet; `renewal_failed` channels reject
+their own still-live notifications (conscious ≤24h poll-only degradation); the 404/410 deletion
+path re-calls the RPC every pass (benign, RPC-guarded, bounded by the 30-day prune).
+
+**🔴 THE MATT GATE (nothing below happens without your per-item yes):**
+1. **Prod apply** of the 3 migrations (exact repo files; cron secret substituted server-side via
+   the established `regexp_match` recipe) + post-apply catalog assertions + advisors.
+2. **Deploy** `google-calendar-webhook` via the two-command `--no-verify-jwt` invariant (readback
+   must also show `ghl-job-webhook` v20 and `integration-dispatcher` sha-undisturbed).
+3. **Live probe** (plan Task 4 Step 5): PREREQUISITE = Slack bot invited to the crew channels OR
+   `SLACK_TEST_CHANNEL_OVERRIDE`; `closed_lost`-only teardown (postponed still trips legacy
+   minting). Probe burns one estimate number (first real estimate floor moves).
+4. Standing gate items unchanged: bot invitations, 2026-12-15/16 calendar eyeball, phone smoke +
+   real estimate, JOB-1104 authenticated re-drag, merge decision.
+
+**Hard-won this session:** the Session-3 tap_out recipe scales to a 147-assertion suite in one
+implicit transaction (fixtures commit to the disposable branch — fine, it's deleted); a `cd web`
+that persists across Bash calls silently empties a path-filtered `git diff` (caught because the
+package was 7 lines — check package line counts); `resource_id` is per-channel-registration and
+reassigned on renewal, which is WHY the dedup key is `calendar_id`.
 
 ### 2026-08-20 (later) — v2 Phase 1 Session 5: Task 5A live TEST-job probe RUN — dispatcher works end to end; 🔴 Slack bot is NOT in the crew channels
 
