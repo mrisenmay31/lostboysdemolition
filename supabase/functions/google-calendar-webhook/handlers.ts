@@ -329,52 +329,68 @@ async function callRpc(deps: InboundDeps, fn: string, args: Record<string, unkno
   return data;
 }
 
-/** Dedup claim: attempts the mark insert BEFORE any RPC call, and a 23505
- *  conflict means an overlapping channel or a prior reconciliation pass
- *  already handled this exact (calendar, event, updated) generation — the
- *  caller skips (no RPC call). The mark's `outcome` column carries the
- *  classify() result (or 'deleted' for a 404/410 fetch, which has no event
- *  body to classify) — since the unique key excludes `outcome`, a single
- *  pre-RPC insert serves as BOTH the dedup claim and the outcome record;
- *  there is no second write. Correctness never depends on this table —
- *  the RPC guards (revision, status) are authoritative; this is purely an
- *  optimization to avoid redundant RPC calls under overlapping channels. */
-async function claimMark(
+/** Dedup pre-check: a plain SELECT for the exact (calendar, event, updated)
+ *  generation — NOT a claim-by-insert. (Final whole-slice review: a
+ *  pre-RPC insert-as-claim leaves a crash-strand window — if the isolate
+ *  dies between the insert and the RPC call, nothing survives to run a
+ *  compensating delete, and the tuple stays claimed with no RPC ever having
+ *  run, forever. A SELECT has no such window.) Matches Lane S's documented
+ *  migration contract verbatim: "insert AFTER a successful outcome only." */
+async function markExists(
+  deps: InboundDeps,
+  calendarId: string,
+  eventId: string,
+  eventUpdated: string,
+): Promise<boolean> {
+  const { data, error } = await deps.supabase
+    .from("calendar_inbound_marks")
+    .select("id")
+    .eq("calendar_id", calendarId)
+    .eq("event_id", eventId)
+    .eq("event_updated", eventUpdated)
+    .maybeSingle();
+  if (error) throw new Error(`calendar_inbound_marks lookup failed: ${error.message ?? String(error)}`);
+  return data != null;
+}
+
+/** Records the outcome AFTER whatever action it required (an RPC call, or
+ *  nothing at all for a no-op outcome) has already completed without
+ *  throwing. A throw before this point (network blip, RPC raise, isolate
+ *  kill) simply leaves no mark behind — the next pass's markExists sees
+ *  nothing and retries naturally; there is no compensation to run because
+ *  there is nothing to compensate.
+ *
+ *  A 23505 here means an overlapping channel's notification (or the
+ *  reconciliation fallback poll) raced past this iteration's markExists
+ *  SELECT and reached this same insert independently. For an
+ *  RPC-calling outcome that means the RPC was invoked twice for the same
+ *  generation — provably benign, since the RPC's own guards make the
+ *  second call a no-op (apply_calendar_date_change's second call sees the
+ *  dates already applied -> 'dates_unchanged'; open_calendar_deletion_
+ *  exception's second call sees the exception already open ->
+ *  'exception_already_open'). Any OTHER insert error is logged, not
+ *  re-thrown: this table is bookkeeping, not the source of correctness
+ *  (the RPC guards are), so a bookkeeping-write failure must not make an
+ *  otherwise-successful RPC call look like a failed reconciliation. */
+async function insertMarkOutcome(
   deps: InboundDeps,
   calendarId: string,
   eventId: string,
   eventUpdated: string,
   outcome: string,
-): Promise<boolean> {
+): Promise<void> {
   const { error } = await deps.supabase.from("calendar_inbound_marks").insert({
     calendar_id: calendarId,
     event_id: eventId,
     event_updated: eventUpdated,
     outcome,
   });
-  if (!error) return true;
-  if (error.code === "23505") return false;
-  throw new Error(`calendar_inbound_marks insert failed: ${error.message ?? String(error)}`);
-}
-
-/** Compensation for a claimed mark whose RPC then threw (review round 1,
- *  finding 1). Without this, a claimed-but-failed mark strands the edit
- *  permanently: every later pass (notification or the reconciliation
- *  fallback poll) hits the same 23505 on `(calendarId, eventId,
- *  eventUpdated)` and silently skips, forever — since `event_updated` never
- *  changes until a human edits the event again. Deleting the mark on a
- *  throw makes the tuple re-claimable on the very next pass. Failing to
- *  delete it is logged, not re-thrown — the caller's own catch is already
- *  writing a sync_log error row for the original failure, and a
- *  compensation-delete failure must not mask or replace that. */
-async function deleteMark(deps: InboundDeps, calendarId: string, eventId: string, eventUpdated: string): Promise<void> {
-  const { error } = await deps.supabase
-    .from("calendar_inbound_marks")
-    .delete()
-    .eq("calendar_id", calendarId)
-    .eq("event_id", eventId)
-    .eq("event_updated", eventUpdated);
-  if (error) throw new Error(`calendar_inbound_marks delete failed: ${error.message ?? String(error)}`);
+  if (error && error.code !== "23505") {
+    console.error(
+      `[google-calendar-webhook] failed to record dedup mark for event ${eventId} on calendar ${calendarId}:`,
+      error.message ?? String(error),
+    );
+  }
 }
 
 export interface ReconcileSummary {
@@ -401,12 +417,6 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
   const source: "main" | "crew" = calendarKey === "main" ? "main" : "crew";
 
   for (const { job, eventId } of candidates) {
-    // Tracked outside the try so the catch below can compensate a claimed
-    // mark whose RPC then threw (finding 1) — undefined/false until the
-    // claim actually succeeds, so the catch only ever deletes a mark this
-    // exact iteration inserted.
-    let claimedEventUpdated: string | null = null;
-
     try {
       const fetched = await deps.getCalendarEvent(calendarId, eventId, accessToken);
 
@@ -417,18 +427,17 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
       // benign-skip return.
       if (fetched.status === 404 || fetched.status === 410) {
         const eventUpdated = deps.now().toISOString();
-        const claimed = await claimMark(deps, calendarId, eventId, eventUpdated, "deleted");
-        if (!claimed) {
+        if (await markExists(deps, calendarId, eventId, eventUpdated)) {
           summary.skipped++;
           continue;
         }
-        claimedEventUpdated = eventUpdated;
         await callRpc(deps, "open_calendar_deletion_exception", {
           p_job_number: job.job_number,
           p_external_event_id: eventId,
           p_incoming_event: { status: fetched.status },
         });
         summary.deleted++;
+        await insertMarkOutcome(deps, calendarId, eventId, eventUpdated, "deleted");
         continue;
       }
 
@@ -436,12 +445,10 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
       const outcome = classifyManagedEvent(event, job);
       const eventUpdated = event?.updated ?? deps.now().toISOString();
 
-      const claimed = await claimMark(deps, calendarId, eventId, eventUpdated, outcome);
-      if (!claimed) {
+      if (await markExists(deps, calendarId, eventId, eventUpdated)) {
         summary.skipped++;
         continue;
       }
-      claimedEventUpdated = eventUpdated;
 
       if (outcome === "apply") {
         // classifyManagedEvent guarantees both start.date and end.date are
@@ -471,28 +478,20 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
         summary.deleted++;
       } else {
         // unmanaged / dates_unchanged / stale_revision / revision_anomaly —
-        // the mark above already recorded the outcome; nothing else to do.
+        // no RPC call; the mark below still records the outcome so a
+        // repeated notification for the same generation short-circuits at
+        // the markExists check above instead of re-fetching and
+        // re-classifying every time.
         summary.skipped++;
       }
+
+      // Recorded only now that the outcome's action (if any) has completed
+      // without throwing — see insertMarkOutcome's doc comment. A throw
+      // ANYWHERE above this line (including inside the RPC call) means no
+      // mark is written at all, so the next pass retries from scratch.
+      await insertMarkOutcome(deps, calendarId, eventId, eventUpdated, outcome);
     } catch (err) {
       summary.errored++;
-
-      // Finding 1: a mark claimed by THIS iteration but whose RPC then
-      // threw must not strand the edit — delete it so the next pass
-      // (another notification, or the reconciliation fallback poll)
-      // re-claims and re-attempts, rather than hitting 23505 forever.
-      if (claimedEventUpdated) {
-        try {
-          await deleteMark(deps, calendarId, eventId, claimedEventUpdated);
-        } catch (delErr) {
-          console.error(
-            `[google-calendar-webhook] failed to delete compensating mark for event ${eventId} ` +
-              `on calendar ${calendarId}:`,
-            (delErr as any)?.message ?? String(delErr),
-          );
-        }
-      }
-
       await writeSyncLog(deps.supabase, {
         direction: "google_to_supabase",
         trigger_event: "calendar_reconcile",

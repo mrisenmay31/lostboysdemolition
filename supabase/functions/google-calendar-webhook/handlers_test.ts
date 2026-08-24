@@ -83,7 +83,12 @@ interface FakeConfig {
   channelByChannelId?: Record<string, any | null>;
   activeChannelByCalendarId?: Record<string, any | null>;
   jobs?: any[];
-  markConflictKeys?: Set<string>; // "calendarId|eventId|eventUpdated"
+  // Pre-seeds calendar_inbound_marks as already containing these
+  // (calendarId|eventId|eventUpdated) keys — the SELECT-based markExists
+  // pre-check (see handlers.ts) finds them and the caller skips. Also
+  // doubles as the live "marks that exist" set: a later insertMarkOutcome
+  // call (post-RPC-success) grows it, matching production semantics.
+  existingMarkKeys?: Set<string>;
   jobAlertError?: { code?: string; message?: string } | null;
   rpcData?: Record<string, any>;
   rpcError?: Record<string, { message: string }>;
@@ -95,13 +100,13 @@ function createFakeSupabase(config: FakeConfig = {}) {
     rpc: [] as Array<{ fn: string; args: any }>,
     channelUpdates: [] as Array<{ id: string; patch: Record<string, unknown> }>,
     channelInserts: [] as Array<Record<string, unknown>>,
+    markSelects: [] as Array<{ calendar_id?: string; event_id?: string; event_updated?: string }>,
     markInserts: [] as Array<Record<string, unknown>>,
     marksDelete: [] as Array<{ col: string; val: string }>,
-    markDeletesByKey: [] as string[],
     jobAlertInserts: [] as Array<Record<string, unknown>>,
     syncLogInserts: [] as Array<Record<string, unknown>>,
   };
-  const markConflictKeys = config.markConflictKeys ?? new Set<string>();
+  const existingMarkKeys = config.existingMarkKeys ?? new Set<string>();
 
   return {
     _calls: calls,
@@ -160,41 +165,51 @@ function createFakeSupabase(config: FakeConfig = {}) {
       }
       if (table === "calendar_inbound_marks") {
         return {
-          insert(row: Record<string, unknown>) {
-            calls.markInserts.push(row);
-            const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
-            if (markConflictKeys.has(key)) {
-              return Promise.resolve({ error: { code: "23505", message: "duplicate key value" } });
-            }
-            markConflictKeys.add(key);
-            return Promise.resolve({ error: null });
-          },
-          // Two real supabase-js usages of .delete() against this table:
-          // (a) prune (runMaintenance): .delete({count:'exact'}).lt(col,val)
-          //     — .lt() itself returns a real Promise, no further chaining.
-          // (b) compensation (deleteMark, finding 1): .delete().eq(a).eq(b)
-          //     .eq(c) — each .eq() accumulates a filter and returns the
-          //     thenable `builder` itself; `await` on the final .eq() call
-          //     invokes builder.then() via the thenable protocol.
-          delete(_opts?: { count: string }) {
+          // markExists's dedup pre-check: .select("id").eq(a).eq(b).eq(c)
+          // .maybeSingle() — each .eq() accumulates a filter, the final
+          // .maybeSingle() resolves { data: <row-or-null> }.
+          select(_cols: string) {
             const filters: Record<string, string> = {};
             const builder: any = {
-              lt(col: string, val: string) {
-                calls.marksDelete.push({ col, val });
-                return Promise.resolve({ error: null, count: config.marksDeleteCount ?? 0 });
-              },
               eq(col: string, val: string) {
                 filters[col] = val;
                 return builder;
               },
-              then(resolve: (v: { error: null }) => void) {
+              maybeSingle() {
+                calls.markSelects.push({ ...filters });
                 const key = `${filters.calendar_id}|${filters.event_id}|${filters.event_updated}`;
-                calls.markDeletesByKey.push(key);
-                markConflictKeys.delete(key); // un-claim -> re-claimable on a later pass
-                resolve({ error: null });
+                return Promise.resolve({ data: existingMarkKeys.has(key) ? { id: key } : null, error: null });
               },
             };
             return builder;
+          },
+          // insertMarkOutcome: called only AFTER the outcome's action (if
+          // any) has completed without throwing. A 23505 here (an
+          // overlapping channel/poll raced past this iteration's
+          // markExists SELECT) is swallowed by the production code, not by
+          // this fake — the fake just reports the conflict honestly.
+          insert(row: Record<string, unknown>) {
+            calls.markInserts.push(row);
+            const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
+            if (existingMarkKeys.has(key)) {
+              return Promise.resolve({ error: { code: "23505", message: "duplicate key value" } });
+            }
+            existingMarkKeys.add(key);
+            return Promise.resolve({ error: null });
+          },
+          // Prune (runMaintenance): .delete({count:'exact'}).lt(col,val) —
+          // .lt() itself returns a real Promise, no further chaining. This
+          // is the ONLY .delete() usage left in production code — the
+          // per-mark compensation delete was removed (final review: an
+          // insert-as-claim leaves a crash-strand window; check-then-act
+          // with a post-success insert has no mark to compensate).
+          delete(_opts?: { count: string }) {
+            return {
+              lt(col: string, val: string) {
+                calls.marksDelete.push({ col, val });
+                return Promise.resolve({ error: null, count: config.marksDeleteCount ?? 0 });
+              },
+            };
           },
         };
       }
@@ -686,14 +701,15 @@ Deno.test("case 10 (M7): deletion RPC still called for a cancelled job; {opened:
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Case 11 — dedup: mark-insert conflict skips, no RPC call
+// Case 11 — dedup: an existing mark short-circuits via the markExists
+// SELECT, no RPC call
 // ═══════════════════════════════════════════════════════════════════════
 
-Deno.test("case 11: a mark-insert conflict (23505) skips the event with no RPC call", async () => {
+Deno.test("case 11: an existing dedup mark (found via SELECT) skips the event with no RPC call", async () => {
   const jobRow = makeJobRow();
   const supabase = createFakeSupabase({
     jobs: [jobRow],
-    markConflictKeys: new Set(["cal-main|evt-1|2026-08-24T09:00:00.000Z"]),
+    existingMarkKeys: new Set(["cal-main|evt-1|2026-08-24T09:00:00.000Z"]),
   });
   const deps = makeDeps({
     supabase,
@@ -709,6 +725,8 @@ Deno.test("case 11: a mark-insert conflict (23505) skips the event with no RPC c
   assertEquals(summary.skipped, 1);
   assertEquals(summary.applied, 0);
   assertEquals(supabase._calls.rpc.length, 0);
+  assertEquals(supabase._calls.markSelects.length, 1);
+  assertEquals(supabase._calls.markInserts.length, 0); // never reached — the SELECT gated it first
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -790,6 +808,20 @@ Deno.test("case 12: watch channel renewed before expiry; overlapping-channel not
       }
       if (table === "calendar_inbound_marks") {
         return {
+          select: () => {
+            const filters: Record<string, string> = {};
+            const builder: any = {
+              eq(col: string, val: string) {
+                filters[col] = val;
+                return builder;
+              },
+              maybeSingle: () => {
+                const key = `${filters.calendar_id}|${filters.event_id}|${filters.event_updated}`;
+                return Promise.resolve({ data: marks.has(key) ? { id: key } : null, error: null });
+              },
+            };
+            return builder;
+          },
           insert(row: any) {
             const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
             if (marks.has(key)) return Promise.resolve({ error: { code: "23505", message: "dup" } });
@@ -938,9 +970,10 @@ Deno.test("case 14: runMaintenance prunes calendar_inbound_marks older than 30 d
 // Fix round 1 — adversarial review findings
 // ═══════════════════════════════════════════════════════════════════════
 
-// ── Finding 1 — an RPC throw must delete the claimed mark, not strand it ──
+// ── Finding 1 (final review) — check-then-act with a post-success insert:
+//    an RPC throw must leave NO mark behind, not a stranded claim ────────
 
-Deno.test("finding 1: RPC throw deletes the compensating mark so a second reconcile pass re-attempts", async () => {
+Deno.test("finding 1: RPC throw leaves no mark behind — a second reconcile pass re-attempts and succeeds", async () => {
   const jobRow = makeJobRow({ calendar_sync_revision: 2 });
   const marks = new Set<string>();
   const syncLogInserts: Record<string, unknown>[] = [];
@@ -950,7 +983,10 @@ Deno.test("finding 1: RPC throw deletes the compensating mark so a second reconc
     rpc(fn: string, args: Record<string, unknown>) {
       rpcCalls++;
       if (fn === "apply_calendar_date_change" && rpcCalls === 1) {
-        // First attempt fails — simulates a transient RPC-layer error.
+        // First attempt fails — simulates a transient RPC-layer error (or,
+        // equally, the isolate dying mid-call: either way, nothing after
+        // this point in the try block runs, so insertMarkOutcome — which
+        // comes AFTER the RPC call — never executes).
         return Promise.resolve({ data: null, error: { message: "simulated RPC failure" } });
       }
       return Promise.resolve({ data: { applied: true }, error: null });
@@ -961,26 +997,25 @@ Deno.test("finding 1: RPC throw deletes the compensating mark so a second reconc
       }
       if (table === "calendar_inbound_marks") {
         return {
-          insert(row: Record<string, unknown>) {
-            const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
-            if (marks.has(key)) return Promise.resolve({ error: { code: "23505", message: "dup" } });
-            marks.add(key);
-            return Promise.resolve({ error: null });
-          },
-          delete() {
+          select: () => {
             const filters: Record<string, string> = {};
             const builder: any = {
               eq(col: string, val: string) {
                 filters[col] = val;
                 return builder;
               },
-              then(resolve: (v: { error: null }) => void) {
+              maybeSingle: () => {
                 const key = `${filters.calendar_id}|${filters.event_id}|${filters.event_updated}`;
-                marks.delete(key);
-                resolve({ error: null });
+                return Promise.resolve({ data: marks.has(key) ? { id: key } : null, error: null });
               },
             };
             return builder;
+          },
+          insert(row: Record<string, unknown>) {
+            const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
+            if (marks.has(key)) return Promise.resolve({ error: { code: "23505", message: "dup" } });
+            marks.add(key);
+            return Promise.resolve({ error: null });
           },
         };
       }
@@ -1008,12 +1043,95 @@ Deno.test("finding 1: RPC throw deletes the compensating mark so a second reconc
   const first = await reconcileCalendar(deps, "cal-main");
   assertEquals(first.errored, 1);
   assertEquals(first.applied, 0);
-  assertEquals(marks.size, 0); // the compensating delete removed the claimed mark
+  assertEquals(marks.size, 0); // no mark was ever written — there was nothing to compensate
   assert(syncLogInserts.some((r) => r.action_taken === "error"));
 
   const second = await reconcileCalendar(deps, "cal-main");
-  assertEquals(second.applied, 1); // re-claimed and re-attempted successfully
+  assertEquals(second.applied, 1); // markExists found nothing -> retried naturally, succeeded
+  assertEquals(marks.size, 1); // this time the RPC succeeded, so the mark IS written
   assertEquals(rpcCalls, 2);
+});
+
+// ── Race shape — a benign duplicate RPC call whose post-success mark
+//    insert then conflicts must be swallowed, not surfaced as an error ───
+
+Deno.test("race shape: a mark-insert conflict after a benign duplicate RPC call is swallowed, not an error", async () => {
+  const jobRow = makeJobRow({ calendar_sync_revision: 2 });
+  const marks = new Set<string>();
+  const syncLogInserts: Record<string, unknown>[] = [];
+  let selectCalls = 0;
+
+  const supabase = {
+    rpc: () => Promise.resolve({ data: { applied: true }, error: null }),
+    from(table: string) {
+      if (table === "jobs") {
+        return { select: () => ({ eq: () => Promise.resolve({ data: [jobRow], error: null }) }) };
+      }
+      if (table === "calendar_inbound_marks") {
+        return {
+          select: () => {
+            const filters: Record<string, string> = {};
+            const builder: any = {
+              eq(col: string, val: string) {
+                filters[col] = val;
+                return builder;
+              },
+              maybeSingle: () => {
+                selectCalls++;
+                const key = `${filters.calendar_id}|${filters.event_id}|${filters.event_updated}`;
+                // This SELECT genuinely sees nothing yet — but a
+                // concurrent writer (an overlapping channel's notification,
+                // or the reconciliation fallback poll) inserts its own
+                // mark for this EXACT tuple in the window between this
+                // SELECT and this iteration's own INSERT below. Simulated
+                // here by mutating `marks` right after the SELECT resolves
+                // "not found", so this iteration's later insert is the one
+                // that discovers the race.
+                marks.add(key);
+                return Promise.resolve({ data: null, error: null });
+              },
+            };
+            return builder;
+          },
+          insert(row: Record<string, unknown>) {
+            const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
+            if (marks.has(key)) {
+              return Promise.resolve({ error: { code: "23505", message: "duplicate key value violates unique constraint" } });
+            }
+            marks.add(key);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      if (table === "sync_log") {
+        return {
+          insert(row: Record<string, unknown>) {
+            syncLogInserts.push(row);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+
+  const deps = makeDeps({
+    supabase,
+    getCalendarEvent: () =>
+      Promise.resolve({
+        status: 200,
+        event: managedEvent({ start: { date: "2026-09-10" }, end: { date: "2026-09-12" } }),
+      }),
+  });
+
+  const summary = await reconcileCalendar(deps, "cal-main");
+
+  assertEquals(selectCalls, 1);
+  // This iteration's OWN RPC call still ran and succeeded (the race is at
+  // the bookkeeping-insert layer, not the RPC layer) — its outcome stands.
+  assertEquals(summary.applied, 1);
+  assertEquals(summary.errored, 0); // the 23505 must not surface as an error
+  assertEquals(syncLogInserts.length, 0); // swallowed silently, never logged
 });
 
 // ── Finding 3 — per-calendar isolation in BOTH maintenance loops ─────────
@@ -1095,6 +1213,9 @@ Deno.test("finding 3: runMaintenance isolates a reconcileCalendar throw — othe
       }
       if (table === "calendar_inbound_marks") {
         return {
+          select: () => ({
+            eq: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
+          }),
           insert: () => Promise.resolve({ error: null }),
           delete(_opts?: { count: string }) {
             return {
