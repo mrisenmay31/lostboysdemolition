@@ -97,6 +97,7 @@ function createFakeSupabase(config: FakeConfig = {}) {
     channelInserts: [] as Array<Record<string, unknown>>,
     markInserts: [] as Array<Record<string, unknown>>,
     marksDelete: [] as Array<{ col: string; val: string }>,
+    markDeletesByKey: [] as string[],
     jobAlertInserts: [] as Array<Record<string, unknown>>,
     syncLogInserts: [] as Array<Record<string, unknown>>,
   };
@@ -168,13 +169,32 @@ function createFakeSupabase(config: FakeConfig = {}) {
             markConflictKeys.add(key);
             return Promise.resolve({ error: null });
           },
-          delete(_opts: { count: string }) {
-            return {
+          // Two real supabase-js usages of .delete() against this table:
+          // (a) prune (runMaintenance): .delete({count:'exact'}).lt(col,val)
+          //     — .lt() itself returns a real Promise, no further chaining.
+          // (b) compensation (deleteMark, finding 1): .delete().eq(a).eq(b)
+          //     .eq(c) — each .eq() accumulates a filter and returns the
+          //     thenable `builder` itself; `await` on the final .eq() call
+          //     invokes builder.then() via the thenable protocol.
+          delete(_opts?: { count: string }) {
+            const filters: Record<string, string> = {};
+            const builder: any = {
               lt(col: string, val: string) {
                 calls.marksDelete.push({ col, val });
                 return Promise.resolve({ error: null, count: config.marksDeleteCount ?? 0 });
               },
+              eq(col: string, val: string) {
+                filters[col] = val;
+                return builder;
+              },
+              then(resolve: (v: { error: null }) => void) {
+                const key = `${filters.calendar_id}|${filters.event_id}|${filters.event_updated}`;
+                calls.markDeletesByKey.push(key);
+                markConflictKeys.delete(key); // un-claim -> re-claimable on a later pass
+                resolve({ error: null });
+              },
             };
+            return builder;
           },
         };
       }
@@ -218,6 +238,46 @@ Deno.test("classifyManagedEvent: wrong managedBy value -> unmanaged", () => {
 Deno.test("classifyManagedEvent: status cancelled -> deleted", () => {
   const event = managedEvent({ status: "cancelled" });
   assertEquals(classifyManagedEvent(event, job), "deleted");
+});
+
+// Ruled change (review round 1, finding 8): deletion is checked BEFORE the
+// managedBy check. Every event we fetch is ours by construction (fetched by
+// a stored gcal_*_event_id), and Google may strip extendedProperties from a
+// cancelled resource — so a cancelled event with NO extendedProperties must
+// still classify "deleted", not "unmanaged".
+Deno.test("classifyManagedEvent: cancelled event with NO extendedProperties still classifies deleted", () => {
+  const event = managedEvent({ status: "cancelled", extendedProperties: undefined });
+  assertEquals(classifyManagedEvent(event, job), "deleted");
+});
+
+// Finding 2: a missing/non-numeric scheduleRevision must fail CLOSED to
+// revision_anomaly, not fall through NaN's vacuously-false comparisons into
+// "apply". Number(undefined) is NaN; NaN < x and NaN > x are both false.
+Deno.test("classifyManagedEvent: missing scheduleRevision fails closed to revision_anomaly", () => {
+  const event = managedEvent({
+    start: { date: "2026-09-05" },
+    end: { date: "2026-09-06" },
+    extendedProperties: { private: { managedBy: "lostboys-estimator" } }, // no scheduleRevision at all
+  });
+  assertEquals(classifyManagedEvent(event, job), "revision_anomaly");
+});
+
+Deno.test("classifyManagedEvent: non-numeric scheduleRevision fails closed to revision_anomaly", () => {
+  const event = managedEvent({
+    start: { date: "2026-09-05" },
+    end: { date: "2026-09-06" },
+    extendedProperties: { private: { managedBy: "lostboys-estimator", scheduleRevision: "not-a-number" } },
+  });
+  assertEquals(classifyManagedEvent(event, job), "revision_anomaly");
+});
+
+// Promoted minor 7: an all-day event missing end.date (start.date present)
+// must ALSO be a non-all-day-class skip — not just missing start.date —
+// so that "apply" is only ever returned when reconcileCalendar's unguarded
+// `event.end.date` read downstream is guaranteed safe.
+Deno.test("classifyManagedEvent: missing end.date (start.date present) is also a revision_anomaly-class skip", () => {
+  const event = managedEvent({ start: { date: "2026-09-05" }, end: undefined });
+  assertEquals(classifyManagedEvent(event, job), "revision_anomaly");
 });
 
 Deno.test("classifyManagedEvent: matching dates -> dates_unchanged", () => {
@@ -872,4 +932,229 @@ Deno.test("case 14: runMaintenance prunes calendar_inbound_marks older than 30 d
   assertEquals(supabase._calls.marksDelete[0].col, "processed_at");
   const expectedCutoff = new Date(FIXED_NOW.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
   assertEquals(supabase._calls.marksDelete[0].val, expectedCutoff);
+});
+
+// ═══════════════════════════════════════════════════════════════════════
+// Fix round 1 — adversarial review findings
+// ═══════════════════════════════════════════════════════════════════════
+
+// ── Finding 1 — an RPC throw must delete the claimed mark, not strand it ──
+
+Deno.test("finding 1: RPC throw deletes the compensating mark so a second reconcile pass re-attempts", async () => {
+  const jobRow = makeJobRow({ calendar_sync_revision: 2 });
+  const marks = new Set<string>();
+  const syncLogInserts: Record<string, unknown>[] = [];
+  let rpcCalls = 0;
+
+  const supabase = {
+    rpc(fn: string, args: Record<string, unknown>) {
+      rpcCalls++;
+      if (fn === "apply_calendar_date_change" && rpcCalls === 1) {
+        // First attempt fails — simulates a transient RPC-layer error.
+        return Promise.resolve({ data: null, error: { message: "simulated RPC failure" } });
+      }
+      return Promise.resolve({ data: { applied: true }, error: null });
+    },
+    from(table: string) {
+      if (table === "jobs") {
+        return { select: () => ({ eq: () => Promise.resolve({ data: [jobRow], error: null }) }) };
+      }
+      if (table === "calendar_inbound_marks") {
+        return {
+          insert(row: Record<string, unknown>) {
+            const key = `${row.calendar_id}|${row.event_id}|${row.event_updated}`;
+            if (marks.has(key)) return Promise.resolve({ error: { code: "23505", message: "dup" } });
+            marks.add(key);
+            return Promise.resolve({ error: null });
+          },
+          delete() {
+            const filters: Record<string, string> = {};
+            const builder: any = {
+              eq(col: string, val: string) {
+                filters[col] = val;
+                return builder;
+              },
+              then(resolve: (v: { error: null }) => void) {
+                const key = `${filters.calendar_id}|${filters.event_id}|${filters.event_updated}`;
+                marks.delete(key);
+                resolve({ error: null });
+              },
+            };
+            return builder;
+          },
+        };
+      }
+      if (table === "sync_log") {
+        return {
+          insert(row: Record<string, unknown>) {
+            syncLogInserts.push(row);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+
+  const deps = makeDeps({
+    supabase,
+    getCalendarEvent: () =>
+      Promise.resolve({
+        status: 200,
+        event: managedEvent({ start: { date: "2026-09-10" }, end: { date: "2026-09-12" } }),
+      }),
+  });
+
+  const first = await reconcileCalendar(deps, "cal-main");
+  assertEquals(first.errored, 1);
+  assertEquals(first.applied, 0);
+  assertEquals(marks.size, 0); // the compensating delete removed the claimed mark
+  assert(syncLogInserts.some((r) => r.action_taken === "error"));
+
+  const second = await reconcileCalendar(deps, "cal-main");
+  assertEquals(second.applied, 1); // re-claimed and re-attempted successfully
+  assertEquals(rpcCalls, 2);
+});
+
+// ── Finding 3 — per-calendar isolation in BOTH maintenance loops ─────────
+
+Deno.test("finding 3: maintainChannels isolates a per-calendar throw — later calendars still get renewed", async () => {
+  const registeredCalendarIds: string[] = [];
+  const syncLogInserts: Record<string, unknown>[] = [];
+
+  const supabase = {
+    from(table: string) {
+      if (table === "calendar_watch_channels") {
+        return {
+          select() {
+            return {
+              eq(_col: string, val: string) {
+                if (val === "cal-main") {
+                  // Simulates an unexpected DB error reading the active
+                  // channel for the main calendar specifically.
+                  return { eq: () => ({ maybeSingle: () => Promise.reject(new Error("simulated DB error")) }) };
+                }
+                return { eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) };
+              },
+            };
+          },
+          update() {
+            return { eq: () => Promise.resolve({ error: null }) };
+          },
+          insert(row: Record<string, unknown>) {
+            registeredCalendarIds.push(row.calendar_id as string);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      if (table === "sync_log") {
+        return {
+          insert(row: Record<string, unknown>) {
+            syncLogInserts.push(row);
+            return Promise.resolve({ error: null });
+          },
+        };
+      }
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+
+  const deps = makeDeps({
+    supabase,
+    registerWatch: () =>
+      Promise.resolve({ ok: true, httpStatus: 200, body: { resourceId: "r", expiration: String(FIXED_NOW.getTime() + 604800000) } }),
+    stopWatch: () => Promise.resolve({ ok: true }),
+  });
+
+  const summary = await maintainChannels(deps);
+
+  assertEquals(summary.failed, ["main"]);
+  assertEquals(summary.renewed, ["crew1", "crew2", "crew3", "crew4"]);
+  assertEquals(registeredCalendarIds, ["cal-crew1", "cal-crew2", "cal-crew3", "cal-crew4"]);
+  assert(syncLogInserts.some((r) => r.trigger_event === "calendar_watch_renewal" && r.status === "error"));
+});
+
+Deno.test("finding 3: runMaintenance isolates a reconcileCalendar throw — other calendars and the prune step still run", async () => {
+  const mainJob = makeJobRow({ job_number: "JOB-9001", gcal_main_event_id: "evt-main", gcal_crew_event_id: null, crew: null });
+  const crewJob = makeJobRow({ job_number: "JOB-9002", gcal_main_event_id: null, gcal_crew_event_id: "evt-crew", crew: "Crew 1" });
+  const marksDeleteCalls: Array<{ col: string; val: string }> = [];
+  let accessTokenCalls = 0;
+
+  const supabase = {
+    rpc: () => Promise.resolve({ data: { applied: true }, error: null }),
+    from(table: string) {
+      if (table === "calendar_watch_channels") {
+        return {
+          select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }),
+          update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+          insert: () => Promise.resolve({ error: null }),
+        };
+      }
+      if (table === "jobs") {
+        return { select: () => ({ eq: () => Promise.resolve({ data: [mainJob, crewJob], error: null }) }) };
+      }
+      if (table === "calendar_inbound_marks") {
+        return {
+          insert: () => Promise.resolve({ error: null }),
+          delete(_opts?: { count: string }) {
+            return {
+              lt(col: string, val: string) {
+                marksDeleteCalls.push({ col, val });
+                return Promise.resolve({ error: null, count: 2 });
+              },
+            };
+          },
+        };
+      }
+      if (table === "job_alerts") return { insert: () => Promise.resolve({ error: null }) };
+      if (table === "sync_log") return { insert: () => Promise.resolve({ error: null }) };
+      throw new Error(`unexpected table ${table}`);
+    },
+  };
+
+  const deps = makeDeps({
+    supabase,
+    now: () => FIXED_NOW,
+    registerWatch: () =>
+      Promise.resolve({ ok: true, httpStatus: 200, body: { resourceId: "r", expiration: String(FIXED_NOW.getTime() + 604800000) } }),
+    stopWatch: () => Promise.resolve({ ok: true }),
+    // Throws only on the FIRST call — "main" is processed first in
+    // CALENDAR_KEYS order, so this simulates reconcileCalendar's own
+    // getAccessToken() call throwing (a failure OUTSIDE reconcileCalendar's
+    // per-event try/catch) for exactly one calendar.
+    getAccessToken: () => {
+      accessTokenCalls++;
+      if (accessTokenCalls === 1) return Promise.reject(new Error("simulated token failure"));
+      return Promise.resolve("test-access-token");
+    },
+    getCalendarEvent: () => Promise.resolve({ status: 200, event: managedEvent({ extendedProperties: undefined }) }), // unmanaged -> quick skip
+  });
+
+  const summary = await runMaintenance(deps);
+
+  assert(accessTokenCalls >= 2); // main threw; crew1 (with a candidate job) still attempted
+  assertEquals(summary.marksPruned, 2);
+  assertEquals(marksDeleteCalls.length, 1); // the prune step still ran despite the main-calendar throw
+});
+
+// ── Promoted minor 7, end to end — reconcileCalendar never throws on a
+//    managed event missing end.date (guard lives in classifyManagedEvent,
+//    proven here at the reconcileCalendar level since that's where the
+//    unguarded read used to live). ───────────────────────────────────────
+
+Deno.test("promoted minor 7: reconcileCalendar does not throw on a managed event with start.date but no end.date", async () => {
+  const jobRow = makeJobRow({ calendar_sync_revision: 2 });
+  const supabase = createFakeSupabase({ jobs: [jobRow] });
+  const deps = makeDeps({
+    supabase,
+    getCalendarEvent: () =>
+      Promise.resolve({ status: 200, event: managedEvent({ start: { date: "2026-09-05" }, end: undefined }) }),
+  });
+
+  const summary = await reconcileCalendar(deps, "cal-main");
+
+  assertEquals(summary.errored, 0);
+  assertEquals(summary.applied, 0);
+  assertEquals(summary.skipped, 1);
+  assertEquals(supabase._calls.rpc.length, 0);
 });

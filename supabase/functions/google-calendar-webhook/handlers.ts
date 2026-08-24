@@ -219,34 +219,61 @@ export type ManagedEventOutcome =
  *  end date is end.date minus one day (inverse of _shared/google.ts's
  *  addOneDay).
  *
- *  Order: unmanaged -> deleted -> [non-all-day skip] -> dates_unchanged ->
- *  stale_revision -> revision_anomaly -> apply. Non-all-day events (no
- *  `start.date`) are a "revision_anomaly"-class skip with their own log
- *  line — a human converted an all-day event to timed, dates can't be read
- *  reliably, and this is surfaced, never guessed. */
+ *  Order: deleted -> unmanaged -> [non-all-day skip] -> dates_unchanged ->
+ *  stale_revision -> revision_anomaly -> apply.
+ *
+ *  Deletion is checked BEFORE the managedBy check (review round 1, ruled
+ *  change on finding 8): every event this module ever classifies is ours by
+ *  construction — reconcileCalendar only fetches events by a gcal_*_event_id
+ *  stored on our own job rows — and Google may strip extendedProperties from
+ *  a cancelled resource. Checking deletion first is strictly safer with no
+ *  false-positive risk.
+ *
+ *  Non-all-day events (missing EITHER `start.date` or `end.date`) are a
+ *  "revision_anomaly"-class skip with their own log line — a human converted
+ *  an all-day event to timed, dates can't be read reliably, and this is
+ *  surfaced, never guessed. Requiring both (not just start.date, review
+ *  round 1 promoted-minor 7) means an `apply` outcome always carries a real
+ *  `end.date` — reconcileCalendar's apply branch reads it unguarded and
+ *  relies on that guarantee.
+ *
+ *  A missing/non-numeric `scheduleRevision` fails CLOSED to
+ *  "revision_anomaly" (review round 1, finding 2) rather than falling
+ *  through `NaN`'s vacuously-false `<`/`>` comparisons into "apply" —
+ *  `Number(undefined)` is `NaN`, and `NaN < x` / `NaN > x` are both `false`,
+ *  so without this guard a garbage/missing revision would silently reach
+ *  "apply" and hand the RPC `p_expected_revision: null`. */
 export function classifyManagedEvent(
   event: any,
   job: { start_date: string; end_date: string; calendar_sync_revision: number },
 ): ManagedEventOutcome {
+  if (event?.status === "cancelled") return "deleted";
+
   const managedBy = event?.extendedProperties?.private?.managedBy;
   if (managedBy !== MANAGED_BY) return "unmanaged";
 
-  if (event.status === "cancelled") return "deleted";
-
-  if (!event.start?.date) {
+  if (!event.start?.date || !event.end?.date) {
     console.error(
-      `[google-calendar-webhook] managed event ${event?.id ?? "?"} is no longer all-day (no start.date) — ` +
-        "dates not comparable, skipping rather than guessing",
+      `[google-calendar-webhook] managed event ${event?.id ?? "?"} is no longer all-day (missing start.date or ` +
+        "end.date) — dates not comparable, skipping rather than guessing",
     );
     return "revision_anomaly";
   }
 
   const eventStart = event.start.date as string;
-  const eventEnd = event.end?.date ? subtractOneDay(event.end.date as string) : eventStart;
+  const eventEnd = subtractOneDay(event.end.date as string);
 
   if (eventStart === job.start_date && eventEnd === job.end_date) return "dates_unchanged";
 
   const eventRevision = Number(event.extendedProperties?.private?.scheduleRevision);
+  if (!Number.isFinite(eventRevision)) {
+    console.error(
+      `[google-calendar-webhook] managed event ${event?.id ?? "?"} carries a missing/non-numeric ` +
+        `scheduleRevision (${JSON.stringify(event.extendedProperties?.private?.scheduleRevision)}) — ` +
+        "failing closed rather than risking a stale/garbage write",
+    );
+    return "revision_anomaly";
+  }
   if (eventRevision < job.calendar_sync_revision) return "stale_revision";
   if (eventRevision > job.calendar_sync_revision) {
     console.error(
@@ -330,6 +357,26 @@ async function claimMark(
   throw new Error(`calendar_inbound_marks insert failed: ${error.message ?? String(error)}`);
 }
 
+/** Compensation for a claimed mark whose RPC then threw (review round 1,
+ *  finding 1). Without this, a claimed-but-failed mark strands the edit
+ *  permanently: every later pass (notification or the reconciliation
+ *  fallback poll) hits the same 23505 on `(calendarId, eventId,
+ *  eventUpdated)` and silently skips, forever — since `event_updated` never
+ *  changes until a human edits the event again. Deleting the mark on a
+ *  throw makes the tuple re-claimable on the very next pass. Failing to
+ *  delete it is logged, not re-thrown — the caller's own catch is already
+ *  writing a sync_log error row for the original failure, and a
+ *  compensation-delete failure must not mask or replace that. */
+async function deleteMark(deps: InboundDeps, calendarId: string, eventId: string, eventUpdated: string): Promise<void> {
+  const { error } = await deps.supabase
+    .from("calendar_inbound_marks")
+    .delete()
+    .eq("calendar_id", calendarId)
+    .eq("event_id", eventId)
+    .eq("event_updated", eventUpdated);
+  if (error) throw new Error(`calendar_inbound_marks delete failed: ${error.message ?? String(error)}`);
+}
+
 export interface ReconcileSummary {
   applied: number;
   deleted: number;
@@ -354,6 +401,12 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
   const source: "main" | "crew" = calendarKey === "main" ? "main" : "crew";
 
   for (const { job, eventId } of candidates) {
+    // Tracked outside the try so the catch below can compensate a claimed
+    // mark whose RPC then threw (finding 1) — undefined/false until the
+    // claim actually succeeds, so the catch only ever deletes a mark this
+    // exact iteration inserted.
+    let claimedEventUpdated: string | null = null;
+
     try {
       const fetched = await deps.getCalendarEvent(calendarId, eventId, accessToken);
 
@@ -369,6 +422,7 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
           summary.skipped++;
           continue;
         }
+        claimedEventUpdated = eventUpdated;
         await callRpc(deps, "open_calendar_deletion_exception", {
           p_job_number: job.job_number,
           p_external_event_id: eventId,
@@ -387,8 +441,12 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
         summary.skipped++;
         continue;
       }
+      claimedEventUpdated = eventUpdated;
 
       if (outcome === "apply") {
+        // classifyManagedEvent guarantees both start.date and end.date are
+        // present whenever it returns "apply" (review round 1, promoted
+        // minor 7) — these reads cannot throw.
         const startDate = event.start.date as string;
         const endDate = subtractOneDay(event.end.date as string);
         const expectedRevision = Number(event.extendedProperties.private.scheduleRevision);
@@ -418,6 +476,23 @@ export async function reconcileCalendar(deps: InboundDeps, calendarId: string): 
       }
     } catch (err) {
       summary.errored++;
+
+      // Finding 1: a mark claimed by THIS iteration but whose RPC then
+      // threw must not strand the edit — delete it so the next pass
+      // (another notification, or the reconciliation fallback poll)
+      // re-claims and re-attempts, rather than hitting 23505 forever.
+      if (claimedEventUpdated) {
+        try {
+          await deleteMark(deps, calendarId, eventId, claimedEventUpdated);
+        } catch (delErr) {
+          console.error(
+            `[google-calendar-webhook] failed to delete compensating mark for event ${eventId} ` +
+              `on calendar ${calendarId}:`,
+            (delErr as any)?.message ?? String(delErr),
+          );
+        }
+      }
+
       await writeSyncLog(deps.supabase, {
         direction: "google_to_supabase",
         trigger_event: "calendar_reconcile",
@@ -597,28 +672,81 @@ export async function maintainChannels(deps: InboundDeps): Promise<MaintainSumma
     const calendarId = deps.calendarIds[key];
     if (!calendarId) continue; // unconfigured calendar — nothing to watch
 
-    const active = await fetchActiveChannel(deps, calendarId);
-    const needsRenewal =
-      !active || new Date(active.expires_at).getTime() - now.getTime() < RENEWAL_WINDOW_MS;
-    if (!needsRenewal) continue;
-
-    const channelId = generateChannelId(key);
-    const token = crypto.randomUUID();
-
-    let attempt: { ok: boolean; httpStatus: number; body: any };
     try {
-      attempt = await deps.registerWatch(calendarId, channelId, deps.webhookAddress, token, CHANNEL_TTL_SECONDS);
-    } catch (err) {
-      attempt = { ok: false, httpStatus: 0, body: { error: (err as any)?.message ?? String(err) } };
-    }
+      const active = await fetchActiveChannel(deps, calendarId);
+      const needsRenewal =
+        !active || new Date(active.expires_at).getTime() - now.getTime() < RENEWAL_WINDOW_MS;
+      if (!needsRenewal) continue;
 
-    if (!attempt.ok) {
-      const message =
-        `watch registration failed for ${key} (${calendarId}): HTTP ${attempt.httpStatus} ${JSON.stringify(attempt.body)}`;
-      if (active) {
-        await updateChannel(deps, active.id, { status: "renewal_failed", last_error: message });
+      const channelId = generateChannelId(key);
+      const token = crypto.randomUUID();
+
+      let attempt: { ok: boolean; httpStatus: number; body: any };
+      try {
+        attempt = await deps.registerWatch(calendarId, channelId, deps.webhookAddress, token, CHANNEL_TTL_SECONDS);
+      } catch (err) {
+        attempt = { ok: false, httpStatus: 0, body: { error: (err as any)?.message ?? String(err) } };
       }
-      await alertScheduledJobsForCalendar(deps, calendarId, message);
+
+      if (!attempt.ok) {
+        const message =
+          `watch registration failed for ${key} (${calendarId}): HTTP ${attempt.httpStatus} ${JSON.stringify(attempt.body)}`;
+        if (active) {
+          await updateChannel(deps, active.id, { status: "renewal_failed", last_error: message });
+        }
+        await alertScheduledJobsForCalendar(deps, calendarId, message);
+        await writeSyncLog(deps.supabase, {
+          direction: "google_to_supabase",
+          trigger_event: "calendar_watch_renewal",
+          action_taken: "error",
+          status: "error",
+          error_message: message,
+          payload_in: { calendarKey: key, calendarId },
+        });
+        summary.failed.push(key);
+        continue;
+      }
+
+      const tokenHash = await sha256Hex(token);
+      const resourceId = attempt.body?.resourceId ?? "";
+      const expiration = attempt.body?.expiration
+        ? new Date(Number(attempt.body.expiration)).toISOString()
+        : new Date(now.getTime() + CHANNEL_TTL_SECONDS * 1000).toISOString();
+
+      if (active) {
+        await updateChannel(deps, active.id, { status: "superseded" });
+      }
+      await insertChannel(deps, {
+        channel_id: channelId,
+        resource_id: resourceId,
+        calendar_id: calendarId,
+        token_hash: tokenHash,
+        expires_at: expiration,
+        status: "active",
+      });
+
+      if (active) {
+        try {
+          await deps.stopWatch(active.channel_id, active.resource_id);
+        } catch (err) {
+          console.error(
+            `[google-calendar-webhook] stopWatch failed for old channel ${active.channel_id}:`,
+            (err as any)?.message ?? String(err),
+          );
+        }
+      }
+
+      summary.renewed.push(key);
+    } catch (err) {
+      // Finding 3: an unexpected throw from fetchActiveChannel/
+      // updateChannel/insertChannel/alertScheduledJobsForCalendar must not
+      // abort the whole loop — calendars later in CALENDAR_KEYS still get a
+      // renewal attempt. The designed "registration returned ok:false"
+      // failure path above handles itself (its own sync_log row + continue)
+      // and never reaches this catch; this is for genuine bugs/DB errors.
+      const message =
+        `unexpected error maintaining watch for ${key} (${calendarId}): ${(err as any)?.message ?? String(err)}`;
+      console.error(`[google-calendar-webhook] ${message}`);
       await writeSyncLog(deps.supabase, {
         direction: "google_to_supabase",
         trigger_event: "calendar_watch_renewal",
@@ -628,39 +756,7 @@ export async function maintainChannels(deps: InboundDeps): Promise<MaintainSumma
         payload_in: { calendarKey: key, calendarId },
       });
       summary.failed.push(key);
-      continue;
     }
-
-    const tokenHash = await sha256Hex(token);
-    const resourceId = attempt.body?.resourceId ?? "";
-    const expiration = attempt.body?.expiration
-      ? new Date(Number(attempt.body.expiration)).toISOString()
-      : new Date(now.getTime() + CHANNEL_TTL_SECONDS * 1000).toISOString();
-
-    if (active) {
-      await updateChannel(deps, active.id, { status: "superseded" });
-    }
-    await insertChannel(deps, {
-      channel_id: channelId,
-      resource_id: resourceId,
-      calendar_id: calendarId,
-      token_hash: tokenHash,
-      expires_at: expiration,
-      status: "active",
-    });
-
-    if (active) {
-      try {
-        await deps.stopWatch(active.channel_id, active.resource_id);
-      } catch (err) {
-        console.error(
-          `[google-calendar-webhook] stopWatch failed for old channel ${active.channel_id}:`,
-          (err as any)?.message ?? String(err),
-        );
-      }
-    }
-
-    summary.renewed.push(key);
   }
 
   return summary;
@@ -689,11 +785,29 @@ export async function runMaintenance(deps: InboundDeps): Promise<MaintenanceSumm
   for (const key of CALENDAR_KEYS) {
     const calendarId = deps.calendarIds[key];
     if (!calendarId) continue;
-    const result = await reconcileCalendar(deps, calendarId);
-    totals.applied += result.applied;
-    totals.deleted += result.deleted;
-    totals.skipped += result.skipped;
-    totals.errored += result.errored;
+    try {
+      const result = await reconcileCalendar(deps, calendarId);
+      totals.applied += result.applied;
+      totals.deleted += result.deleted;
+      totals.skipped += result.skipped;
+      totals.errored += result.errored;
+    } catch (err) {
+      // Finding 3: a throw from reconcileCalendar ITSELF — e.g. its jobs
+      // lookup or its own deps.getAccessToken() call, both of which sit
+      // outside reconcileCalendar's per-event try/catch — must not skip the
+      // remaining calendars or (see below) the prune step.
+      const message = `reconciliation failed for ${key} (${calendarId}): ${(err as any)?.message ?? String(err)}`;
+      console.error(`[google-calendar-webhook] ${message}`);
+      await writeSyncLog(deps.supabase, {
+        direction: "google_to_supabase",
+        trigger_event: "calendar_reconcile",
+        action_taken: "error",
+        status: "error",
+        error_message: message,
+        payload_in: { calendarKey: key, calendarId },
+      });
+      totals.errored++;
+    }
   }
 
   const cutoff = new Date(deps.now().getTime() - MARK_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
