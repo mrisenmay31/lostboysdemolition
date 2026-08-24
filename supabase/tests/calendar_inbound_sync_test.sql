@@ -73,16 +73,19 @@
 --   20  Section D -- open_calendar_deletion_exception behavior: scheduled
 --                    job opens (12), second call already-open (4), M7
 --                    not_scheduled (4)
---   47  Section E -- resolve_schedule_exception behavior: reschedule with
+--   60  Section E -- resolve_schedule_exception behavior: reschedule with
 --                    dates (17), reschedule missing dates raises text5 (1),
 --                    reschedule endDate<startDate raises text6 (1), dismiss
---                    (9), postponed (9), closed_lost (4), non-open raises
---                    text2 (1), blank actor raises text7 (1), invalid
---                    resolution raises text3 (1), blank reason raises
---                    text4 (1), exception-not-found raises text1 (1),
---                    job-no-longer-scheduled raises text8 (1)
+--                    on a scheduled job (9), postponed (9), closed_lost (4),
+--                    non-open raises text2 (1), blank actor raises text7
+--                    (1), invalid resolution raises text3 (1), blank reason
+--                    raises text4 (1), exception-not-found raises text1 (1),
+--                    reschedule on a non-scheduled job raises text8 (1),
+--                    dismiss on that SAME non-scheduled job
+--                    acknowledge-and-closes instead of raising (13 --
+--                    fix round 1, controller ruling, finding I1, 2026-08-24)
 -- ---
---  134  total -- 24+18+25+20+47 = 134
+--  147  total -- 24+18+25+20+60 = 147
 --
 -- 20260824152000_schedule_calendar_maintenance.sql's cron.job row is NOT
 -- separately asserted here (unlike integration_dispatcher_rpcs_test.sql's
@@ -98,7 +101,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_temp;
-select plan(134);
+select plan(147);
 
 -- ============================================================
 -- Section A (1-24): schema existence + shape.
@@ -830,6 +833,12 @@ insert into public.job_schedule_exceptions (
   jsonb_build_object('crew', 'Crew 1', 'start_date', '2026-11-01', 'end_date', '2026-11-03',
     'gcal_main_event_id', 'gcalMain930040', 'gcal_crew_event_id', null)
 );
+insert into public.job_alerts (
+  job_number, fingerprint, severity, title, message, action_path
+) values (
+  'JOB-930040', 'calendar_deleted:gcalMain930040', 'at_risk',
+  'Calendar event deleted: JOB-930040', 'Fixture alert for the status-diverged scenario', '/jobs/exceptions'
+);
 update public.jobs set status_v2 = 'in_progress'::public.job_lifecycle where job_number = 'JOB-930040';
 
 select throws_like(
@@ -841,6 +850,54 @@ select throws_like(
   $sql$,
   'resolve_schedule_exception: job JOB-930040 is no longer scheduled (status in_progress)',
   'resolve_schedule_exception: reschedule on a job that is no longer scheduled raises text 8 verbatim'
+);
+
+-- Fix round 1 (controller ruling, finding I1): dismiss on that SAME
+-- still-open JOB-930040 exception (the throws_like above raised and left
+-- no trace, so the fixture is untouched) must acknowledge-and-close
+-- instead of raising -- no jobs write, no outbox row, exception+alert
+-- still get closed out.
+create temporary table t_resolve5 as
+select public.resolve_schedule_exception(
+  (select id from public.job_schedule_exceptions where job_number = 'JOB-930040'),
+  'dismiss', 'work already started, closing out this exception', null::date, null::date,
+  null::uuid, 'Test Resolver Five'
+) as result;
+
+select is((select result->>'resolution' from t_resolve5), 'dismiss', 'resolve 5 (dismiss, acknowledge-close): result resolution is dismiss');
+select is((select result->>'note' from t_resolve5), 'acknowledged_no_side_effects', 'resolve 5 (dismiss, acknowledge-close): result carries the additive note key');
+select is((select status_v2::text from public.jobs where job_number = 'JOB-930040'), 'in_progress', 'resolve 5 (dismiss, acknowledge-close): job status_v2 UNTOUCHED');
+select is((select start_date from public.jobs where job_number = 'JOB-930040'), '2026-11-01'::date, 'resolve 5 (dismiss, acknowledge-close): job start_date UNTOUCHED');
+select is((select end_date from public.jobs where job_number = 'JOB-930040'), '2026-11-03'::date, 'resolve 5 (dismiss, acknowledge-close): job end_date UNTOUCHED');
+select is((select calendar_sync_revision from public.jobs where job_number = 'JOB-930040'), 1::bigint, 'resolve 5 (dismiss, acknowledge-close): job calendar_sync_revision UNTOUCHED -- no bump');
+select is((select gcal_main_event_id from public.jobs where job_number = 'JOB-930040'), 'gcalMain930040', 'resolve 5 (dismiss, acknowledge-close): gcal_main_event_id UNTOUCHED -- not cleared');
+select is(
+  (select count(*) from public.integration_outbox where aggregate_id = 'JOB-930040'),
+  0::bigint,
+  'resolve 5 (dismiss, acknowledge-close): NO outbox row of any kind is created'
+);
+select is(
+  (select status::text from public.job_schedule_exceptions where job_number = 'JOB-930040' and external_event_id = 'gcalMain930040'),
+  'dismissed',
+  'resolve 5 (dismiss, acknowledge-close): exception status is dismissed'
+);
+select ok(
+  (select resolved_at is not null from public.job_schedule_exceptions where job_number = 'JOB-930040' and external_event_id = 'gcalMain930040'),
+  'resolve 5 (dismiss, acknowledge-close): exception resolved_at is set'
+);
+select is(
+  (select resolution_note from public.job_schedule_exceptions where job_number = 'JOB-930040' and external_event_id = 'gcalMain930040'),
+  'work already started, closing out this exception',
+  'resolve 5 (dismiss, acknowledge-close): exception resolution_note matches p_reason'
+);
+select ok(
+  (select resolved_at is not null from public.job_alerts where job_number = 'JOB-930040' and fingerprint = 'calendar_deleted:gcalMain930040'),
+  'resolve 5 (dismiss, acknowledge-close): the paired alert is resolved despite the job having moved on'
+);
+select is(
+  (select count(*) from public.job_events where job_number = 'JOB-930040' and function_name = 'resolve_schedule_exception'),
+  1::bigint,
+  'resolve 5 (dismiss, acknowledge-close): exactly one job_events row logs the acknowledge-close (the earlier raised reschedule attempt left no trace)'
 );
 
 select * from finish();

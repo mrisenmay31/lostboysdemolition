@@ -73,16 +73,42 @@
 --     inbound-driven date change without any dispatcher-side change.
 --
 -- Design decisions:
---   1. resolve_schedule_exception's `reschedule` and `dismiss` resolutions
---      share ONE "job still scheduled" guard (raise text 8), fired after
---      the shared date-shape checks, because both write jobs.start_date/
---      end_date (dismiss writing the job's OWN current values back) and
---      both clear a stale gcal_*_event_id and both re-enqueue
---      `job.scheduled` — the two branches are the same write shape with
---      different date sources, so they share the same precondition. This
---      is an interpretation of the task brief, which states the guard
---      explicitly only for `reschedule`; the report accompanying this
---      migration flags it for confirmation.
+--   1. resolve_schedule_exception's `reschedule` KEEPS a hard "job still
+--      scheduled" guard (raise text 8, byte-pinned, unchanged) — a
+--      reschedule literally cannot proceed without a job to write new
+--      dates onto. `dismiss` does NOT share that guard (⚠️ CONTROLLER
+--      RULING, fix round 1, 2026-08-24 — this migration's first draft had
+--      `reschedule` and `dismiss` sharing one hard-raise guard; adversarial
+--      review finding I1 caught that this left ANY exception on a job that
+--      had moved on to `in_progress`/`completed`/`cancelled` with NO
+--      terminal resolution at all — every one of the four resolutions
+--      would raise, and nothing short of raw SQL could ever close the
+--      exception row or its `at_risk` alert). The corrected split:
+--        - `dismiss` on a job that IS still `scheduled`: unchanged from the
+--          first draft — clear the stale gcal_*_event_id, bump
+--          `calendar_sync_revision`, enqueue a fresh `job.scheduled` so the
+--          dispatcher recreates the managed event.
+--        - `dismiss` on a job that is NOT `scheduled` (found, but any other
+--          status_v2): an ACKNOWLEDGE-AND-CLOSE path. No raise, no write to
+--          `jobs`, no outbox enqueue — the exception's write surface for
+--          this branch is job_schedule_exceptions/job_alerts/job_events
+--          only. This is correct because a job that has moved on no longer
+--          has a "schedule" for the exception to describe a deviation
+--          from; the exception is closed as moot, not resolved into a new
+--          schedule.
+--        - `dismiss` when the job row is not found at all (defensive,
+--          practically unreachable — job_schedule_exceptions.job_number
+--          carries a live FK to jobs, and no code path deletes a jobs row):
+--          still raises text 8, same as `reschedule`, since there is no
+--          job to acknowledge-close against.
+--      The returned JSONB for the acknowledge-close path carries the same
+--      three documented keys (`resolution`, `job_number`, `exception_id`)
+--      plus one additive key, `note: 'acknowledged_no_side_effects'`,
+--      merged in via `jsonb || jsonb` rather than a second `return`
+--      statement — kept OUT of the byte-identity raise-text discipline
+--      above because it is a success payload, not an error, and additive
+--      keys are explicitly permitted (the web lane only reads the
+--      documented three).
 --   2. open_calendar_deletion_exception's alert `message` names which
 --      calendar (main or crew) the deleted event belonged to, derived by
 --      comparing p_external_event_id against the job's own
@@ -311,6 +337,12 @@ declare
   v_new_revision  bigint;
   v_new_status    public.schedule_exception_status;
   v_alert_fingerprint text;
+  -- Fix round 1 (controller ruling, 2026-08-24 — see design decision 1):
+  -- additive success-payload keys beyond the three documented ones
+  -- (resolution/job_number/exception_id), merged into the final return via
+  -- `jsonb || jsonb`. Empty object by default so every OTHER resolution's
+  -- return is byte-identical to before this fix.
+  v_extra         jsonb := '{}'::jsonb;
 begin
   -- ── Required-argument / shape guards, in byte-identity raise-text order
   --    (file header): actor name (7) -> resolution (3) -> reason (4) ->
@@ -350,12 +382,9 @@ begin
 
   v_alert_fingerprint := 'calendar_deleted:' || v_exception.external_event_id;
 
-  if p_resolution in ('reschedule', 'dismiss') then
-    -- Design decision 1 (file header): reschedule and dismiss share this
-    -- guard — both write jobs.start_date/end_date (dismiss writing the
-    -- job's OWN current values back), both clear a stale gcal_*_event_id,
-    -- both re-enqueue job.scheduled, so both need the job to still be
-    -- 'scheduled' for that write to mean anything.
+  if p_resolution = 'reschedule' then
+    -- Hard guard, unchanged (design decision 1): a reschedule literally
+    -- cannot proceed without a job to write new dates onto.
     select * into v_job from public.jobs where job_number = v_exception.job_number for update;
     if not found or v_job.status_v2 is distinct from 'scheduled'::public.job_lifecycle then
       raise exception 'resolve_schedule_exception: job % is no longer scheduled (status %)',
@@ -364,30 +393,16 @@ begin
 
     v_new_revision := v_job.calendar_sync_revision + 1;
 
-    if p_resolution = 'reschedule' then
-      update public.jobs
-         set start_date = p_start_date,
-             end_date = p_end_date,
-             calendar_sync_revision = v_new_revision,
-             gcal_main_event_id = case when v_job.gcal_main_event_id = v_exception.external_event_id then null else v_job.gcal_main_event_id end,
-             gcal_crew_event_id = case when v_job.gcal_crew_event_id = v_exception.external_event_id then null else v_job.gcal_crew_event_id end,
-             updated_at = now()
-       where job_number = v_job.job_number
-       returning * into v_job;
-      v_new_status := 'rescheduled'::public.schedule_exception_status;
-    else
-      -- dismiss: the job's CURRENT dates, unchanged — any p_start_date/
-      -- p_end_date supplied by the caller are ignored. The dispatcher
-      -- recreates the managed event at the SAME dates.
-      update public.jobs
-         set calendar_sync_revision = v_new_revision,
-             gcal_main_event_id = case when v_job.gcal_main_event_id = v_exception.external_event_id then null else v_job.gcal_main_event_id end,
-             gcal_crew_event_id = case when v_job.gcal_crew_event_id = v_exception.external_event_id then null else v_job.gcal_crew_event_id end,
-             updated_at = now()
-       where job_number = v_job.job_number
-       returning * into v_job;
-      v_new_status := 'dismissed'::public.schedule_exception_status;
-    end if;
+    update public.jobs
+       set start_date = p_start_date,
+           end_date = p_end_date,
+           calendar_sync_revision = v_new_revision,
+           gcal_main_event_id = case when v_job.gcal_main_event_id = v_exception.external_event_id then null else v_job.gcal_main_event_id end,
+           gcal_crew_event_id = case when v_job.gcal_crew_event_id = v_exception.external_event_id then null else v_job.gcal_crew_event_id end,
+           updated_at = now()
+     where job_number = v_job.job_number
+     returning * into v_job;
+    v_new_status := 'rescheduled'::public.schedule_exception_status;
 
     insert into public.job_events (
       job_number, stage_from, stage_to, function_name, trigger_source,
@@ -414,6 +429,79 @@ begin
         'calendar_sync_revision', v_new_revision)
     )
     on conflict (idempotency_key) do nothing;
+
+  elsif p_resolution = 'dismiss' then
+    select * into v_job from public.jobs where job_number = v_exception.job_number for update;
+    if not found then
+      -- Defensive, practically unreachable (see design decision 1) — no
+      -- job row to acknowledge-close against, so this still hard-raises.
+      raise exception 'resolve_schedule_exception: job % is no longer scheduled (status %)',
+        v_exception.job_number, 'unknown';
+    end if;
+
+    if v_job.status_v2 is distinct from 'scheduled'::public.job_lifecycle then
+      -- ⚠️ CONTROLLER RULING (fix round 1, 2026-08-24, finding I1) —
+      -- acknowledge-and-close: the job moved on (in_progress/completed/
+      -- cancelled/etc.) while this exception sat open, so there is no
+      -- longer a "schedule" for the exception to describe a deviation
+      -- from. NO raise, NO write to jobs, NO outbox enqueue — only the
+      -- exception/alert/audit trail below (shared with every other
+      -- resolution) plus this one dedicated job_events row.
+      v_new_status := 'dismissed'::public.schedule_exception_status;
+      v_extra := jsonb_build_object('note', 'acknowledged_no_side_effects');
+
+      insert into public.job_events (
+        job_number, stage_from, stage_to, function_name, trigger_source,
+        ghl_opportunity_id, action_summary, status, payload_in
+      ) values (
+        v_job.job_number, 6, 6, 'resolve_schedule_exception', 'app_schedule',
+        v_job.ghl_opportunity_id,
+        format('Schedule exception %s acknowledged-closed for %s (job status %s, no side effects) by %s',
+          p_exception_id, v_job.job_number, v_job.status_v2::text, v_actor_name),
+        'success',
+        jsonb_build_object('exception_id', p_exception_id, 'resolution', p_resolution,
+          'job_status', v_job.status_v2::text, 'acknowledged_no_side_effects', true)
+      );
+    else
+      -- dismiss on a job that IS still scheduled: the job's CURRENT dates,
+      -- unchanged — any p_start_date/p_end_date supplied by the caller are
+      -- ignored. The dispatcher recreates the managed event at the SAME
+      -- dates.
+      v_new_revision := v_job.calendar_sync_revision + 1;
+
+      update public.jobs
+         set calendar_sync_revision = v_new_revision,
+             gcal_main_event_id = case when v_job.gcal_main_event_id = v_exception.external_event_id then null else v_job.gcal_main_event_id end,
+             gcal_crew_event_id = case when v_job.gcal_crew_event_id = v_exception.external_event_id then null else v_job.gcal_crew_event_id end,
+             updated_at = now()
+       where job_number = v_job.job_number
+       returning * into v_job;
+      v_new_status := 'dismissed'::public.schedule_exception_status;
+
+      insert into public.job_events (
+        job_number, stage_from, stage_to, function_name, trigger_source,
+        ghl_opportunity_id, action_summary, status, payload_in
+      ) values (
+        v_job.job_number, 6, 6, 'resolve_schedule_exception', 'app_schedule',
+        v_job.ghl_opportunity_id,
+        format('Schedule exception %s resolved as %s for %s by %s', p_exception_id, p_resolution, v_job.job_number, v_actor_name),
+        'success',
+        jsonb_build_object('exception_id', p_exception_id, 'resolution', p_resolution,
+          'start_date', v_job.start_date, 'end_date', v_job.end_date,
+          'calendar_sync_revision', v_new_revision)
+      );
+
+      insert into public.integration_outbox (event_type, aggregate_type, aggregate_id, idempotency_key, payload)
+      values (
+        'job.scheduled', 'job', v_job.job_number,
+        'job.scheduled:' || v_job.job_number || ':rev' || v_new_revision::text,
+        jsonb_build_object('job_number', v_job.job_number, 'crew', v_job.crew,
+          'start_date', v_job.start_date, 'end_date', v_job.end_date,
+          'calendar_sync_revision', v_new_revision)
+      )
+      on conflict (idempotency_key) do nothing;
+    end if;
+
   else
     -- postponed / closed_lost: reuse cancel_scheduled_job verbatim — buys
     -- the status-guard, audit, job.cancelled + ghl.stage.requested
@@ -431,7 +519,8 @@ begin
          resolution_note = v_reason
    where id = p_exception_id;
 
-  -- Resolve the paired alert, for all four resolutions alike.
+  -- Resolve the paired alert, for all four resolutions (and the
+  -- acknowledge-close sub-path) alike.
   update public.job_alerts
      set resolved_at = now(),
          resolution_note = v_reason
@@ -439,7 +528,7 @@ begin
      and fingerprint = v_alert_fingerprint
      and resolved_at is null;
 
-  return jsonb_build_object('resolution', p_resolution, 'job_number', v_exception.job_number, 'exception_id', p_exception_id);
+  return jsonb_build_object('resolution', p_resolution, 'job_number', v_exception.job_number, 'exception_id', p_exception_id) || v_extra;
 end;
 $$;
 
