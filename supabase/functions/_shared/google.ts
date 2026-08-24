@@ -141,3 +141,20 @@ export async function deleteCalendarEvent(calendarId: string, eventId: string, a
   const data = await res.json().catch(() => ({}))
   throw new Error(`Calendar event delete failed (${res.status}): ${JSON.stringify(data)}`)
 }
+
+// ── v2 Task 5B additions (google-calendar-webhook, inbound sync) — additive
+//    only, nothing above this line changes. ──────────────────────────────
+
+// 404/410 are DATA for the inbound sync leg (the event was deleted), not
+// errors — unlike updateCalendarEvent, whose 404 is a failure. Any other
+// non-OK status throws with the same error-text shape as its siblings.
+export async function getCalendarEvent(calendarId: string, eventId: string, accessToken: string): Promise<{ status: number; event: any | null }> {
+  const res = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } }
+  )
+  if (res.status === 404 || res.status === 410) return { status: res.status, event: null }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(`Calendar event fetch failed (${res.status}): ${JSON.stringify(data)}`)
+  return { status: res.status, event: data }
+}
