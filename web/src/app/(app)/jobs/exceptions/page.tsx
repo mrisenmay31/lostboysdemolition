@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
 import { isEstimatorName } from "@/lib/estimator";
 import {
+  friendlyResolveErrorMessage,
   listOpenScheduleExceptions,
   resolveDeletedCalendarEvent,
   ResolveExceptionError,
@@ -67,7 +68,24 @@ export default async function JobExceptionsPage() {
       return { ok: true, result };
     } catch (err) {
       if (err instanceof ResolveExceptionError) {
-        return { ok: false, error: err.message, code: err.code };
+        // Fix round 1, review finding #1: map the classified code to a
+        // human-readable message HERE, server-side — never let the raw
+        // Postgres raise text (e.g. "resolve_schedule_exception:
+        // exception 8f3a... is not open (status dismissed)") reach
+        // Dane/Jackson/Matt. Done in this server action rather than in
+        // ResolveExceptionForm.tsx because friendlyResolveErrorMessage
+        // lives in the "server-only" exceptionActions.ts module — a
+        // Client Component importing a VALUE (not just a type) from a
+        // server-only module fails the Next.js build (confirmed: this
+        // was tried and threw "'server-only' cannot be imported from a
+        // Client Component module"). The client only needs the already
+        // -friendly string plus `code` (to decide whether to
+        // router.refresh() for the not_open/stale-list case).
+        return {
+          ok: false,
+          error: friendlyResolveErrorMessage(err.code, err.message),
+          code: err.code,
+        };
       }
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -106,7 +124,12 @@ export default async function JobExceptionsPage() {
                     : ""}
                 </p>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Opened {new Date(exception.opened_at).toLocaleString()}
+                  Opened{" "}
+                  {new Date(exception.opened_at).toLocaleString("en-US", {
+                    timeZone: "America/Denver",
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
                 </p>
               </div>
               <ResolveExceptionForm

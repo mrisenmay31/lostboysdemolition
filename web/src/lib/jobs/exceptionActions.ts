@@ -253,6 +253,54 @@ export function classifyResolveError(message: string): ResolveExceptionErrorCode
 }
 
 // ------------------------------------------------------------
+// UI-facing message mapping (fix round 1, review finding #1)
+// ------------------------------------------------------------
+
+/**
+ * Human-readable messages for the four "expected" error codes — everything
+ * EXCEPT `other`, which deliberately falls through to the raw RPC message
+ * (see `friendlyResolveErrorMessage` below). Without this mapping, the
+ * queue UI was rendering the raw Postgres raise text verbatim (e.g.
+ * `"resolve_schedule_exception: exception 8f3a... is not open (status
+ * dismissed)"`) straight to Dane/Jackson/Matt.
+ *
+ * `not_open` is the operationally important case: it means someone else
+ * already resolved this exact row between the page load and this submit
+ * — the on-screen list is stale, not the user's input. The caller
+ * (ResolveExceptionForm.tsx) additionally calls `router.refresh()` for
+ * this code; the message here is written to match that follow-up action.
+ */
+const FRIENDLY_RESOLVE_ERROR_MESSAGES: Partial<
+  Record<ResolveExceptionErrorCode, string>
+> = {
+  not_found: "This exception could not be found — it may already be resolved.",
+  not_open: "Someone already resolved this — refreshing the list.",
+  not_resolvable:
+    "This job's status has changed, so this exception can no longer be resolved this way.",
+  invalid_input: "That submission wasn't valid — check the reason and dates and try again.",
+};
+
+/**
+ * Maps a classified `ResolveExceptionErrorCode` to the message the queue
+ * UI should display. Falls back to `rawMessage` (the RPC's own error
+ * text) only when `code` is `"other"` or absent — an unclassified error
+ * is more useful shown verbatim than hidden behind a generic string.
+ *
+ * Pure, no I/O — kept in this module (rather than inline in
+ * ResolveExceptionForm.tsx) so the mapping is unit-testable from
+ * exceptionActions.test.ts without needing a React/DOM test harness.
+ */
+export function friendlyResolveErrorMessage(
+  code: ResolveExceptionErrorCode | undefined,
+  rawMessage: string,
+): string {
+  if (code && code in FRIENDLY_RESOLVE_ERROR_MESSAGES) {
+    return FRIENDLY_RESOLVE_ERROR_MESSAGES[code] as string;
+  }
+  return rawMessage;
+}
+
+// ------------------------------------------------------------
 // RPC / query calls
 // ------------------------------------------------------------
 

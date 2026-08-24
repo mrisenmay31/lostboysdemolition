@@ -17,6 +17,7 @@ vi.mock("@/lib/supabase/admin", () => ({
 
 import {
   classifyResolveError,
+  friendlyResolveErrorMessage,
   listOpenScheduleExceptions,
   resolveDeletedCalendarEvent,
   ResolveExceptionError,
@@ -95,6 +96,39 @@ describe("classifyResolveError", () => {
 
   it("falls back to other for an unrecognized message", () => {
     expect(classifyResolveError("connection reset by peer")).toBe("other");
+  });
+});
+
+// Fix round 1, review finding #1: the UI was rendering raw Postgres raise
+// text; friendlyResolveErrorMessage maps each classified code to a
+// human-readable message, falling back to the raw RPC message ONLY for
+// "other"/undefined.
+describe("friendlyResolveErrorMessage", () => {
+  const RAW = "resolve_schedule_exception: exception 8f3a... is not open (status dismissed)";
+
+  it.each([
+    ["not_found" as const],
+    ["not_open" as const],
+    ["not_resolvable" as const],
+    ["invalid_input" as const],
+  ])("maps %s to a friendly message, not the raw text", (code) => {
+    const message = friendlyResolveErrorMessage(code, RAW);
+    expect(message).not.toBe(RAW);
+    expect(message.length).toBeGreaterThan(0);
+  });
+
+  it("mentions refreshing for not_open — the stale-list case", () => {
+    expect(friendlyResolveErrorMessage("not_open", RAW).toLowerCase()).toContain(
+      "refreshing",
+    );
+  });
+
+  it("falls back to the raw message for other", () => {
+    expect(friendlyResolveErrorMessage("other", RAW)).toBe(RAW);
+  });
+
+  it("falls back to the raw message when code is undefined", () => {
+    expect(friendlyResolveErrorMessage(undefined, RAW)).toBe(RAW);
   });
 });
 

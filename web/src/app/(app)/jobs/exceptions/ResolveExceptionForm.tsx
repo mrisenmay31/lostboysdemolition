@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useEstimator } from "@/app/(app)/EstimatorChip";
 import type {
   OpenScheduleException,
@@ -82,6 +83,7 @@ export function ResolveExceptionForm({
   exception,
   resolveExceptionAction,
 }: ResolveExceptionFormProps) {
+  const router = useRouter();
   const { estimator } = useEstimator();
 
   const [resolution, setResolution] = useState<ResolveExceptionResolution>("reschedule");
@@ -122,7 +124,23 @@ export function ResolveExceptionForm({
       );
 
       if (!result.ok) {
+        // Fix round 1, review finding #1: `result.error` arrives already
+        // mapped to a human-readable message — page.tsx's server action
+        // runs it through @/lib/jobs/exceptionActions.ts's
+        // friendlyResolveErrorMessage before returning (that mapping
+        // can't live here: it's exported from the "server-only"
+        // exceptionActions.ts module, and a Client Component importing a
+        // VALUE — not just a type — from a server-only module fails the
+        // Next.js build). `not_open` is the operationally important
+        // case: it means someone else already resolved this exact row
+        // between page load and this submit, so the on-screen list is
+        // stale — router.refresh() re-fetches it (page.tsx is
+        // force-dynamic, so this pulls a fresh listOpenScheduleExceptions()
+        // read) rather than leaving a dead form on screen.
         setError(result.error);
+        if (result.code === "not_open") {
+          router.refresh();
+        }
         return;
       }
       setResolved(result.result);
