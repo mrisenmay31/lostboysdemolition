@@ -71,6 +71,23 @@ with RLS + 2 policies; `handle_new_auth_user()` pinned and rewritten — **BL-7 
 2026-08-18 Phase 0 entry in `BUILD_LOG.md`. The paragraph above describes the docs-only landing
 pass earlier that day and is kept for provenance.
 
+## AMENDED 2026-08-25 — the Job Dashboard is the web app's home surface
+
+Matt's decision (2026-08-25): the Job Dashboard (v2 Task 6) is the **main web app**, and the
+estimate tool becomes a section within it, reachable from the dashboard's navigation — the
+reviewed dashboard prototype's header IA (Dashboard / Jobs / Schedule / New Estimate) is the
+navigation model. Today `web/src/app/(app)/page.tsx` redirects `/` → `/estimates`.
+
+**Sequencing (decided same day): the `/` flip to the dashboard happens with v2 Task 8, not
+Task 6.** The deployment is network-open with no login, and the dashboard carries real
+profitability data — it must not become the front door before the financial routes are
+auth-gated. Concretely:
+
+- **v2 Task 6** builds the dashboard at `/jobs` and adds an "Estimates" section link to the
+  shared `(app)` navigation; `/` keeps landing on `/estimates`.
+- **v2 Task 8** (owner auth) flips `/`: an authenticated active owner lands on the dashboard;
+  everyone else continues to `/estimates` (the no-login estimator picker flow stays reachable).
+
 ## Context
 
 Lost Boys wants a closed loop: accurate estimate → tracked actuals → job-level profitability → calibrated back into pricing. Today none of that exists in software.

@@ -1384,6 +1384,13 @@ git commit -m "feat: deliver scheduled jobs through a retryable integration outb
 - Consumes: current budget, ledger rows, revenues, checklist/override, alerts, and `calculateJobHealth()`.
 - Produces: `getJobHealthDetail(jobNumber)` and `listJobHealthSummaries()`.
 
+> **Decision (Matt, 2026-08-25 — see `BUILD_PLAN.md` → 2026-08-25 amendment):** the dashboard is
+> the web app's home surface, with estimates a section inside it — but the `/` flip is
+> deliberately deferred to Task 8. This task builds the portfolio at `/jobs` and adds an
+> "Estimates" link to the shared `(app)` navigation (the reviewed dashboard prototype's header IA
+> is the model); the existing root redirect `/` → `/estimates` stays untouched here, because the
+> deployment is network-open until Task 8 owner-gates the financial routes.
+
 - [ ] **Step 1: Test numeric normalization and comparison rows**
 
 Test Postgres numeric strings, missing optional values, original/current/actual/forecast column construction, and status sorting `at_risk → watch → on_track → completed → financially_closed`.
@@ -1530,6 +1537,8 @@ Create browser/server client factories using `NEXT_PUBLIC_SUPABASE_URL` and `NEX
 Do not change the existing no-login estimate route in this task.
 
 `web/src/app/(app)/jobs/layout.tsx` requires an active `owner` profile for financial routes. The `/ops` layout allows active foreman/owner profiles and contains no financial data loader.
+
+Per the 2026-08-25 amendment in `BUILD_PLAN.md`, this task also flips the root route: `/` lands an authenticated active owner on the Job Dashboard and everyone else on `/estimates` — the dashboard becomes the app's home surface only once these financial routes are owner-gated, and the no-login estimator picker flow stays reachable without a session.
 
 - [ ] **Step 2: Extend the Task 0B operational profile boundary and add checklist RLS**
 
