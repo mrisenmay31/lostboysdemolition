@@ -27,11 +27,20 @@
 > 1428 → JOB-1106, Crew 4, 2026-12-22→23, dispatcher succeeded attempt 1 incl. the FIRST-EVER
 > dispatcher Slack delivery) plus early echo termination (real `exists` notification →
 > `dates_unchanged` mark) are **PROVEN LIVE**. JOB-1106 carries NO GHL identity link, deliberately
-> (both GHL enqueues are conditional — zero GHL artifacts, no re-drag hazard). **Steps 5 legs
-> 3/5/6 REMAIN — next session opens with Matt's two calendar actions** (drag the main event's
-> dates; delete the crew event) then dismiss-resolve via RPC (the `/jobs/exceptions` UI is on the
-> branch, not prod Vercel), `closed_lost` teardown, unset the override. Full record: the
-> 2026-08-25 Session 8 `BUILD_LOG.md` entry. Two ruled amendments to this plan's text, made
+> (both GHL enqueues are conditional — zero GHL artifacts, no re-drag hazard).
+>
+> **UPDATE 2026-08-25 (Session 9): Step 5 COMPLETE — ALL SIX PROBE LEGS PROVEN LIVE. TASK 5B IS
+> DONE.** Legs 3/5/6 ran same-day: inbound date apply (rev 1→2, dispatcher mirror with
+> update-not-create idempotency proven — event ids unchanged — plus R7 re-notify Slack, echo one
+> bounce then quiet), deletion → exception + `at_risk` alert with job untouched → `dismiss` via
+> direct RPC (rev 2→3, crew event recreated under a new id), `closed_lost` teardown (M7 rev-share
+> observed live, no GHL enqueue, re-cancel raise verbatim, both events deleted, deletion
+> notifications silent), `SLACK_TEST_CHANNEL_OVERRIDE` UNSET + confirmed absent. One accepted
+> probe variance: Matt dragged the **crew** copy in leg 3 rather than the main event — the shared
+> push/poll code path makes the calendars symmetric inputs, and the mirror proof simply landed on
+> the main event instead. No estimate burned (first real still ≥1429). Full record: the
+> 2026-08-25 Session 9 `BUILD_LOG.md` entry. Remaining in this plan: none — Task 7 of the phase
+> plan (gate) is next. Session 8 record: the 2026-08-25 Session 8 `BUILD_LOG.md` entry. Two ruled amendments to this plan's text, made
 > during execution and binding: (1) `resolve_schedule_exception`'s `dismiss` on a non-scheduled job
 > is an **acknowledge-and-close** (closes exception + alert, zero jobs/outbox writes) rather than
 > sharing raise text 8 — text 8 stays verbatim for `reschedule`; (2) `classifyManagedEvent` checks
@@ -556,7 +565,7 @@ supabase functions list --project-ref eiqqqwajmcpcwhvxxnhx
 
 Readback: `verify_jwt=false` for `google-calendar-webhook`, AND `ghl-job-webhook` + `integration-dispatcher` undisturbed (sha unchanged on any cosmetic version bump).
 
-- [~] **Step 5: Live probe — PARTIAL 2026-08-25** (legs 1, 2, and early echo termination PROVEN LIVE — estimate 1428 → JOB-1106, Crew 4, 2026-12-22→23, `SLACK_TEST_CHANNEL_OVERRIDE` route; legs 3, 5, 6 remain and open the next session) (production, TEST-labeled, far-future dates per the JOB-1105 precedent; prerequisites per plan decision 9 — Slack bot invited or `SLACK_TEST_CHANNEL_OVERRIDE` set):
+- [x] **Step 5: Live probe — COMPLETE 2026-08-25 (Session 9): all six legs PROVEN LIVE** (legs 1/2 + early echo termination in Session 8 — estimate 1428 → JOB-1106, Crew 4, 2026-12-22→23, `SLACK_TEST_CHANNEL_OVERRIDE` route; legs 3/5/6 in Session 9 — see the execution-status block above and the Session 9 BUILD_LOG entry) (production, TEST-labeled, far-future dates per the JOB-1105 precedent; prerequisites per plan decision 9 — Slack bot invited or `SLACK_TEST_CHANNEL_OVERRIDE` set):
   1. `action=maintain` via secret-POST → five `active` registry rows, `sync` notifications logged, `last_notification_at` stamped.
   2. Schedule a TEST estimate (≥1428 burn awareness: use the next number knowingly) → JOB-XXXX → dispatcher creates both events.
   3. **Inbound apply:** Matt drags/edits the main-calendar event's dates in the Google Calendar UI → within seconds, `exists` notification → `jobs.start_date/end_date` updated, revision bumped, mirrored `job.scheduled` delivered on the next cron tick (crew event dates updated; Slack message lands per prerequisite).

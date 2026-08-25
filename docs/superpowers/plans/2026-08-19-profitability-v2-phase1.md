@@ -200,7 +200,7 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
   per-calendar failure isolation; marks recorded only AFTER a completed RPC outcome) + whole-slice
   final review (merge-ready; mirror-loop termination and rev-key collision-freedom proven) + final
   fix wave, all re-review-verified. Commits `cf240a2..8553aa2`, pushed.
-- [~] **Step 3 (PARTIAL — 2026-08-24, advanced 2026-08-25):** Runbook cycle DONE (branch
+- [x] **Step 3 (COMPLETE — Session 9, 2026-08-25):** Runbook cycle DONE (branch
   `v2-phase1-task5b`, probes a–d FAITHFUL, RED 32/32 not-ok, GREEN **147/147 first execution**,
   branch deleted; full suites deno **411/411** golden intact + web **596/596** + build green);
   reviews DONE; commits pushed. **Session 8 (2026-08-25): Matt approved — 3 migrations APPLIED TO
@@ -210,9 +210,19 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
   probe close). **Probe legs 1/2 + echo termination PROVEN LIVE** — 5 active watch channels with
   sync handshakes; estimate 1428 → **JOB-1106** (no GHL link, deliberately); dispatcher succeeded
   attempt 1 including the **first-ever dispatcher crew-Slack delivery**; real `exists`
-  notification → `dates_unchanged`. **REMAINING: probe legs 3/5/6** (Matt drags the main event's
-  dates; deletes the crew event; dismiss-resolve via RPC; `closed_lost` teardown; unset override)
-  — the next session opens here. 5B gates separately from the phase gate.
+  notification → `dates_unchanged`. **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE
+  — ALL SIX LEGS PROVEN LIVE. Task 5B is DONE.** Leg 3: Matt's date drag (via the crew copy —
+  accepted variance, one shared code path) → apply → dates 12-28→29, rev 1→2, rev2 outbox →
+  dispatcher succeeded attempt 1 with **both event ids unchanged (update-not-create idempotency,
+  the 5A carried item, proven)** + R7 re-notify Slack; echo bounced once (`dates_unchanged` ×2)
+  and died. Leg 5: crew-event delete → `calendar_deleted` exception + `at_risk` alert, job
+  untouched; `dismiss` via direct RPC → rev 2→3, crew id cleared, dispatcher **recreated** the
+  crew event (new id) attempt 1; echo quiet. Leg 6: `closed_lost` teardown (rev stays 3 — M7
+  no-bump observed live; NO `ghl.stage.requested` — no GHL link), re-cancel raised the pinned
+  text verbatim, `job.cancelled` cleared both ids + deleted both events, deletion notifications
+  terminated in silence. `SLACK_TEST_CHANNEL_OVERRIDE` **UNSET + confirmed absent**. Function
+  logs read every leg. No estimate burned (first real still ≥1429). Full record: the 2026-08-25
+  Session 9 BUILD_LOG entry. 5B gates separately from the phase gate; **next = Task 7**.
 
 ### Task 7: Phase 1 gate + permanent cutover
 

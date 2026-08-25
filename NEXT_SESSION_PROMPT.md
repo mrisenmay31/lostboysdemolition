@@ -4,79 +4,68 @@ truth), then BUILD_PLAN.md, then the two Profitability v2 execution docs:
 program — the complete technical contract) and
 `docs/superpowers/plans/2026-08-19-profitability-v2-phase1.md` (the approved Phase 1 execution
 plan — **live checkboxes, deviations 1–12, and the review-handoff blocks are current; work from
-this file**). For Task 5B specifics also read
-`docs/superpowers/plans/2026-08-24-v2-phase1-task5b-inbound-calendar-sync.md` (approved sub-plan,
-9 header decisions + execution-status block).
+this file**). For Task 5B history also see
+`docs/superpowers/plans/2026-08-24-v2-phase1-task5b-inbound-calendar-sync.md` (complete — all
+checkboxes done, execution-status block final).
 
-## What just happened — Session 8 (2026-08-25): Task 5B SHIPPED TO PRODUCTION; probe half-run
+## What just happened — Session 9 (2026-08-25): 5B probe COMPLETE, Task 5B is DONE
 
-Matt approved gate items 1+2 and chose `SLACK_TEST_CHANNEL_OVERRIDE` over bot invitations for the
-probe. Full record: the 2026-08-25 Session 8 `BUILD_LOG.md` entry.
+Same-day continuation of Session 8. No code, no migrations, no deploys — probe legs 3/5/6 ran
+live and everything passed. Full record: the 2026-08-25 Session 9 `BUILD_LOG.md` entry.
 
-- **3 migrations APPLIED TO PRODUCTION** — new head **`20260825171051` (38 applied)**. Registry +
-  RPCs byte-identical to the repo files; the cron migration applied with the secret substituted
-  **server-side** (DO block extracting from the live `integration-dispatcher` `cron.job.command`
-  — recipe now proven twice). Post-apply catalog assertions, ACLs, row counts, advisors: all
-  clean. Cron `calendar-sync-maintenance @ 7,37 * * * *` live, no placeholder.
-- **`google-calendar-webhook` v2 DEPLOYED** via the two-command invariant: `verify_jwt=false`
-  read back, sha `93855f6d…`; `ghl-job-webhook` v20 (`1a5a340a…`) and `integration-dispatcher`
-  v1 (`ae3fbf49…`) **undisturbed**. Probes: secret-less → 401; Google-style notification → 200.
-- **Probe legs PROVEN LIVE:** leg 1 — 5 `active` watch channels, 7-day TTL honored, `sync`
-  handshake + `last_notification_at` on all five. Leg 2 — estimate **1428** (TEST, burned) →
-  **JOB-1106** (Crew 4, **2026-12-22 → 2026-12-23**), budget v1 2044.13/865/42.32 from the pinned
-  `accepted_price`, dispatcher **succeeded attempt 1**: both Calendar events created (main
-  `r3o9b4gkavsnv505ddi4p1ijps`, crew `hb07plhon4i2rh41o38mpgl334`) and **the FIRST successful
-  dispatcher Slack delivery in system history** (#ops-test, `slack_notified_at` stamped, message
-  shape verified, no pricing). Early leg 4 — Google's real `exists` push for the crew event was
-  processed: token verified, event fetched, classified `dates_unchanged`, mark recorded — **echo
-  termination held live**. (Only the crew-calendar mark was observed by session close; the
-  main-calendar echo is expected `dates_unchanged` too and the `7,37` sweep covers it.)
-- **JOB-1106 has NO GHL identity link, deliberately** — both `schedule_estimate`'s and
-  `cancel_scheduled_job`'s GHL enqueues are conditional on a linked opportunity, so the probe
-  created zero GHL artifacts and cannot trip the legacy-minting re-drag hazard.
+- **Leg 3 (inbound apply):** Matt's date drag (via the **crew** copy — accepted variance, one
+  shared code path) → `apply_calendar_date_change` → JOB-1106 dates 2026-12-28→29, rev **1→2**,
+  `job_events` row, `rev2` outbox → dispatcher succeeded attempt 1 with **both event ids
+  unchanged — update-not-create idempotency (the 5A carried item) PROVEN** — plus the R7
+  re-notify Slack message (#ops-test, log-verified, no pricing). Echo bounced once
+  (`dates_unchanged` ×2) and died; the main-calendar mark doubles as proof the mirror updated
+  the main event.
+- **Leg 5 (deletion):** crew-event delete → `calendar_deleted` exception (full
+  `previous_schedule`, cancelled resource captured) + `at_risk` alert, **job untouched**.
+  `dismiss` via direct RPC → exception dismissed + alert resolved, rev **2→3**, crew id cleared,
+  dispatcher **recreated** the crew event (new id `rpaopqpc…`) attempt 1; echo quiet. Note:
+  Google did NOT strip `extendedProperties` on this cancelled resource — deleted-before-unmanaged
+  stays a defensive ruling, not a necessity.
+- **Leg 6 (teardown):** `closed_lost` cancel → rev stays 3 (**M7 rev-share observed live**:
+  `job.cancelled:JOB-1106:rev3`), **no `ghl.stage.requested`** (no GHL link — zero GHL artifacts
+  all probe), re-cancel raised the pinned text verbatim, dispatcher cleared both gcal ids +
+  deleted both events, deletion notifications terminated in silence (cancelled job with cleared
+  ids drops out of the reconcile set).
+- **`SLACK_TEST_CHANNEL_OVERRIDE` UNSET + confirmed absent** (secrets-list readback, BL-4
+  precedent). Crew Slack routing is back to normal — which re-exposes the 🔴 bot-membership gate
+  blocker.
+- No estimate burned. **First real estimate is still ≥ 1429.**
 
-## ⚠️ Live state to keep in mind
+## ▶️ THIS SESSION OPENS HERE — Task 7: the Phase 1 gate + permanent cutover
 
-- **`SLACK_TEST_CHANNEL_OVERRIDE=C0BPPG8997Z` (#ops-test) is SET.** ALL crew Slack posts —
-  dispatcher, `ghl-job-webhook`, and `crew-night-before`'s nightly digest — redirect there while
-  set. **Unset it (and confirm absent — BL-4 precedent) at probe close.**
-- JOB-1106 is a live `scheduled` TEST job with real events on the main + Crew-4 calendars until
-  the teardown.
-- **First real estimate is ≥ 1429.**
-- Server-side cron-fire trick (no secret exposure): `select command into v_cmd from cron.job
-  where jobname = '…'; execute v_cmd;` — used for both `maintain` and the dispatcher.
+Phase 1 plan Task 7, all steps. **Hard precondition before the flip: Matt's phone smoke + one
+real estimate (≥1429) on the branch preview, and the 🔴 Slack bot invitations** (Matt-only; real
+crew delivery has never been proven — the one Crew 1 post of 2026-08-13 predates the dispatcher).
 
-## ▶️ THIS SESSION OPENS HERE — finish the probe (legs 3/5/6)
+1. **Step 1:** Whole-branch adversarial review of `claude/last-session-review-f7tqxw` (standing
+   rule; strongest available model).
+2. **Step 2 (E2E, live GHL, TEST-labeled):** create/link opportunity → present two versions →
+   accept v2 → `Quote Accepted` + no job → schedule 2-day all-day → one JOB-XXXX, one budget v1,
+   exclusive-end Calendar rendering, GHL `Job Scheduled` → **edit dates both directions (5B is
+   live — both directions now executable)** → simulate deletion + resolve → prove retry
+   idempotency. Re-cancel test jobs after (re-drags revive rows — known hazard; `closed_lost`
+   only until the flip).
+3. **Step 3 (permanent):** set `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` in prod, redeploy
+   `ghl-job-webhook` via the invariant, live-verify Quote Accepted returns
+   `quote_accepted_awaiting_schedule` and mints nothing. **This flip never re-enables** (ratified
+   decision 1). Post-flip, `postponed` resolutions become probe-safe.
+4. **Step 4:** Land: BUILD_LOG, CLAUDE.md + BUILD_PLAN.md updates, NEXT_SESSION_PROMPT
+   regenerated, merge per Matt's instruction.
 
-1. **Leg 3 (inbound apply):** Matt drags/edits the **main**-calendar event "JOB-1106 – TEST - 5B
-   inbound sync probe, do not action" (Dec 22–23, 2026) to different dates. Then verify:
-   `exists` notification → `apply_calendar_date_change` applied, `jobs.start_date/end_date`
-   updated, `calendar_sync_revision` 1→2, `job_events` row, `job.scheduled:JOB-1106:rev2` outbox
-   row; force-fire the dispatcher → crew event dates mirrored (update-not-create idempotency —
-   a 5A carried-over item this proves) + **a fresh Slack message in #ops-test (R7 re-notify
-   semantics — expected, not a bug)**; echo chain then goes quiet (`dates_unchanged` marks).
-2. **Leg 5 (deletion):** Matt deletes the **crew** (Cade/Crew-4) event. Verify: exception row
-   (`kind='calendar_deleted'`) + `at_risk` alert open, job untouched. Resolve with **`dismiss`
-   via direct `resolve_schedule_exception` RPC** (`/jobs/exceptions` UI is on the branch, NOT on
-   prod Vercel) → event id cleared, revision bumped, dispatcher recreates the crew event.
-3. **Teardown:** `cancel_scheduled_job` with **`closed_lost` ONLY** (`postponed` returns GHL to
-   Quote Accepted → trips the still-live legacy minting workflow — post-flag-flip only);
-   re-cancel raise check; dispatcher `job.cancelled` clears both gcal ids and deletes managed
-   events (Matt eyeballs Dec 22–23 clean); **unset `SLACK_TEST_CHANNEL_OVERRIDE` + confirm
-   absent**; read function logs for every leg (5A lesson). Record everything in BUILD_LOG.
-4. **Then Task 7 = the Phase 1 gate:** whole-branch adversarial review → E2E per the v2 gate text
-   (dates both directions now executable) → permanent `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false`
-   flip → land/merge per Matt.
+## Standing items
 
-## Standing items (unchanged)
-
-🔴 Slack bot invitations to Crew 1–4 (Matt-only; the override is a probe workaround, NOT the fix
-— real crew delivery is still unproven and still blocks the gate). Matt's eyeball: the 5A probe's
-2026-12-15/16 events deleted. Phone smoke + one real estimate (≥1429) on the branch preview.
-Authenticated JOB-1104 re-drag + re-cancel. Merge decision for branch
-`claude/last-session-review-f7tqxw`. BL-6 echo-guard draft review. Per-item OK to delete GHL TEST
-opportunity `UuTLn5Xg2Bb9EEj4UUBv`. Dashboard-home decision (2026-08-25): `/` flip deferred to v2
-Task 8; fold Dane's prototype feedback into the v2 plan before writing Task 6.
+🔴 Slack bot invitations to Crew 1–4 (Matt-only; blocks the gate). Matt's calendar eyeballs:
+2026-12-28/29 clean (5B teardown) + 2026-12-15/16 clean (5A) — requested at Session 9 close,
+confirm/record. Phone smoke + one real estimate (≥1429) on the branch preview. Authenticated
+JOB-1104 re-drag + re-cancel. Merge decision for branch `claude/last-session-review-f7tqxw`.
+BL-6 echo-guard draft review. Per-item OK to delete GHL TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv`.
+Dashboard-home decision (2026-08-25): `/` flip deferred to v2 Task 8; fold Dane's prototype
+feedback into the v2 plan before writing Task 6.
 
 ## Deferred (final-review-triaged FIX SOON — fold into the next touch of each area)
 
@@ -93,8 +82,11 @@ prune-bounded).
 Production Vercel serves `main` (pre-Session-2 build), no login, network-open. Branch
 `claude/last-session-review-f7tqxw` NOT merged to main. Live functions: `ghl-job-webhook` v20
 (flag UNSET ⇒ legacy minting), `crew-night-before` v11, `airtable-client-sync` v29,
-`integration-dispatcher` v1 (cron `*/5`), `google-calendar-webhook` **v2** (full inbound sync).
-Suites at last validation: deno **411/411**, web **596/596**, golden-321 intact.
+`integration-dispatcher` v1 (cron `*/5`), `google-calendar-webhook` v2 (cron `7,37`; 5 active
+watch channels, expire 2026-09-01). Migration head `20260825171051`, 38 applied. Suites at last
+validation: deno **411/411**, web **596/596**, golden-321 intact. `jobs` holds 4 cancelled TEST
+rows (1102/1104/1105/1106). Server-side cron-fire trick (no secret exposure): `select command
+into v_cmd from cron.job where jobname = '…'; execute v_cmd;`.
 
 ## Standing instructions (unchanged)
 
