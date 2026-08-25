@@ -52,6 +52,22 @@ describe("classifyScheduleError", () => {
         ),
       ).toBe("not_accepted");
     });
+
+    it("classifies the minted-from-a-different-estimate-version raise as already_scheduled", () => {
+      expect(
+        classifyScheduleError(
+          "schedule_estimate: job JOB-1104 for family 1426 was minted from a different estimate version (0d5e2b9a-...) than the one being scheduled (1a2b3c4d-...) — resolve manually or via a change order",
+        ),
+      ).toBe("already_scheduled");
+    });
+
+    it("classifies the opportunity-linked-to-a-different-job raise as already_scheduled", () => {
+      expect(
+        classifyScheduleError(
+          "schedule_estimate: GHL opportunity abc123 is linked to a different job — cannot mint a duplicate; resolve manually",
+        ),
+      ).toBe("already_scheduled");
+    });
   });
 
   it("classifies a superseded message (forward-compatible, not raised by the current RPC)", () => {

@@ -28,10 +28,12 @@ export interface ScheduleEstimateInput {
 
 /** The 7 live `job_lifecycle` enum values (CLAUDE.md's `jobs` table entry,
  *  widened by Phase 1 plan deviation 9). Kept as a plain string union here
- *  (not re-exported from @/lib/profitability/types, which owns
- *  `JobHealthInput.jobStatus` — a 5-value union missing `accepted`/
- *  `invoiced`, deliberately narrower for forecast-engine purposes) —
- *  this file needs the full DB enum, not the health engine's subset. */
+ *  rather than imported from @/lib/profitability/types — that module
+ *  independently declares its own `JobHealthInput.jobStatus`, which is the
+ *  SAME full 7-value union (kept character-identical to this one and to
+ *  the `job_lifecycle` SQL enum — see that file's own doc comment), not a
+ *  narrower subset. Two separate declarations of the same union, not one
+ *  wider and one narrower. */
 export type JobLifecycleStatus =
   | "accepted"
   | "scheduled"

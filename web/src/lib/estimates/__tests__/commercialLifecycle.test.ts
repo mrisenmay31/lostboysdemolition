@@ -262,6 +262,7 @@ describe("presentEstimate", () => {
     const detail = makeEstimateDetail();
     getEstimateMock.mockResolvedValue(detail);
     const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
       estimate_presentations: [{ error: null }],
       estimate_identity_links: [{ data: null, error: null }],
     });
@@ -291,6 +292,7 @@ describe("presentEstimate", () => {
     const detail = makeEstimateDetail();
     getEstimateMock.mockResolvedValue(detail);
     const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
       estimate_presentations: [{ error: null }],
       estimate_identity_links: [
         {
@@ -320,6 +322,7 @@ describe("presentEstimate", () => {
     const detail = makeEstimateDetail();
     getEstimateMock.mockResolvedValue(detail);
     const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
       estimate_presentations: [{ error: null }],
       estimate_identity_links: [
         {
@@ -363,11 +366,90 @@ describe("presentEstimate", () => {
     expect(updateStatusMock).not.toHaveBeenCalled();
   });
 
+  // ── FIX ROUND (whole-branch review) — new acceptance-state guard ────
+  it("refuses to present a version while the family has an active acceptance on another version — no insert, no stage move, no status mirror", async () => {
+    const detail = makeEstimateDetail();
+    getEstimateMock.mockResolvedValue(detail);
+    const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: true }, error: null }],
+    });
+    createAdminClientMock.mockReturnValue(admin);
+
+    let caught: unknown;
+    try {
+      await presentEstimate(detail.estimate.id, "Dane");
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(caught).toBeInstanceOf(RecordAcceptanceEventError);
+    expect((caught as InstanceType<typeof RecordAcceptanceEventError>).code).toBe("already_accepted");
+    // Only the estimate_acceptance_state query happened — no
+    // estimate_presentations insert, no GHL call, no status mirror.
+    expect(admin.from).toHaveBeenCalledTimes(1);
+    expect(admin.from).toHaveBeenCalledWith("estimate_acceptance_state");
+    expect(getOpportunityMock).not.toHaveBeenCalled();
+    expect(updateOpportunityStageMock).not.toHaveBeenCalled();
+    expect(updateStatusMock).not.toHaveBeenCalled();
+  });
+
+  it("still works when the family's acceptance was reversed (accepted: false)", async () => {
+    const detail = makeEstimateDetail();
+    getEstimateMock.mockResolvedValue(detail);
+    const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
+      estimate_presentations: [{ error: null }],
+      estimate_identity_links: [{ data: null, error: null }],
+    });
+    createAdminClientMock.mockReturnValue(admin);
+    updateStatusMock.mockResolvedValue(detail.estimate);
+
+    const outcome = await presentEstimate(detail.estimate.id, "Dane");
+
+    expect(outcome).toEqual({});
+    expect(updateStatusMock).toHaveBeenCalledWith(detail.estimate.id, "sent", { id: null, name: "Dane" });
+  });
+
+  // ── FIX ROUND (whole-branch review) — resolveJobPipelineStages inside F2 ──
+  it("a resolveJobPipelineStages() failure is non-fatal — durable write + status mirror still complete, warning surfaced", async () => {
+    const detail = makeEstimateDetail();
+    getEstimateMock.mockResolvedValue(detail);
+    const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
+      estimate_presentations: [{ error: null }],
+      estimate_identity_links: [
+        {
+          data: {
+            estimate_number: 1500,
+            ghl_contact_id: "contact-1",
+            ghl_opportunity_id: "opp-1",
+            linked_by_name: "Dane",
+            actor_assurance: "selected_identity",
+            created_at: "2026-08-19T00:00:00Z",
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+          error: null,
+        },
+      ],
+    });
+    createAdminClientMock.mockReturnValue(admin);
+    resolveJobPipelineStagesMock.mockRejectedValue(new Error("GHL pipeline lookup failed"));
+    updateStatusMock.mockResolvedValue(detail.estimate);
+
+    const outcome = await presentEstimate(detail.estimate.id, "Dane");
+
+    expect(outcome.warning).toMatch(/GHL pipeline lookup failed/);
+    expect(getOpportunityMock).not.toHaveBeenCalled();
+    expect(updateOpportunityStageMock).not.toHaveBeenCalled();
+    expect(updateStatusMock).toHaveBeenCalledWith(detail.estimate.id, "sent", { id: null, name: "Dane" });
+  });
+
   // ── Fix round F2 ─────────────────────────────────────────────────────
   it("F2: a GHL stage-move failure does not roll back the presentation or the status update — returns a warning instead", async () => {
     const detail = makeEstimateDetail();
     getEstimateMock.mockResolvedValue(detail);
     const { admin } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
       estimate_presentations: [{ error: null }],
       estimate_identity_links: [
         {
@@ -588,6 +670,50 @@ describe("recordEstimateAcceptance", () => {
     expect(rpcMock).toHaveBeenCalled();
     expect(updateStatusMock).toHaveBeenCalledWith(estimateId, "accepted", { id: null, name: "Dane" });
   });
+
+  // ── FIX ROUND (whole-branch review) — resolveJobPipelineStages inside F2 ──
+  it("a resolveJobPipelineStages() failure is non-fatal — RPC + status mirror still complete, warning surfaced", async () => {
+    const detail = makeEstimateDetail();
+    const estimateId = detail.estimate.id;
+    getEstimateMock.mockResolvedValue(detail);
+    const { admin, rpcMock } = makeFakeAdmin({
+      estimate_acceptance_state: [{ data: { accepted: false }, error: null }],
+      estimate_identity_links: [
+        {
+          data: {
+            estimate_number: 1500,
+            ghl_contact_id: "contact-1",
+            ghl_opportunity_id: "opp-1",
+            linked_by_name: "Dane",
+            actor_assurance: "selected_identity",
+            created_at: "2026-08-19T00:00:00Z",
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+          error: null,
+        },
+      ],
+    });
+    createAdminClientMock.mockReturnValue(admin);
+    rpcMock.mockResolvedValue({ data: { id: "event-5" }, error: null });
+    resolveJobPipelineStagesMock.mockRejectedValue(new Error("GHL pipeline lookup failed"));
+    updateStatusMock.mockResolvedValue({});
+
+    const outcome = await recordEstimateAcceptance({
+      estimateId,
+      method: "signature",
+      customerContactName: "Jorge Ramirez",
+      effectiveAt: "2026-08-19T00:00:00Z",
+      recordedByName: "Dane",
+      note: "signed on-site",
+      evidencePaths: [],
+    });
+
+    expect(outcome.warning).toMatch(/GHL pipeline lookup failed/);
+    expect(getOpportunityMock).not.toHaveBeenCalled();
+    expect(updateOpportunityStageMock).not.toHaveBeenCalled();
+    expect(rpcMock).toHaveBeenCalled();
+    expect(updateStatusMock).toHaveBeenCalledWith(estimateId, "accepted", { id: null, name: "Dane" });
+  });
 });
 
 describe("reverseEstimateAcceptance", () => {
@@ -773,6 +899,71 @@ describe("reverseEstimateAcceptance", () => {
     expect(updateOpportunityStageMock).toHaveBeenCalledWith("opp-1", PIPELINE_STAGES.quoteSentStageId);
     expect(updateStatusMock).not.toHaveBeenCalled();
     expect(outcome).toEqual({});
+  });
+
+  // ── FIX ROUND (whole-branch review) — resolveJobPipelineStages guarding ──
+  it("with no identity link, never calls resolveJobPipelineStages — nothing to resolve a stage for", async () => {
+    const estimateId = "11111111-1111-1111-1111-111111111111";
+    const { admin, rpcMock } = makeFakeAdmin({
+      estimates: [{ data: { estimate_number: 1500, status: "accepted" }, error: null }],
+      estimate_acceptance_state: [{ data: { current_estimate_id: estimateId }, error: null }],
+      estimate_identity_links: [{ data: null, error: null }],
+    });
+    createAdminClientMock.mockReturnValue(admin);
+    rpcMock.mockResolvedValue({ data: { id: "event-6" }, error: null });
+    updateStatusMock.mockResolvedValue({});
+
+    const outcome = await reverseEstimateAcceptance({
+      estimateId,
+      destination: "quote_sent",
+      reason: "customer changed mind",
+      recordedByName: "Dane",
+    });
+
+    expect(resolveJobPipelineStagesMock).not.toHaveBeenCalled();
+    expect(getOpportunityMock).not.toHaveBeenCalled();
+    expect(updateOpportunityStageMock).not.toHaveBeenCalled();
+    expect(updateStatusMock).toHaveBeenCalledWith(estimateId, "sent", { id: null, name: "Dane" });
+    expect(outcome).toEqual({});
+  });
+
+  it("a resolveJobPipelineStages() failure is non-fatal — reversal + status mirror still complete, warning surfaced", async () => {
+    const estimateId = "11111111-1111-1111-1111-111111111111";
+    const { admin, rpcMock } = makeFakeAdmin({
+      estimates: [{ data: { estimate_number: 1500, status: "accepted" }, error: null }],
+      estimate_acceptance_state: [{ data: { current_estimate_id: estimateId }, error: null }],
+      estimate_identity_links: [
+        {
+          data: {
+            estimate_number: 1500,
+            ghl_contact_id: "contact-1",
+            ghl_opportunity_id: "opp-1",
+            linked_by_name: "Dane",
+            actor_assurance: "selected_identity",
+            created_at: "2026-08-19T00:00:00Z",
+            updated_at: "2026-08-19T00:00:00Z",
+          },
+          error: null,
+        },
+      ],
+    });
+    createAdminClientMock.mockReturnValue(admin);
+    rpcMock.mockResolvedValue({ data: { id: "event-7" }, error: null });
+    resolveJobPipelineStagesMock.mockRejectedValue(new Error("GHL pipeline lookup failed"));
+    updateStatusMock.mockResolvedValue({});
+
+    const outcome = await reverseEstimateAcceptance({
+      estimateId,
+      destination: "quote_sent",
+      reason: "customer changed mind",
+      recordedByName: "Dane",
+    });
+
+    expect(outcome.warning).toMatch(/GHL pipeline lookup failed/);
+    expect(getOpportunityMock).not.toHaveBeenCalled();
+    expect(updateOpportunityStageMock).not.toHaveBeenCalled();
+    expect(rpcMock).toHaveBeenCalled();
+    expect(updateStatusMock).toHaveBeenCalledWith(estimateId, "sent", { id: null, name: "Dane" });
   });
 });
 

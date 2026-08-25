@@ -482,6 +482,18 @@ export interface LifecycleActionOutcome {
  * (and, downstream, an acceptance) for a version that is no longer the
  * one anyone should be quoting from.
  *
+ * FIX ROUND (whole-branch review): also refuses to present ANY version
+ * while the family already has an active acceptance
+ * (`estimate_acceptance_state.accepted`) — mirrors
+ * `recordEstimateAcceptance`'s F7 guard exactly (same query, same
+ * `already_accepted` code). Without this, a stale tab on a revised
+ * version could move an already-accepted family's GHL opportunity from
+ * "Quote Accepted" back to "Quote Sent" and overwrite `estimates.status
+ * = 'accepted'` with `'sent'`, breaking the status<->acceptance-state
+ * mirror invariant this module's presentEstimate/recordEstimateAcceptance/
+ * reverseEstimateAcceptance are all meant to jointly preserve. Reversing
+ * the active acceptance first clears this guard, same as it does for F7.
+ *
  * FIX ROUND F2: the GHL stage move is now non-fatal. Order is: DB write
  * (estimate_presentations, immutable) -> GHL move (try/catch) ->
  * updateStatus. A GHL-only failure never strands the DB mirror out of
@@ -510,6 +522,25 @@ export async function presentEstimate(estimateId: string, presentedByName: strin
     throw new Error(`presentEstimate: estimate ${estimateId} is superseded — use the current version.`);
   }
 
+  // FIX ROUND (whole-branch review): symmetric with recordEstimateAcceptance's
+  // F7 guard — see this function's doc comment. A family with an active
+  // acceptance must be reversed before any version can be (re-)presented.
+  const { data: existingState, error: existingStateError } = await admin
+    .from("estimate_acceptance_state")
+    .select("accepted")
+    .eq("estimate_number", detail.estimate.estimate_number)
+    .maybeSingle();
+  if (existingStateError) {
+    throw new Error(`presentEstimate: estimate_acceptance_state check failed: ${existingStateError.message}`);
+  }
+  if (existingState?.accepted) {
+    throw new RecordAcceptanceEventError(
+      `presentEstimate: estimate family ${detail.estimate.estimate_number} has an active acceptance — reverse it ` +
+        "before presenting a new version.",
+      "already_accepted",
+    );
+  }
+
   const hash = computeSnapshotHash(detail);
 
   const { error: presentError } = await admin.from("estimate_presentations").upsert(
@@ -529,8 +560,14 @@ export async function presentEstimate(estimateId: string, presentedByName: strin
   let warning: string | undefined;
   const link = await findIdentityLink(admin, detail.estimate.estimate_number);
   if (link) {
-    const stages = await resolveJobPipelineStages();
+    // FIX ROUND (whole-branch review): resolveJobPipelineStages() moved
+    // INSIDE this try — a resolution failure (e.g. cold cache + GHL
+    // unreachable) must degrade the same non-fatal way a stage-MOVE
+    // failure does, not throw fatally after the durable DB write above
+    // already succeeded. See the matching notes on recordEstimateAcceptance
+    // and reverseEstimateAcceptance.
     try {
+      const stages = await resolveJobPipelineStages();
       await assertOpportunityInJobPipelineAndMoveStage(link.ghl_opportunity_id, stages.quoteSentStageId, stages.pipelineId);
     } catch (err) {
       // Handoff #7 (module header): a wrong-pipeline mismatch is a
@@ -670,8 +707,10 @@ export async function recordEstimateAcceptance(input: RecordAcceptanceInput): Pr
   let warning: string | undefined;
   const link = await findIdentityLink(admin, estimateNumber);
   if (link) {
-    const stages = await resolveJobPipelineStages();
+    // FIX ROUND (whole-branch review): resolveJobPipelineStages() moved
+    // INSIDE this try — see presentEstimate's matching note.
     try {
+      const stages = await resolveJobPipelineStages();
       await assertOpportunityInJobPipelineAndMoveStage(link.ghl_opportunity_id, stages.quoteAcceptedStageId, stages.pipelineId);
     } catch (err) {
       // See presentEstimate's matching catch block — a wrong-pipeline
@@ -807,12 +846,18 @@ export async function reverseEstimateAcceptance(input: ReverseAcceptanceInput): 
   }
 
   const link = await findIdentityLink(admin, estimateNumber);
-  const stages = await resolveJobPipelineStages();
-  const destinationStageId = input.destination === "quote_sent" ? stages.quoteSentStageId : stages.closedLostStageId;
 
   let warning: string | undefined;
   if (link) {
+    // FIX ROUND (whole-branch review): resolveJobPipelineStages() is now
+    // resolved ONLY when a link exists (previously unconditional, even
+    // with no identity link and therefore nothing to move), and moved
+    // INSIDE this try so a resolution failure degrades the same
+    // non-fatal way a stage-MOVE failure does — see presentEstimate's
+    // matching note.
     try {
+      const stages = await resolveJobPipelineStages();
+      const destinationStageId = input.destination === "quote_sent" ? stages.quoteSentStageId : stages.closedLostStageId;
       await assertOpportunityInJobPipelineAndMoveStage(link.ghl_opportunity_id, destinationStageId, stages.pipelineId);
     } catch (err) {
       // See presentEstimate's matching catch block — a wrong-pipeline

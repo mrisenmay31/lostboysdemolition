@@ -203,6 +203,17 @@ export function CommercialLifecyclePanel({
           Presented via {presentation.presented_via} by {presentation.presented_by_name} on{" "}
           {new Date(presentation.presented_at).toLocaleString()}.
         </p>
+      ) : acceptedOtherVersion ? (
+        // FIX ROUND (whole-branch review): the server-side guard is the
+        // real boundary (presentEstimate refuses this outright — see its
+        // doc comment), but the button shouldn't invite the refused action
+        // in the first place — a stale tab on a revised version, with the
+        // family still accepted elsewhere, would otherwise show a working
+        // "Mark as presented" button that always throws when clicked.
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          This family&apos;s active acceptance belongs to a different version — reverse it below before presenting
+          this one.
+        </p>
       ) : (
         <button
           type="button"

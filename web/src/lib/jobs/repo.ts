@@ -33,12 +33,15 @@ import "server-only";
 // supabase/migrations/20260819170000_schedule_estimate_rpc.sql: an
 // existing ACTIVE job for the family is returned unchanged (no raise);
 // a cancelled job is silently reactivated and returned (also no raise).
-// The ScheduleEstimateError `already_scheduled` code below exists for
-// the one case the RPC DOES raise on instead: the estimate's own
-// `job_number` is already set by a path OTHER than schedule_estimate
-// (the coexisting legacy ghl-job-webhook mint, live until the Phase 1
-// gate flips ENABLE_GHL_ACCEPTANCE_JOB_CREATION) — see
-// classifyScheduleError's comment for the exact verified message.
+// The ScheduleEstimateError `already_scheduled` code below exists for the
+// cases the RPC DOES raise on instead of silently returning/reactivating:
+// the estimate's own `job_number` already set by a path OTHER than
+// schedule_estimate (the coexisting legacy ghl-job-webhook mint, live
+// until the Phase 1 gate flips ENABLE_GHL_ACCEPTANCE_JOB_CREATION), the
+// family's existing job having been minted from a DIFFERENT estimate
+// version than the one now being scheduled, and a linked GHL opportunity
+// already claimed by a different job — see classifyScheduleError's
+// comment for the exact verified messages.
 //
 // `classifyScheduleError` below pattern-matches on lowercased SUBSTRINGS
 // of the RPC's raised message text — VERIFIED against lane 4a's landed
@@ -85,8 +88,13 @@ function normalizeJobRow(raw: Record<string, unknown>): ScheduledJobRow {
  * Order matters: more specific checks are tried before the generic
  * "not accepted" fallback.
  *
- * VERIFIED against every `raise exception` in lane 4a's landed
- * supabase/migrations/20260819170000_schedule_estimate_rpc.sql:
+ * VERIFIED against every USER-FACING `raise exception` in lane 4a's
+ * landed supabase/migrations/20260819170000_schedule_estimate_rpc.sql —
+ * i.e. every raise this classifier is actually meant to distinguish. The
+ * plain input-validation raises ("p_estimate_id is required", a malformed
+ * p_schedule date, etc.) are programmer/caller-bug errors the form should
+ * never trigger through normal use, and are correctly left to fall
+ * through to `other` rather than enumerated here:
  *   - "estimate % has no estimate_financial_details row — cannot mint a
  *     budget" -> missing_financial_details (note: UNDERSCORED
  *     "estimate_financial_details", not "financial details" — matching
@@ -94,9 +102,19 @@ function normalizeJobRow(raw: Record<string, unknown>): ScheduledJobRow {
  *     catches this)
  *   - "estimate % already has job_number % set (linked outside
  *     schedule_estimate) — refusing to mint a second job" ->
- *     already_scheduled (this is the ONLY raise-based already-scheduled
- *     path — the far more common "family already has an ACTIVE job"
- *     case is not an error at all; see the module header)
+ *     already_scheduled
+ *   - "job % for family % was minted from a different estimate version
+ *     (%) than the one being scheduled (%) — resolve manually or via a
+ *     change order" -> already_scheduled (a job genuinely already exists
+ *     for the family, just pinned to a different version — same "go view
+ *     that job" UI treatment as the raise above; this message also
+ *     happens to carry the existing job's JOB-XXXX token, so
+ *     extractJobNumber recovers it the same way)
+ *   - "GHL opportunity % is linked to a different job — cannot mint a
+ *     duplicate; resolve manually" -> already_scheduled (no JOB-XXXX
+ *     token in THIS one — it names the GHL opportunity id, not a job
+ *     number — so extractJobNumber returns null and the UI falls back to
+ *     showing the raw error rather than offering a "go to job" link)
  *   - "estimate % is not the currently accepted version of family % —
  *     cannot schedule" -> not_accepted (this single message covers
  *     "never accepted", "reversed", AND "superseded-since-accepted" —
@@ -110,8 +128,8 @@ export function classifyScheduleError(message: string): ScheduleEstimateErrorCod
   if (m.includes("supersed")) return "superseded";
   if (
     (m.includes("already") && (m.includes("job") || m.includes("schedul"))) ||
-    m.includes("belongs to the estimate family") ||
-    m.includes("belongs to another job")
+    m.includes("minted from a different estimate version") ||
+    m.includes("linked to a different job")
   ) {
     return "already_scheduled";
   }
