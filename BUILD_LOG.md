@@ -255,7 +255,13 @@ confirmed persisting). Timestamps UTC.
 schedule+cancel pairs + 2 flip-verify stage moves); Slack messages in #ops-test only. GHL TEST
 opportunity `UuTLn5Xg2Bb9EEj4UUBv` finishes where it started (Closed Lost (Declined)) — its
 per-item delete approval remains a standing item. **First real estimate is now ≥ 1430.**
-**The Phase 1 gate is PASSED. Remaining Task 7 item: merge per Matt's instruction.**
+**The Phase 1 gate is PASSED. MERGED TO MAIN same session (Matt's approval): fast-forward
+`4dd15cc..2085f42`, pushed. Production Vercel deploy VERIFIED: deployment
+`dpl_BYVp7EEttzyCucRG9jxvBf4QPaFq` (commit `2085f42`, target production) built READY in ~20s and
+is aliased to lostboysdemolition.vercel.app; smoke: `/` 307→`/estimates` (decided pre-Task-8
+behavior), `/estimates` 200, `/jobs/exceptions` 200 — the Phase 1 web code (economics inputs,
+lifecycle UI, schedule flow, exceptions queue) is LIVE in production. Task 7 is fully CLOSED;
+v2 PHASE 1 IS COMPLETE.**
 
 ### 2026-08-25 — Session 9: 5B probe legs 3/5/6 COMPLETE — all six legs proven live, Task 5B is DONE, Slack override unset; next = Task 7 (Phase 1 gate)
 
