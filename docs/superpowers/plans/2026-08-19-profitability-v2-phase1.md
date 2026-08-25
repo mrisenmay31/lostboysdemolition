@@ -263,8 +263,12 @@ crew-channel delivery stays unproven past the gate — consequence recorded in B
   move on the 5A TEST opportunity → webhook 200 `quote_accepted_awaiting_schedule` + sync_log/
   job_events skipped rows + NOTHING minted; opportunity restored to Closed Lost. `postponed` now
   probe-safe. Slack override unset + confirmed absent at close.
-- [~] **Step 4:** BUILD_LOG/CLAUDE.md/BUILD_PLAN/NEXT_SESSION_PROMPT landed this session; **merge
-  per Matt's instruction — the one remaining Task 7 item.**
+- [x] **Step 4 (DONE 2026-08-25, Session 10):** BUILD_LOG/CLAUDE.md/BUILD_PLAN/
+  NEXT_SESSION_PROMPT landed; **MERGED TO MAIN (Matt's approval)** — fast-forward
+  `4dd15cc..2085f42` + docs `58928c3`; production Vercel deploy VERIFIED READY at
+  lostboysdemolition.vercel.app (`/` 307→`/estimates`, `/estimates` + `/jobs/exceptions` 200).
+  **TASK 7 CLOSED — v2 PHASE 1 IS COMPLETE.** This plan is finished; Phase 2 work belongs to the
+  v2 program doc (next: reconcile Dane's dashboard feedback before writing Task 6).
 
 ## Risk flags
 
