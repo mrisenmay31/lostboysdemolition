@@ -84,6 +84,12 @@ loss); no retry/backoff exists, so treat bulk imports with care.
   (BL-7 resolved by v2 Task 0B); the estimator picker stays for estimates. **Direct Stripe +
   Synder→QBO reaffirmed** — GHL never becomes invoice authority. **Phase D decided** (D1/D2
   split — see Open decisions row 3).
+- **2026-08-25 — the Job Dashboard is the web app's HOME surface** (see `BUILD_PLAN.md` →
+  2026-08-25 amendment): estimates become a section within the dashboard app, per the reviewed
+  prototype's header IA. **The `/` flip is deferred to v2 Task 8** — the deployment is
+  network-open and the dashboard carries profitability data, so v2 Task 6 builds `/jobs` + an
+  "Estimates" nav link while `/` keeps redirecting to `/estimates` until Task 8 owner-gates the
+  financial routes.
 
 ## Open decisions blocking work
 

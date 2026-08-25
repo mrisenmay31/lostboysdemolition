@@ -8,6 +8,22 @@ this file**). For Task 5B specifics also read
 `docs/superpowers/plans/2026-08-24-v2-phase1-task5b-inbound-calendar-sync.md` (approved sub-plan,
 9 header decisions + execution-status block).
 
+## Session 7 (2026-08-25, docs-only) — gate HELD; dashboard-home decision recorded; prototype artifact published
+
+- **Matt explicitly HELD the Task 5B Matt gate** ("hold — something else first"). Nothing
+  applied or deployed; prod unchanged. The gate section below is still the next work.
+- The Job Dashboard prototype (branch `codex/job-dashboard-prototype` @ `c2e117a`) is published
+  as a **private Claude artifact for Dane's review**:
+  https://claude.ai/code/artifact/b4b07754-5c34-463f-86e5-800cbc54a0f9 — content identical, still
+  awaiting Dane. ⚠️ Its `/private/tmp` worktree is pruned — extract the HTML from git, not the
+  worktree.
+- **Decision (Matt): the dashboard is the web app's HOME surface; estimates become a section
+  within it. The `/` flip is deferred to v2 Task 8** (network-open deployment must not front-door
+  profitability data pre-auth). Task 6 builds `/jobs` + an "Estimates" nav link; `/` keeps
+  redirecting to `/estimates` until Task 8 owner-gates the financial routes. Recorded:
+  `BUILD_PLAN.md` 2026-08-25 amendment + v2 doc Task 6/Task 8 notes, commit `46da224`. No work
+  owed until Task 6/8; fold Dane's prototype feedback into the v2 plan before writing Task 6.
+
 ## What just happened — v2 Phase 1 Session 6 (2026-08-24): Task 5B Step 2 BUILT AND FULLY REVIEWED, stopped at the Matt gate
 
 Branch: **`claude/last-session-review-f7tqxw`** (still NOT merged to main — Matt decides when).

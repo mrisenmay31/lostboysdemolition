@@ -44,6 +44,45 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-25 — Session 7 (docs-only): Task 5B gate HELD; dashboard prototype published as a private artifact; "dashboard is the app's home surface" decision recorded
+
+**NO prod applies, NO deploys, NO migrations, NO code this session.** Production unchanged:
+migration head `20260820152300` (35 applied), `google-calendar-webhook` still the deployed v1
+spike, all function versions as at Session 6 close. Branch `claude/last-session-review-f7tqxw`
+gained docs commits only (`46da224` + this landing).
+
+**1. The Task 5B Matt gate was explicitly HELD.** Presented at session open (prod apply of the 3
+migrations → deploy the `google-calendar-webhook` rewrite → live probe); Matt chose "hold —
+something else first." All gate items and prerequisites carry forward unchanged, including the 🔴
+Slack bot invitations and the `closed_lost`-only probe constraint.
+
+**2. Job Dashboard prototype published for Dane's review.** Located on branch
+`codex/job-dashboard-prototype` at `c2e117a` (the 2026-08-21 re-derived financial model). ⚠️ Its
+`/private/tmp/lostboys-job-dashboard-pr` worktree is pruned/empty — extract the file from git
+(`git show c2e117a:docs/prototypes/lost-boys-job-dashboard-prototype.html`), don't trust the
+worktree. Opened locally for Matt, then published as a **private Claude artifact**:
+**https://claude.ai/code/artifact/b4b07754-5c34-463f-86e5-800cbc54a0f9** — content byte-identical
+except the outer `<html>/<head>/<body>` wrapper stripped (artifact host supplies its own) and the
+tab title shortened to "Lost Boys Job Dashboard". Verified fully self-contained (no external
+scripts/fonts/fetches) and all "Fictitious demo data" / "nothing saved" notices intact. Private
+until Matt shares it from the artifact page.
+
+**3. Decision (Matt, 2026-08-25): the Job Dashboard is the web app's HOME surface; estimates
+become a section within it.** Today `web/src/app/(app)/page.tsx` redirects `/` → `/estimates` and
+nothing in v2 Task 6 changed that — the gap Matt's instinct caught. **Sequencing decided: the `/`
+flip happens with v2 Task 8 (owner auth), NOT Task 6** — the deployment is network-open, and the
+dashboard's profitability data must not become the front door before the financial routes are
+gated. Task 6 builds the dashboard at `/jobs` + adds an "Estimates" link to the shared `(app)`
+nav (the reviewed prototype's header IA — Dashboard / Jobs / Schedule / New Estimate — is the
+model); Task 8 flips `/` (authenticated active owner → dashboard; everyone else → `/estimates`,
+no-login picker flow untouched). Recorded in `BUILD_PLAN.md` (new 2026-08-25 amendment) and the
+v2 program doc (binding notes in Task 6 and Task 8). Commit `46da224`, pushed.
+
+**What the next session needs to know:** it opens exactly where Session 6 left it — the Task 5B
+Matt gate (see the 2026-08-24 entry and `NEXT_SESSION_PROMPT.md`). The dashboard-home decision
+requires no work until v2 Task 6/8; Dane's prototype feedback should be reconciled into the v2
+plan before Task 6 is written (standing note). First real estimate still ≥1428.
+
 ### 2026-08-24 — v2 Phase 1 Session 6: Task 5B Step 2 BUILT AND FULLY REVIEWED on the branch — inbound Calendar sync awaits Matt's prod apply + deploy + probe
 
 **Branch `claude/last-session-review-f7tqxw`, 7 commits `cf240a2..8553aa2`, pushed. NO prod applies,
