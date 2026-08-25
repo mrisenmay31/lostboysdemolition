@@ -228,7 +228,20 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
 
 **Precondition (hard stop, no exceptions):** Matt's phone smoke + real estimate ≥1426.
 
-- [ ] **Step 1:** Whole-branch adversarial Opus review (standing rule).
+- [x] **Step 1 (DONE 2026-08-25, Session 10):** Whole-branch adversarial review (standing rule;
+  strongest available model) — 4 concurrent lanes (SQL/migrations w/ live-DB verification, edge
+  functions, web, cross-task seams) over the full 41-commit branch. **Verdict: MERGE-READY after
+  one fix round — 0 BLOCKING, 3 IMPORTANT (2 fixed in `604ddc5`: presentEstimate acceptance
+  guard + non-fatal GHL stage resolution; 1 deferred pending Matt: dispatcher lacks a
+  `slack_reconciliation_required` handler, unreachable until Phase 3), 17 MINOR (2 fixed, rest
+  in the Session 10 BUILD_LOG deferral ledger).** Repo↔prod proven functionally identical
+  (comment-stripped md5 on all 9 RPC bodies); seams lane passed all 7 checks (enum parity,
+  outbox contract, raise needles, deviation-12 pin, date symmetry, launch_workflow, docs).
+  Suites post-fix: deno 411/411, web 604/604, build green. Two ⚠️ confirm items for Matt at the
+  gate: (a) defer the `slack_reconciliation_required` handler to the first Phase-3 dispatcher
+  touch; (b) intended-behavior check — a version accepted then superseded by a never-presented
+  draft remains schedulable (per the migration's own ruling). Full record: Session 10 BUILD_LOG
+  entry.
 - [ ] **Step 2 (E2E, live GHL with TEST-labeled records — no staging GHL exists; Phase A/B precedent):** create/link opportunity → present two versions → accept v2 → confirm `Quote Accepted` + no job → schedule 2-day all-day → one `JOB-XXXX`, one budget v1, correct exclusive-end Calendar rendering, GHL `Job Scheduled` → edit dates both directions (5B live) or outbound-only (5B pending) → simulate deletion + resolve → prove retry idempotency. Re-cancel test jobs after (re-drags revive rows — known hazard).
 - [ ] **Step 3 (permanent):** set `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` in prod, redeploy `ghl-job-webhook` via the invariant, live-verify a Quote Accepted drag returns `quote_accepted_awaiting_schedule` and mints nothing.
 - [ ] **Step 4:** Land the session: BUILD_LOG entry (verbatim runbook records), CLAUDE.md + BUILD_PLAN.md status updates, `NEXT_SESSION_PROMPT.md` regenerated, merge per Matt's instruction.

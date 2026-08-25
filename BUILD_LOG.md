@@ -44,6 +44,126 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-25 — Session 10: Task 7 Step 1 — whole-branch adversarial review COMPLETE (fix round `604ddc5`); Steps 2–4 blocked on Matt's preconditions
+
+**What ran:** Task 7 Step 1 (standing rule): four concurrent adversarial review lanes over the
+full branch (41 commits, ~23.7k insertions, 85 files) — SQL/migrations (with live-DB read-only
+verification), edge functions, web, and a dedicated cross-task-seams lane — plus the
+orchestrator's full-suite gate and a pre-gate live-state readback. No prod applies, no deploys,
+no GHL or calendar writes this session.
+
+**Verdict: MERGE-READY after one web-lane fix round. 0 BLOCKING, 3 IMPORTANT (2 fixed, 1
+explicitly deferred pending Matt's confirm), 17 MINOR (2 fixed, rest in the deferral ledger).**
+
+Lane results:
+- **SQL/migrations — MERGE-READY 0/0/5.** Repo↔prod functionally identical across all 9 RPC
+  bodies (comment-stripped md5s match; raw drift on 6 of 9 is comments only). Live posture
+  verified, not assumed: 22 new tables RLS-enabled with grants `{service_role, postgres}` only;
+  every RPC/trigger function SECURITY INVOKER, `search_path` pinned, EXECUTE revoked; all 9
+  immutability triggers + 3 partial unique indexes live; both crons live with the secret
+  substituted; deviations 10/11/12 implemented as ratified; family-lock ordering consistent
+  across all three locking RPCs (no inversion possible); every raise text byte-matches its web
+  needle.
+- **Edge functions — MERGE-READY 0/0/5.** Always-200 double-guarded; dual auth
+  (token-hash vs `x-webhook-secret`) confirmed disjoint; deleted-before-unmanaged; fail-closed
+  NaN revision guard; marks-after-RPC keyed on `calendar_id`; backoff/dead-letter math exact;
+  **no-pricing-to-crew verified at every layer** — `scope_summary`'s only v2 writer
+  (`schedule_estimate`) aggregates line-item NAMES only, and the tests assert absence, not just
+  main-calendar presence; the flag gate is a single request-time env read with six non-disabling
+  values pinned (`"FALSE"`, `"false "` etc.); the compat check's zero-side-effects test poisons
+  every dependency.
+- **Web — NEEDS-FIXES 0/2/3 → both IMPORTANT fixed this session** (below). All seven Task-2
+  binding handoffs verified present (incl. F15 quote-override refusal); crew enum
+  server-enforced Crew 1–4 only; server-action trust boundary held under attack.
+- **Seams — MERGE-READY 0/1/4.** All 7 checks PASSED: enum/union parity exact
+  (character-for-character, every pair enumerated); outbox producer↔consumer contract exact for
+  all three live kinds incl. rev-scoped keys and the `:cancel:` namespace; every raise-text
+  needle verified verbatim; **deviation-12 end to end** — `accepted_price` computed server-side
+  under the family lock as `coalesce(quoted_price, total_bid)`, events immutable, budget v1 and
+  `jobs.estimate_value` read the pinned state price, so budget revenue cannot diverge from what
+  the client accepted; **date round-trip symmetric** (`addOneDay`/`subtractOneDay` exact UTC
+  inverses; `dates_unchanged` checked before revision logic — no ±1-day walk possible);
+  `launch_workflow` seam strict (`=== true`, column `NOT NULL DEFAULT false`, sole writer
+  `schedule_estimate`); 11 load-bearing doc claims spot-checked, all accurate.
+
+**Fix round (commit `604ddc5` — Sonnet implemented, orchestrator re-reviewed the diff):**
+1. **IMPORTANT — `presentEstimate` had no acceptance-state guard** (asymmetric with
+   `recordEstimateAcceptance`'s F7 guard): from a revised version's page — or a stale tab — an
+   accepted family could be regressed GHL Quote Accepted → Quote Sent and `estimates.status`
+   `'accepted'` overwritten with `'sent'`, breaking the status↔acceptance-state mirror. Now
+   refuses with the existing `already_accepted` code (same query shape as F7);
+   `CommercialLifecyclePanel` hides the "Mark as presented" button when the family's active
+   acceptance belongs to a different version.
+2. **IMPORTANT — `resolveJobPipelineStages()` sat OUTSIDE the F2 non-fatal try** in all three
+   lifecycle functions (and ran unconditionally on link-less reversals): a GHL pipeline
+   *resolution* failure (cold cache + GHL unreachable) after the durable RPC write threw fatally
+   past the `estimates.status` mirror, and a retry then hit the permanent guards — exactly the
+   class F2 exists to prevent, invisible to the F2 test (which only injected into the stage
+   *move*). Now resolved inside the try (warning path) and skipped entirely when no identity
+   link exists; the deliberate `OpportunityPipelineMismatchError` re-throw is untouched.
+3. MINOR — `classifyScheduleError`: needles added for the two live raises that fell to `other`
+   ("minted from a different estimate version", "linked to a different job" → both
+   `already_scheduled`); two dead needles removed; the "VERIFIED against every raise" comment
+   made true.
+4. MINOR — `web/src/lib/jobs/types.ts` stale doc comment (claimed `JobHealthInput.jobStatus` is
+   a 5-value union; it is the full 7) corrected — web and seams lanes flagged it independently.
+
+Suites after the fix round: deno **411/411** (golden-321 intact), web **604/604** (+8 new
+tests), `npm run build` green, `tsc --noEmit` clean. Pushed.
+
+**Deferral ledger (fold into the next touch of each area):**
+- ⚠️ **NEEDS MATT'S CONFIRM (the un-fixed IMPORTANT):** `mark_job_reconciliation_required()`
+  (applied to prod, zero callers until Phase 3 — requires a closure snapshot) enqueues outbox
+  kind **`slack_reconciliation_required`**, which `integration-dispatcher` does not handle: the
+  first Phase-3 caller would burn 5 retries → dead-letter and lose its Slack ping. **Proposed:
+  build the handler with the first Phase-3 task that touches the dispatcher** (avoids a prod
+  redeploy now); alternative is a small handler + redeploy at the gate.
+- ⚠️ **NEEDS MATT'S CONFIRM (intended-behavior check, no fix proposed):** `schedule_estimate`
+  eligibility comes solely from acceptance-state currency, so a version accepted and then
+  superseded by a never-presented draft remains schedulable (consistent with the migration's own
+  documented ruling — the customer accepted that price — but a mid-revision family can be
+  scheduled on the pre-revision version).
+- `google-calendar-webhook` (at its next deploy): admin-auth `?? ""` fails OPEN if
+  `GHL_WEBHOOK_SECRET` were ever unset (dispatcher's `!` pattern fails closed); the 404/410
+  deletion branch's `markExists` check can never match (fresh timestamp each pass) so the
+  benign RPC re-invocation + mark-row growth is every-pass, prune-bounded (mechanism now
+  understood); manual `register`/`stop` admin actions ignore supabase write results (orphan
+  channel window, self-heals ≤30 min via maintenance).
+- `_shared/google.ts` `updateCalendarEvent`: `res.json()` lacks the siblings'
+  `.catch(() => ({}))` — a non-JSON 404/410 body would evade `isNotFoundError` and dead-letter
+  instead of fallback-creating.
+- SQL: comment-only prosrc drift on 6 RPCs (re-apply repo text at next touch of each);
+  `jobs_original_estimate_number_key` lost-race branch returns without re-applying the F2
+  version guard (unreachable today — sole writer + family lock); `resolve_schedule_exception`
+  resolves paired alerts only under the `calendar_deleted:` fingerprint — future
+  `calendar_conflict`/`sync_failed` writers (none exist) would strand open alerts; a `reversed`
+  event missing `reversal_destination` surfaces the raw table CHECK (cosmetic);
+  `watch_channel_status` value `'expired'` has no writer anywhere (lapsed channels stay
+  `active` with a past `expires_at`; maintenance re-registers regardless).
+- Web: `recordEstimateAcceptanceAction` is the one mutating action without Zod at the boundary
+  (`effectiveAt` unbounded, free-text fields uncapped); `linkEstimateIdentity` GHL-create-then-
+  DB-fail leaves an orphaned GHL record (same accepted class as the push race); **when Task 6
+  wires a cancel/postpone UI, the wrapping server action must add the estimator-allowlist gate**
+  (`cancelScheduledJob`'s Zod accepts any nonblank `actorName` — today only
+  `resolve_schedule_exception` reaches it SQL-side).
+- F15 residual (record only): `update_estimate_quote` itself has no acceptance awareness — the
+  guard is app-layer; budget integrity is unaffected because the budget reads the pinned
+  `accepted_price`.
+
+**Pre-gate live-state readback (everything as documented):** all three invariant functions read
+back `verify_jwt=false`; no deploys since Session 8 (version counters read v22/v13/v3/v4 — the
+known cosmetic CLI bump; shas per Session-8 records); `ENABLE_GHL_ACCEPTANCE_JOB_CREATION`
+ABSENT; `SLACK_TEST_CHANNEL_OVERRIDE` ABSENT; 4 crons active (`*/5`, `7,37`, 2× night-before);
+5 active watch channels (earliest expiry 2026-09-01); outbox 0 pending / 0 dead-letter; 0 open
+alerts; `jobs` 4/4 cancelled; max estimate 1428 (first real still ≥1429).
+
+**What remains for the gate (Task 7 Steps 2–4) — blocked on Matt:** 🔴 Slack bot invitations to
+Crew 1–4 (real crew delivery never proven); phone smoke + one real estimate ≥1429 on the branch
+preview; authenticated JOB-1104 re-drag + re-cancel; calendar eyeballs (2026-12-15/16 and
+2026-12-28/29 clean); the two ⚠️ CONFIRM items above; then Step 2 E2E (live GHL, TEST-labeled),
+Step 3 permanent flag flip via the deploy invariant, Step 4 landing + merge per Matt's
+instruction.
+
 ### 2026-08-25 — Session 9: 5B probe legs 3/5/6 COMPLETE — all six legs proven live, Task 5B is DONE, Slack override unset; next = Task 7 (Phase 1 gate)
 
 Same-day continuation of Session 8. No code, no migrations, no deploys — a pure live-probe
