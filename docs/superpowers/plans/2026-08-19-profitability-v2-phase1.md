@@ -247,9 +247,24 @@ crew-channel delivery stays unproven past the gate — consequence recorded in B
   touch; (b) intended-behavior check — a version accepted then superseded by a never-presented
   draft remains schedulable (per the migration's own ruling). Full record: Session 10 BUILD_LOG
   entry.
-- [ ] **Step 2 (E2E, live GHL with TEST-labeled records — no staging GHL exists; Phase A/B precedent):** create/link opportunity → present two versions → accept v2 → confirm `Quote Accepted` + no job → schedule 2-day all-day → one `JOB-XXXX`, one budget v1, correct exclusive-end Calendar rendering, GHL `Job Scheduled` → edit dates both directions (5B live) or outbound-only (5B pending) → simulate deletion + resolve → prove retry idempotency. Re-cancel test jobs after (re-drags revive rows — known hazard).
-- [ ] **Step 3 (permanent):** set `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` in prod, redeploy `ghl-job-webhook` via the invariant, live-verify a Quote Accepted drag returns `quote_accepted_awaiting_schedule` and mints nothing.
-- [ ] **Step 4:** Land the session: BUILD_LOG entry (verbatim runbook records), CLAUDE.md + BUILD_PLAN.md status updates, `NEXT_SESSION_PROMPT.md` regenerated, merge per Matt's instruction.
+- [x] **Step 2 (DONE 2026-08-25, Session 10) — E2E PASSED:** estimate 1429 v1→v2 (present both,
+  accept v2, `accepted_price` $2,432.25 pinned server-side, no job at acceptance, both negative
+  raises verbatim) → `schedule_estimate` → **JOB-1107** (Crew 2 — first exercise; budget v1 from
+  the pin; idempotent re-call proven) → dispatcher attempt-1 everywhere (events + #ops-test
+  Slack, no pricing) → echo `dates_unchanged` both calendars (= exclusive-end round-trip proof)
+  → **reactivation FIRST-PROVEN** (cancel → re-schedule new dates → same job, rev 2, no second
+  budget) → teardown + M7 rev-share + re-cancel raise verbatim → outbox drained, 0 exceptions/
+  alerts. Physical drag/delete legs stand on Session 9's same-day live proof (Matt's connector
+  has no group-calendar ACL; BL-8); "Quote Accepted + no job" resequenced post-flip by design.
+- [x] **Step 3 (DONE 2026-08-25, Session 10) — THE PERMANENT CUTOVER IS LIVE:** flag set
+  `false`, `ghl-job-webhook` **v25** deployed via the invariant (`verify_jwt=false` read back,
+  siblings' shas undisturbed; own sha change explained — 5A-era `_shared/google.ts` addition in
+  the bundle). Live-verified through the REAL workflow: dispatcher-driven Quote Accepted stage
+  move on the 5A TEST opportunity → webhook 200 `quote_accepted_awaiting_schedule` + sync_log/
+  job_events skipped rows + NOTHING minted; opportunity restored to Closed Lost. `postponed` now
+  probe-safe. Slack override unset + confirmed absent at close.
+- [~] **Step 4:** BUILD_LOG/CLAUDE.md/BUILD_PLAN/NEXT_SESSION_PROMPT landed this session; **merge
+  per Matt's instruction — the one remaining Task 7 item.**
 
 ## Risk flags
 

@@ -25,7 +25,7 @@ shipped.
 | `airtable-job-completed` | 8 | 🟢 Live (v14) | 2026-07-30 |
 | `receive-airtable-webhook` | — | 🟢 Live (v11) — **unauthenticated**, retirement queued | 2026-07-30 |
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
-| `ghl-job-webhook` | A/v2 | 🟢 Live (**v20**, `verify_jwt=false` read back) — Phase A keystone + BL-4/BL-5 + **v2 Task 4 gates (2026-08-19): `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` flag (UNSET in prod ⇒ legacy minting unchanged) + unconditional `launch_workflow` compat check.** Deploy probed (function-level 401 + clean logs); authenticated live fire = Matt to-do (JOB-1104 re-drag, BL-5 procedure) | 2026-08-19 |
+| `ghl-job-webhook` | A/v2 | 🟢 Live (**v25**, `verify_jwt=false` read back) — Phase A keystone + BL-4/BL-5 + `launch_workflow` compat check. **PERMANENT CUTOVER LIVE 2026-08-25 (Session 10): `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` set in prod — Quote Accepted responds `quote_accepted_awaiting_schedule` and mints NOTHING (live-verified through the real GHL workflow); app scheduling is the sole minting path. Never re-enables (ratified decision 1)** | 2026-08-25 |
 | `google-calendar-webhook` | 5B | 🟢 Live (**v2**, `verify_jwt=false` read back, siblings sha-undisturbed) — all 3 migrations applied (head `20260825171051`, 38). 5 watch channels active, cron `7,37 * * * *` live. **PROBE COMPLETE (Session 9, 2026-08-25): all six legs proven live on JOB-1106** — inbound date apply + dispatcher mirror (update-not-create proven), deletion→exception→dismiss→recreate, `closed_lost` teardown, echo termination every round. Slack override UNSET + confirmed absent. **Task 5B DONE** | 2026-08-25 |
 | Crew Slack delivery | — | 🔴 **BROKEN — bot not in the crew channels** (`not_in_channel`, found live 2026-08-20). One successful post in system history (Crew 1, 2026-08-13); crews 2/3/4 never delivered. **Backlogged → BL-8 per Matt 2026-08-25 (Session 10) — no longer gate-blocking.** Until invited, each real scheduled job's Slack leg dead-letters loudly (alert raised; calendars/GHL unaffected) | 2026-08-25 |
 | `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
@@ -44,7 +44,7 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
-### 2026-08-25 — Session 10: Task 7 Step 1 — whole-branch adversarial review COMPLETE (fix round `604ddc5`); Steps 2–4 blocked on Matt's preconditions
+### 2026-08-25 — Session 10: TASK 7 COMPLETE — whole-branch review passed (fix round `604ddc5`), gate E2E PASSED (JOB-1107, reactivation first-proven), and the PERMANENT CUTOVER IS LIVE (`ghl-job-webhook` v25, flag=false, live-verified) — Phase 1 gate PASSED; merge decision is Matt's
 
 **What ran:** Task 7 Step 1 (standing rule): four concurrent adversarial review lanes over the
 full branch (41 commits, ~23.7k insertions, 85 files) — SQL/migrations (with live-DB read-only
@@ -176,6 +176,86 @@ invited, every real scheduled job's crew-Slack leg fails `not_in_channel` → re
 dead-letters with a `job_alerts` row; calendars/GHL unaffected; crews get no Slack
 notification. CLAUDE.md (env-vars 🔴 paragraph + v2 roadmap row) and the status-table Crew Slack
 row updated to match.
+
+**ADDENDUM 2 (same session, after Matt's four approvals: E2E now / flip on clean pass / defer the
+`slack_reconciliation_required` handler to the first Phase-3 dispatcher touch / superseded-but-
+accepted schedulability CONFIRMED intended) — Task 7 Steps 2+3 EXECUTED AND PASSED.** All
+server-side choreography per the Session 8 recipe; Slack via `SLACK_TEST_CHANNEL_OVERRIDE=
+C0BPPG8997Z` (#ops-test), set at E2E start, **unset + confirmed absent at close** (flag row
+confirmed persisting). Timestamps UTC.
+
+**Step 2 — gate E2E (estimate 1429 → JOB-1107, Crew 2 — first Crew 2 exercise):**
+- **Two-version commercial flow:** 1429 v1 (TEST, $2,044.13) created via
+  `create_estimate_with_items_v2` → presented → v2 created ($2,432.25, dump 3) → **v1
+  auto-superseded by the RPC** → v2 presented → NEGATIVE: accepting v1 raised "is superseded —
+  accept the current version" verbatim → v2 accepted via `record_estimate_acceptance_event`:
+  **`accepted_price` $2,432.25 computed server-side under the family lock (deviation-12 pin)**,
+  state points at v2, exactly one immutable event → **no job minted at acceptance** (jobs 4, 0
+  active) → NEGATIVE: scheduling v1 raised "is not the currently accepted version of family
+  1429" verbatim. (Choreography note: v1's `status='sent'` was a direct UPDATE — no
+  `estimate_mutations_audit` row for that one hop; v2's status went through
+  `update_estimate_status`.)
+- **Mint:** `schedule_estimate(v2)` → **JOB-1107** scheduled 2027-01-11→12, `launch_workflow=
+  true`, rev 1, `estimate_value` $2,432.25; **budget v1: `approved_revenue` $2,432.25 from the
+  pinned acceptance, planned profit $1,175 / 48.31% recomputed at mint**, dump cost $195, source
+  = v2's id. **Idempotent re-call returned the same JOB-1107 — no new outbox row, budget count
+  still 1, exactly 1 job for the family.**
+- **Dispatcher (attempt 1):** both calendar events created; **crew Slack posted to #ops-test —
+  `ok:true` log-verified: job number, client, tel-linked phone, "Mon Jan 11", address, scope
+  names, NO pricing.** Google's echo `exists` notifications hit BOTH calendars within 2s and
+  classified **`dates_unchanged`** — echo terminated, and since the classifier compares Google's
+  copy against the job row, this doubles as the **exclusive-end rendering round-trip proof**.
+- **Reactivation — FIRST LIVE PROOF (no prior probe exercised it):** cancel `closed_lost` →
+  dispatcher deleted both events + cleared ids (attempt 1) → `schedule_estimate` re-call with
+  NEW dates (2027-01-18→19) revived the SAME JOB-1107: rev 1→2, `cancellation_reason` cleared,
+  pinned price intact, **no second job, no second budget** → dispatcher recreated both events +
+  Slack re-notified (attempt 1). This leg is also the app-side **outbound date change**.
+- **Final teardown:** cancel `closed_lost` → **M7 rev-share observed: `job.cancelled:JOB-1107:
+  rev2`** (shares the schedule's rev; rev1/rev2 keys collision-free across the full
+  cancel→reactivate→cancel cycle) → re-cancel raised "job JOB-1107 cannot be cancelled from
+  status cancelled" verbatim → dispatcher cleared + deleted both events (attempt 1). Close
+  state: outbox 0 unfinished, 0 open exceptions, 0 open alerts, 5 jobs all cancelled.
+- **Coverage notes (deliberate, recorded):** the physical calendar drag/delete legs were not
+  re-run — Matt's Google connector has no ACL on the five group calendars and the manual items
+  are backlogged (BL-8); both legs were proven live on production the same day (Session 9,
+  JOB-1106, real Google pushes). The E2E's "confirm Quote Accepted + no job" was deliberately
+  resequenced to POST-flip (pre-flip, a GHL Quote Accepted entry would legacy-mint by design);
+  the app-side half — acceptance mints nothing — was asserted pre-flip. GHL stage projection for
+  JOB-1107 itself did not run (no identity link, enqueues are conditional); the GHL leg was
+  exercised twice minutes later by the flip-verify stage moves, plus 5A's original proof.
+- Learned mechanics: `integration_outbox` inserts need `aggregate_type`/`aggregate_id`
+  (`'job'`/job number); the cron-fire do-block's POST only leaves the DB at COMMIT, so
+  same-transaction status checks always read `pending` — check from the NEXT statement batch;
+  outbox status enum has no `'skipped'` value.
+
+**Step 3 — THE PERMANENT CUTOVER (ratified decision 1 — never re-enables):**
+- `ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false` set in prod secrets; `ghl-job-webhook` redeployed
+  via the two-command invariant → **v25, `verify_jwt=false` read back**; siblings undisturbed
+  (`integration-dispatcher` sha `ae3fbf49…`, `google-calendar-webhook` sha `93855f6d…`
+  unchanged; version counters bumped cosmetically, the known CLI behavior). The webhook's own
+  sha changed `1a5a340a…` → `13e90528…` — **expected and explained**: the bundle picked up
+  `_shared/google.ts`'s 5A-era additive `updateCalendarEvent` (landed after the v20 deploy); the
+  function's own source is untouched since Task 4c and was whole-branch-reviewed this session.
+- **Live-verified through the REAL workflow, not a simulated POST:** a crafted
+  `ghl.stage.requested` outbox row (`gate:flip-verify:quote-accepted:1`) moved the 5A TEST
+  opportunity `UuTLn5Xg2Bb9EEj4UUBv` to Quote Accepted (dispatcher attempt 1 — its cold-start
+  log also showed the Contractor Pipeline's duplicate "Job Scheduled" stage name, confirming the
+  pipeline-membership assert's reason in the wild). The real GHL Quote Accepted workflow fired
+  into the redeployed webhook at 22:35:30 → **200 `quote_accepted_awaiting_schedule`,
+  `sync_log` skipped-row, `job_events` "Skipped — ENABLE_GHL_ACCEPTANCE_JOB_CREATION=false; app
+  scheduling is the job-creation authority", jobs table unchanged — NOTHING MINTED.**
+  Opportunity restored to Closed Lost (Declined) via a second outbox row (attempt 1).
+- Post-flip facts: **app scheduling (`schedule_estimate`) is the SOLE job-minting path**;
+  `postponed` cancel/exception resolutions are now probe-safe (the Quote Accepted workflow can
+  no longer mint on re-entry).
+
+**Production artifacts this session (nothing deleted — standing rule):** estimates 1429 v1
+(superseded) + v2 (accepted; acceptance state + 1 immutable event; 2 presentations); JOB-1107
+(cancelled, no calendar events, no GHL link); budget v1; 8 outbox rows all `succeeded` (rev1/rev2
+schedule+cancel pairs + 2 flip-verify stage moves); Slack messages in #ops-test only. GHL TEST
+opportunity `UuTLn5Xg2Bb9EEj4UUBv` finishes where it started (Closed Lost (Declined)) — its
+per-item delete approval remains a standing item. **First real estimate is now ≥ 1430.**
+**The Phase 1 gate is PASSED. Remaining Task 7 item: merge per Matt's instruction.**
 
 ### 2026-08-25 — Session 9: 5B probe legs 3/5/6 COMPLETE — all six legs proven live, Task 5B is DONE, Slack override unset; next = Task 7 (Phase 1 gate)
 
