@@ -200,13 +200,19 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
   per-calendar failure isolation; marks recorded only AFTER a completed RPC outcome) + whole-slice
   final review (merge-ready; mirror-loop termination and rev-key collision-freedom proven) + final
   fix wave, all re-review-verified. Commits `cf240a2..8553aa2`, pushed.
-- [~] **Step 3 (PARTIAL — 2026-08-24):** Runbook cycle DONE (branch `v2-phase1-task5b`, probes a–d
-  FAITHFUL, RED 32/32 not-ok, GREEN **147/147 first execution**, branch deleted; full suites deno
-  **411/411** golden intact + web **596/596** + build green); reviews DONE; commits pushed.
-  **REMAINING = the Matt gate:** prod apply of the 3 migrations (exact repo files, server-side
-  secret substitution) + `google-calendar-webhook` deploy via the `--no-verify-jwt` invariant +
-  the live probe (prerequisite: Slack bot invited or `SLACK_TEST_CHANNEL_OVERRIDE`; `closed_lost`
-  teardown only). 5B gates separately from the phase gate.
+- [~] **Step 3 (PARTIAL — 2026-08-24, advanced 2026-08-25):** Runbook cycle DONE (branch
+  `v2-phase1-task5b`, probes a–d FAITHFUL, RED 32/32 not-ok, GREEN **147/147 first execution**,
+  branch deleted; full suites deno **411/411** golden intact + web **596/596** + build green);
+  reviews DONE; commits pushed. **Session 8 (2026-08-25): Matt approved — 3 migrations APPLIED TO
+  PRODUCTION** (head `20260825171051`, 38 applied; server-side secret substitution; post-apply
+  assertions + advisors clean) **and `google-calendar-webhook` v2 DEPLOYED** via the invariant
+  (siblings sha-undisturbed). `SLACK_TEST_CHANNEL_OVERRIDE=#ops-test` SET for the probe (unset at
+  probe close). **Probe legs 1/2 + echo termination PROVEN LIVE** — 5 active watch channels with
+  sync handshakes; estimate 1428 → **JOB-1106** (no GHL link, deliberately); dispatcher succeeded
+  attempt 1 including the **first-ever dispatcher crew-Slack delivery**; real `exists`
+  notification → `dates_unchanged`. **REMAINING: probe legs 3/5/6** (Matt drags the main event's
+  dates; deletes the crew event; dismiss-resolve via RPC; `closed_lost` teardown; unset override)
+  — the next session opens here. 5B gates separately from the phase gate.
 
 ### Task 7: Phase 1 gate + permanent cutover
 

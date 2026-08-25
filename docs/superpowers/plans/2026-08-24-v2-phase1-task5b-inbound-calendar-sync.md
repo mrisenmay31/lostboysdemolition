@@ -16,9 +16,22 @@
 > `cf240a2..8553aa2`, pushed). **Task 4 Steps 1–2 COMPLETE**: per-lane adversarial reviews + fix
 > rounds + whole-slice final review + final fix wave all clean; runbook cycle done (branch
 > `v2-phase1-task5b`, probes a–d FAITHFUL, RED 32/32 not-ok, GREEN **147/147 first execution**,
-> branch deleted; suites deno 411/411 golden intact, web 596/596, build green). **Task 4 Steps 3–6
-> REMAIN — the Matt gate**: prod apply, deploy via the invariant, live probe (decision-9
-> prerequisites), session landing follow-through. Two ruled amendments to this plan's text, made
+> branch deleted; suites deno 411/411 golden intact, web 596/596, build green).
+>
+> **UPDATE 2026-08-25 (Session 8): Task 4 Steps 3–4 COMPLETE, Step 5 PARTIAL.** Matt approved
+> items 1+2; the 3 migrations are **APPLIED TO PRODUCTION** (head `20260825171051`, 38 applied;
+> secret substituted server-side; post-apply assertions + advisors clean) and
+> `google-calendar-webhook` **v2 is DEPLOYED** via the invariant (siblings sha-undisturbed).
+> Decision-9 satisfied via `SLACK_TEST_CHANNEL_OVERRIDE=C0BPPG8997Z` (#ops-test) — **SET, must be
+> unset at probe close**. Probe legs 1 (5 active channels, sync handshakes ×5) and 2 (estimate
+> 1428 → JOB-1106, Crew 4, 2026-12-22→23, dispatcher succeeded attempt 1 incl. the FIRST-EVER
+> dispatcher Slack delivery) plus early echo termination (real `exists` notification →
+> `dates_unchanged` mark) are **PROVEN LIVE**. JOB-1106 carries NO GHL identity link, deliberately
+> (both GHL enqueues are conditional — zero GHL artifacts, no re-drag hazard). **Steps 5 legs
+> 3/5/6 REMAIN — next session opens with Matt's two calendar actions** (drag the main event's
+> dates; delete the crew event) then dismiss-resolve via RPC (the `/jobs/exceptions` UI is on the
+> branch, not prod Vercel), `closed_lost` teardown, unset the override. Full record: the
+> 2026-08-25 Session 8 `BUILD_LOG.md` entry. Two ruled amendments to this plan's text, made
 > during execution and binding: (1) `resolve_schedule_exception`'s `dismiss` on a non-scheduled job
 > is an **acknowledge-and-close** (closes exception + alert, zero jobs/outbox writes) rather than
 > sharing raise text 8 — text 8 stays verbatim for `reschedule`; (2) `classifyManagedEvent` checks
@@ -533,8 +546,8 @@ git commit -m "feat: schedule-exception resolution action and queue page"
 
 - [ ] **Step 1: Adversarial Opus reviews** — one per lane (SQL logic + live-DB read-only; function; web), run concurrently with any still-open sibling fix rounds, then fix rounds until APPROVE. Reviewers do not run the full suite mid-flight and do not report on files outside their lane.
 - [ ] **Step 2: Full branch validation** — fresh disposable branch if the SQL changed after Step 1's fix rounds (runbook cycle re-run, RED/GREEN recorded); full suites `deno task test` + `cd web && npx vitest run` + `npm run build`; golden-321 intact.
-- [ ] **Step 3 (Matt approval required): apply to production** — the three migrations via `apply_migration` (cron secret substituted **server-side** from the live `cron.job.command` via the established `regexp_match` recipe — pattern `'x-webhook-secret'\s*,\s*'([^']+)'`, the jsonb_build_object shape, never the JSON-colon shape); post-apply plain-SQL catalog assertions + row counts (legacy tables unchanged); `get_advisors` security read; delete the disposable branch.
-- [ ] **Step 4 (Matt approval required): deploy** `google-calendar-webhook` via the two-command invariant:
+- [x] **Step 3 (Matt approval required): apply to production** — DONE 2026-08-25 (head `20260825171051`, 38 applied; server-side secret substitution; assertions + row counts + advisors clean; disposable branch was already deleted in Session 6).
+- [x] **Step 4 (Matt approval required): deploy** `google-calendar-webhook` via the two-command invariant — DONE 2026-08-25 (v2, `verify_jwt=false` read back; `ghl-job-webhook` v20 + `integration-dispatcher` v1 shas undisturbed):
 
 ```bash
 supabase functions deploy google-calendar-webhook --project-ref eiqqqwajmcpcwhvxxnhx --no-verify-jwt
@@ -543,7 +556,7 @@ supabase functions list --project-ref eiqqqwajmcpcwhvxxnhx
 
 Readback: `verify_jwt=false` for `google-calendar-webhook`, AND `ghl-job-webhook` + `integration-dispatcher` undisturbed (sha unchanged on any cosmetic version bump).
 
-- [ ] **Step 5: Live probe** (production, TEST-labeled, far-future dates per the JOB-1105 precedent; prerequisites per plan decision 9 — Slack bot invited or `SLACK_TEST_CHANNEL_OVERRIDE` set):
+- [~] **Step 5: Live probe — PARTIAL 2026-08-25** (legs 1, 2, and early echo termination PROVEN LIVE — estimate 1428 → JOB-1106, Crew 4, 2026-12-22→23, `SLACK_TEST_CHANNEL_OVERRIDE` route; legs 3, 5, 6 remain and open the next session) (production, TEST-labeled, far-future dates per the JOB-1105 precedent; prerequisites per plan decision 9 — Slack bot invited or `SLACK_TEST_CHANNEL_OVERRIDE` set):
   1. `action=maintain` via secret-POST → five `active` registry rows, `sync` notifications logged, `last_notification_at` stamped.
   2. Schedule a TEST estimate (≥1428 burn awareness: use the next number knowingly) → JOB-XXXX → dispatcher creates both events.
   3. **Inbound apply:** Matt drags/edits the main-calendar event's dates in the Google Calendar UI → within seconds, `exists` notification → `jobs.start_date/end_date` updated, revision bumped, mirrored `job.scheduled` delivered on the next cron tick (crew event dates updated; Slack message lands per prerequisite).
