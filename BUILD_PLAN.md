@@ -540,6 +540,30 @@ schema was never used", is why `public.users` is empty.
   `authenticated_select_crews`). Task 0B does not touch any of the 12.
 - **Depends on:** nothing. Should be settled as part of Phase D's design, not before.
 
+### BL-8 — Deferred Phase 1 gate validation items (Matt, 2026-08-25, Session 10)
+
+**Matt's decision at the Task 7 gate: these four items — previously hard preconditions on the
+Phase 1 gate — move to the backlog, and the gate proceeds without them.** This amends ratified
+decision 1's precondition clause ("Matt's phone smoke + one real estimate through the builder").
+Slack testing stays confined to #ops-test: the Step 2 E2E runs with
+`SLACK_TEST_CHANNEL_OVERRIDE=#ops-test` set for the probe window (Session 8/9 precedent), unset
+at close.
+
+- **Invite the Slack bot to the Crew 1–4 channels** (Matt-only — the in-session Slack MCP is CTA
+  Integrity's workspace, not Lost Boys). ⚠️ **Consequence until done:** every REAL scheduled
+  job's `job.scheduled` event fails its crew-Slack leg with `not_in_channel`, retries ~2 h, and
+  dead-letters with a `job_alerts` row — loud, not silent; the calendar legs are idempotent and
+  unaffected and the GHL stage move is a separate event, but crews get NO Slack notification.
+  `crew-night-before` degrades quietly (sync_log error, no stamp, retries nightly, alerts
+  nobody). Real crew-channel delivery has never been proven (one Crew 1 post, 2026-08-13).
+- **Phone smoke + one real estimate through the builder** (first real is ≥1429 as of Session 10;
+  Step 2's E2E burns TEST numbers above that).
+- **Authenticated JOB-1104 re-drag + re-cancel** (the v20 live-fire check; the
+  `app_is_schedule_authority` compat check already got its production proof unprompted during
+  the 5A probe).
+- **Calendar eyeballs:** confirm 2026-12-15/16 (5A probe) and 2026-12-28/29 (5B teardown) are
+  clean of test events.
+
 **Sequencing:** BL-1 and BL-2 are independent and could be picked up opportunistically after
 Phase A. BL-3 should not be attempted before Phase F, and paying against it should not happen
 until Phase G has enough `measured` history to make the variance numbers trustworthy. BL-4 shipped

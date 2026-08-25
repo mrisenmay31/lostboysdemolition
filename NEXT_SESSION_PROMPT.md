@@ -37,11 +37,13 @@ record: the 2026-08-25 Session 10 `BUILD_LOG.md` entry.
 
 ## ▶️ THIS SESSION OPENS HERE — Task 7 Steps 2–4: E2E, permanent cutover, landing
 
-**Hard precondition before anything (Matt-only, none done as of Session 10 close):** 🔴 Slack bot
-invitations to Crew 1–4 (real crew delivery has never been proven); Matt's phone smoke + one real
-estimate (≥1429) on the branch preview; authenticated JOB-1104 re-drag + re-cancel; calendar
-eyeballs (2026-12-15/16 and 2026-12-28/29 clean); Matt's answer on the two ⚠️ confirm items
-above.
+**Preconditions AMENDED by Matt 2026-08-25 (Session 10, later): ALL four Matt-only items —
+Slack bot invitations, phone smoke + real estimate, authenticated JOB-1104 fire, calendar
+eyeballs — are BACKLOGGED → BUILD_PLAN BL-8, and the gate proceeds without them.** Slack stays
+confined to #ops-test: the Step 2 E2E sets `SLACK_TEST_CHANNEL_OVERRIDE=#ops-test` for the probe
+window and unsets it at close. Consequence recorded in BL-8: until the bot is invited, real
+scheduled jobs' crew-Slack legs dead-letter loudly and crews get no Slack notification. Matt's
+answers on the two ⚠️ confirm items above still wanted.
 
 1. ~~**Step 1:** Whole-branch review~~ — ✅ DONE Session 10 (see above; plan checkbox updated).
 2. **Step 2 (E2E, live GHL, TEST-labeled, per-step Matt go):** create/link opportunity → present
@@ -58,11 +60,11 @@ above.
 
 ## Standing items
 
-🔴 Slack bot invitations to Crew 1–4 (Matt-only; blocks the gate). Matt's calendar eyeballs:
-2026-12-28/29 clean (5B teardown) + 2026-12-15/16 clean (5A) — requested at Session 9 close,
-confirm/record. Phone smoke + one real estimate (≥1429) on the branch preview. Authenticated
-JOB-1104 re-drag + re-cancel. The two ⚠️ Session-10 confirm items (slack_reconciliation_required
-deferral; superseded-but-accepted schedulability). Merge decision for branch
+**BL-8 (backlogged 2026-08-25, no longer gate-blocking):** Slack bot invitations to Crew 1–4
+(Matt-only; real crew delivery never proven — real jobs dead-letter their Slack leg until done);
+calendar eyeballs 2026-12-28/29 (5B) + 2026-12-15/16 (5A); phone smoke + one real estimate
+(≥1429); authenticated JOB-1104 re-drag + re-cancel. The two ⚠️ Session-10 confirm items
+(slack_reconciliation_required deferral; superseded-but-accepted schedulability). Merge decision for branch
 `claude/last-session-review-f7tqxw`. BL-6 echo-guard draft review. Per-item OK to delete GHL
 TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv`. Dashboard-home decision (2026-08-25): `/` flip deferred
 to v2 Task 8; fold Dane's prototype feedback into the v2 plan before writing Task 6.

@@ -227,6 +227,11 @@ Per Matt's standing directive, lanes are designed in up front. File ownership is
 ### Task 7: Phase 1 gate + permanent cutover
 
 **Precondition (hard stop, no exceptions):** Matt's phone smoke + real estimate ≥1426.
+**⚠️ AMENDED 2026-08-25 (Matt, Session 10): precondition WAIVED — the phone smoke, real
+estimate, authenticated JOB-1104 fire, calendar eyeballs, AND the Slack bot invitations are all
+backlogged (BUILD_PLAN → BL-8); the gate proceeds without them. Step 2's E2E runs Slack via
+`SLACK_TEST_CHANNEL_OVERRIDE=#ops-test` (set for the probe window, unset at close); real
+crew-channel delivery stays unproven past the gate — consequence recorded in BL-8.**
 
 - [x] **Step 1 (DONE 2026-08-25, Session 10):** Whole-branch adversarial review (standing rule;
   strongest available model) — 4 concurrent lanes (SQL/migrations w/ live-DB verification, edge

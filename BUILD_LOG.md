@@ -27,7 +27,7 @@ shipped.
 | `push-to-airtable` | — | ⚪ Dormant (v11) — never run, latent bug | 2026-07-30 |
 | `ghl-job-webhook` | A/v2 | 🟢 Live (**v20**, `verify_jwt=false` read back) — Phase A keystone + BL-4/BL-5 + **v2 Task 4 gates (2026-08-19): `ENABLE_GHL_ACCEPTANCE_JOB_CREATION` flag (UNSET in prod ⇒ legacy minting unchanged) + unconditional `launch_workflow` compat check.** Deploy probed (function-level 401 + clean logs); authenticated live fire = Matt to-do (JOB-1104 re-drag, BL-5 procedure) | 2026-08-19 |
 | `google-calendar-webhook` | 5B | 🟢 Live (**v2**, `verify_jwt=false` read back, siblings sha-undisturbed) — all 3 migrations applied (head `20260825171051`, 38). 5 watch channels active, cron `7,37 * * * *` live. **PROBE COMPLETE (Session 9, 2026-08-25): all six legs proven live on JOB-1106** — inbound date apply + dispatcher mirror (update-not-create proven), deletion→exception→dismiss→recreate, `closed_lost` teardown, echo termination every round. Slack override UNSET + confirmed absent. **Task 5B DONE** | 2026-08-25 |
-| Crew Slack delivery | — | 🔴 **BROKEN — bot not in the crew channels** (`not_in_channel`, found live 2026-08-20). One successful post in system history (Crew 1, 2026-08-13); crews 2/3/4 never delivered. **Blocks the Phase 1 gate — Matt must invite the bot** | 2026-08-20 |
+| Crew Slack delivery | — | 🔴 **BROKEN — bot not in the crew channels** (`not_in_channel`, found live 2026-08-20). One successful post in system history (Crew 1, 2026-08-13); crews 2/3/4 never delivered. **Backlogged → BL-8 per Matt 2026-08-25 (Session 10) — no longer gate-blocking.** Until invited, each real scheduled job's Slack leg dead-letters loudly (alert raised; calendars/GHL unaffected) | 2026-08-25 |
 | `crew-night-before` | — | 🟢 Live (**v11**) — BL-4 format + divider; shared `_shared/slack.ts`; test-override no longer consumes the real digest. Discharges the owed redeploy | 2026-08-17 |
 | Phase B slice-2 (`web/` app + DB) | B | 🟢 **SHIPPED — merged to main (`dd6cc87`) and LIVE at https://lostboysdemolition.vercel.app** (URL changed 2026-08-18; old `lbd-estimates.vercel.app` deleted, now 404s) — all 14 build tasks + the mid-session no-login scope change + final whole-branch review + fix wave done and reviewed; 5 migration files (4 units of work — the RPCs migration + its fixups count as one unit) live; Matt's phone smoke + Fillout parallel check still owed | 2026-08-14 |
 | Repo structure + docs | — | 🟢 **Hygiene pass merged (`a73c009`) 2026-08-14** — 8 superseded docs moved to `docs/archive/` (git renames, nothing deleted), `.gitignore` gaps closed, `CLAUDE.md` repointed. Root: 26 files → 18. Deletion checklist still open, pending Matt | 2026-08-14 |
@@ -163,6 +163,19 @@ preview; authenticated JOB-1104 re-drag + re-cancel; calendar eyeballs (2026-12-
 2026-12-28/29 clean); the two ⚠️ CONFIRM items above; then Step 2 E2E (live GHL, TEST-labeled),
 Step 3 permanent flag flip via the deploy invariant, Step 4 landing + merge per Matt's
 instruction.
+
+**ADDENDUM (same session, later) — Matt AMENDED the gate preconditions: all four Matt-only
+validation items are BACKLOGGED → BL-8 (new BUILD_PLAN backlog entry), and the gate proceeds
+without them.** Verbatim intent: the Slack bot invitations to Crew 1–4 are pushed back — no crew
+Slack testing outside the test channel for now — and the phone smoke, one real estimate,
+authenticated JOB-1104 fire, and calendar eyeballs all become backlog items. This amends
+ratified decision 1's precondition clause ("phone smoke + one real estimate" before the flip).
+Step 2's E2E therefore runs with `SLACK_TEST_CHANNEL_OVERRIDE=#ops-test` for the probe window
+(Session 8/9 precedent, unset at close). Recorded consequence (also in BL-8): until the bot is
+invited, every real scheduled job's crew-Slack leg fails `not_in_channel` → retries ~2 h →
+dead-letters with a `job_alerts` row; calendars/GHL unaffected; crews get no Slack
+notification. CLAUDE.md (env-vars 🔴 paragraph + v2 roadmap row) and the status-table Crew Slack
+row updated to match.
 
 ### 2026-08-25 — Session 9: 5B probe legs 3/5/6 COMPLETE — all six legs proven live, Task 5B is DONE, Slack override unset; next = Task 7 (Phase 1 gate)
 
