@@ -6,6 +6,19 @@ import { validateScheduleEstimateInput } from "@/lib/jobs/validate";
 import { scheduleEstimate } from "@/lib/jobs/repo";
 import { ScheduleEstimateError } from "@/lib/jobs/types";
 import type { ScheduleEstimateErrorCode, ScheduledJobRow } from "@/lib/jobs/types";
+import { cancelScheduledJob, CancelScheduledJobError } from "@/lib/jobs/scheduleActions";
+import type { CancelJobErrorCode, CancelledJob } from "@/lib/jobs/scheduleActions";
+import {
+  friendlyResolveErrorMessage,
+  resolveDeletedCalendarEvent,
+  ResolveExceptionError,
+} from "@/lib/jobs/exceptionActions";
+import type {
+  ResolveDeletedCalendarEventInput,
+  ResolveExceptionErrorCode,
+  ResolvedException,
+} from "@/lib/jobs/exceptionActions";
+import { resolveJobAlert } from "@/lib/jobs/alertActions";
 
 /**
  * Server action for the atomic schedule-to-job promotion (Phase 1, v2
@@ -69,6 +82,137 @@ export async function scheduleEstimateAction(
     if (err instanceof ScheduleEstimateError) {
       return { ok: false, error: err.message, code: err.code, jobNumber: err.jobNumber };
     }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ============================================================
+// Cancel / resolve-exception / resolve-alert (v2 Task 6, Lane D)
+//
+// All three follow scheduleEstimateAction's exact shape above:
+// isEstimatorName gate first (actorName never trusted from the client
+// input object — always the separately-validated `estimatorName`
+// argument), lib call in try/catch, typed-error mapping, revalidatePath.
+// ============================================================
+
+export type CancelJobActionResult =
+  | { ok: true; job: CancelledJob }
+  | { ok: false; error: string; code?: CancelJobErrorCode };
+
+/**
+ * Postpones or closed-loses an already-scheduled job via
+ * @/lib/jobs/scheduleActions.ts's cancelScheduledJob. `actorName` for the
+ * RPC call always comes from the validated `estimatorName` argument, not
+ * `input` — `input` carries no actor field to begin with, but the point
+ * holds for every action in this file: client-declared identity is never
+ * trusted for attribution. Revalidates `/jobs` (the job list), the job's
+ * own detail route, and `/estimates` (the originating estimate's
+ * scheduled-state display depends on this job's status).
+ */
+export async function cancelScheduledJobAction(
+  input: { jobNumber: string; resolution: "postponed" | "closed_lost"; reason: string },
+  estimatorName: string,
+): Promise<CancelJobActionResult> {
+  if (!isEstimatorName(estimatorName)) {
+    return { ok: false, error: "Pick who's estimating first." };
+  }
+
+  try {
+    const job = await cancelScheduledJob({ ...input, actorName: estimatorName });
+    revalidatePath("/jobs");
+    revalidatePath(`/jobs/${input.jobNumber}`);
+    revalidatePath("/estimates");
+    return { ok: true, job };
+  } catch (err) {
+    if (err instanceof CancelScheduledJobError) {
+      return { ok: false, error: err.message, code: err.code };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** What the client sends — everything `resolveDeletedCalendarEvent` needs
+ *  EXCEPT `actorName`, which this action supplies itself from the
+ *  re-validated picker name (never trusted from the client directly).
+ *  Moved here from exceptions/ResolveExceptionForm.tsx (v2 Task 6, Lane
+ *  D) now that the server action itself lives in this file rather than
+ *  inline in exceptions/page.tsx — the form imports this type back. */
+export type ResolveExceptionActionInput = Omit<
+  ResolveDeletedCalendarEventInput,
+  "actorName"
+>;
+
+export type ResolveExceptionActionResult =
+  | { ok: true; result: ResolvedException }
+  | { ok: false; error: string; code?: ResolveExceptionErrorCode };
+
+/**
+ * Resolves an open calendar-deletion schedule exception. This is the
+ * VERBATIM body of what was previously an inline "use server" action
+ * defined inside exceptions/page.tsx's JobExceptionsPage component (v2
+ * Task 5B Step 2) — moved here, not rewritten, now that this file is
+ * in-lane for the exceptions queue too. See
+ * @/lib/jobs/exceptionActions.ts's friendlyResolveErrorMessage doc
+ * comment for why the raw Postgres raise text is never returned directly
+ * to the client.
+ */
+export async function resolveExceptionAction(
+  input: ResolveExceptionActionInput,
+  estimatorName: string,
+): Promise<ResolveExceptionActionResult> {
+  if (!isEstimatorName(estimatorName)) {
+    return { ok: false, error: "Pick who's estimating first." };
+  }
+
+  try {
+    const result = await resolveDeletedCalendarEvent({
+      ...input,
+      actorName: estimatorName,
+    });
+    revalidatePath("/jobs/exceptions");
+    return { ok: true, result };
+  } catch (err) {
+    if (err instanceof ResolveExceptionError) {
+      return {
+        ok: false,
+        error: friendlyResolveErrorMessage(err.code, err.message),
+        code: err.code,
+      };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export type ResolveAlertActionResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Resolves one open `job_alerts` row via @/lib/jobs/alertActions.ts's
+ * resolveJobAlert. No `code` field on the result — unlike its cancel /
+ * resolve-exception siblings, resolveJobAlert throws only plain `Error`s
+ * (see that module's doc comment), so there is no typed code to surface.
+ * Revalidates `/jobs` ONLY — an alert id does not carry a job number, so
+ * there is no job-detail route to target here; the detail page's own
+ * refresh (if it renders alerts) is expected to come from
+ * `router.refresh()` client-side, same as the exceptions queue's
+ * not_open handling.
+ */
+export async function resolveJobAlertAction(
+  input: { alertId: string; note: string },
+  estimatorName: string,
+): Promise<ResolveAlertActionResult> {
+  if (!isEstimatorName(estimatorName)) {
+    return { ok: false, error: "Pick who's estimating first." };
+  }
+
+  try {
+    await resolveJobAlert({
+      alertId: input.alertId,
+      note: input.note,
+      actorName: estimatorName,
+    });
+    revalidatePath("/jobs");
+    return { ok: true };
+  } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

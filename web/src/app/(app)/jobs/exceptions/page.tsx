@@ -1,16 +1,6 @@
-import { revalidatePath } from "next/cache";
-import { isEstimatorName } from "@/lib/estimator";
-import {
-  friendlyResolveErrorMessage,
-  listOpenScheduleExceptions,
-  resolveDeletedCalendarEvent,
-  ResolveExceptionError,
-} from "@/lib/jobs/exceptionActions";
-import {
-  ResolveExceptionForm,
-  type ResolveExceptionActionInput,
-  type ResolveExceptionActionResult,
-} from "./ResolveExceptionForm";
+import { listOpenScheduleExceptions } from "@/lib/jobs/exceptionActions";
+import { resolveExceptionAction } from "../actions";
+import { ResolveExceptionForm } from "./ResolveExceptionForm";
 
 /**
  * Schedule-exceptions queue page (Phase 1, v2 Task 5B Step 2, Lane W).
@@ -33,63 +23,20 @@ import {
  * no-pricing-to-crew-surfaces rule this repo enforces elsewhere
  * (`_shared/slack.ts`, BL-5's crew calendar bodies).
  *
- * The resolve server action is defined INLINE below ("use server" at the
- * top of the function body) rather than in a dedicated actions.ts file —
- * this task's file ownership is scoped to exactly four files (this page,
- * ResolveExceptionForm.tsx, and the lib module + its test), so a fifth
- * actions.ts file is off-limits. Next.js supports a Server Action defined
- * inline inside a Server Component and passed down as a prop to a Client
- * Component; the pattern here mirrors jobs/actions.ts's
- * scheduleEstimateAction (re-validate the picker name against the fixed
- * allowlist, call the lib action, classify a thrown typed error, never
- * let a bare Error string reach the client uncategorized).
+ * The resolve server action (`resolveExceptionAction`) now lives in
+ * `../actions.ts` (v2 Task 6, Lane D) rather than defined inline here.
+ * It was originally inline because this task's file ownership was
+ * scoped to exactly four files (this page, ResolveExceptionForm.tsx, and
+ * the lib module + its test) with no actions.ts in scope — that
+ * rationale is obsolete now that `jobs/actions.ts` is in-lane and holds
+ * every job-surface server action. The move changed location, not
+ * behavior: same gate (re-validate the picker name against the fixed
+ * allowlist), same lib call, same typed-error classification.
  */
 export const dynamic = "force-dynamic";
 
 export default async function JobExceptionsPage() {
   const exceptions = await listOpenScheduleExceptions();
-
-  async function resolveExceptionAction(
-    input: ResolveExceptionActionInput,
-    estimatorName: string,
-  ): Promise<ResolveExceptionActionResult> {
-    "use server";
-
-    if (!isEstimatorName(estimatorName)) {
-      return { ok: false, error: "Pick who's estimating first." };
-    }
-
-    try {
-      const result = await resolveDeletedCalendarEvent({
-        ...input,
-        actorName: estimatorName,
-      });
-      revalidatePath("/jobs/exceptions");
-      return { ok: true, result };
-    } catch (err) {
-      if (err instanceof ResolveExceptionError) {
-        // Fix round 1, review finding #1: map the classified code to a
-        // human-readable message HERE, server-side — never let the raw
-        // Postgres raise text (e.g. "resolve_schedule_exception:
-        // exception 8f3a... is not open (status dismissed)") reach
-        // Dane/Jackson/Matt. Done in this server action rather than in
-        // ResolveExceptionForm.tsx because friendlyResolveErrorMessage
-        // lives in the "server-only" exceptionActions.ts module — a
-        // Client Component importing a VALUE (not just a type) from a
-        // server-only module fails the Next.js build (confirmed: this
-        // was tried and threw "'server-only' cannot be imported from a
-        // Client Component module"). The client only needs the already
-        // -friendly string plus `code` (to decide whether to
-        // router.refresh() for the not_open/stale-list case).
-        return {
-          ok: false,
-          error: friendlyResolveErrorMessage(err.code, err.message),
-          code: err.code,
-        };
-      }
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
-  }
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-6 p-4 pb-12">

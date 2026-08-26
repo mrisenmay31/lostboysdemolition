@@ -407,6 +407,12 @@ export async function listOpenScheduleExceptions(): Promise<OpenScheduleExceptio
     .from("job_schedule_exceptions")
     .select("id, job_number, external_event_id, kind, previous_schedule, opened_at")
     .eq("status", "open")
+    // resolve_schedule_exception (Task 1) pairs alerts only under
+    // calendar_deleted: fingerprints (Session 10 deferral ledger) — the
+    // other two `kind` values ('calendar_conflict', 'sync_failed') have
+    // no writer today, so this queue must not offer them a resolution
+    // form it can't actually back.
+    .eq("kind", "calendar_deleted")
     .order("opened_at", { ascending: false });
 
   if (error) {

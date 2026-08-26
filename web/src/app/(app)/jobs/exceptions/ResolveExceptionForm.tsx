@@ -5,29 +5,22 @@ import { useRouter } from "next/navigation";
 import { useEstimator } from "@/app/(app)/EstimatorChip";
 import type {
   OpenScheduleException,
-  ResolveDeletedCalendarEventInput,
-  ResolveExceptionErrorCode,
   ResolvedException,
   ResolveExceptionResolution,
 } from "@/lib/jobs/exceptionActions";
+import type {
+  ResolveExceptionActionInput,
+  ResolveExceptionActionResult,
+} from "../actions";
 
 // ------------------------------------------------------------
-// Shared with page.tsx (type-only import back into the Server Component
-// — see that file's header comment for why the inline server action is
-// typed against shapes defined HERE rather than the reverse).
+// ResolveExceptionActionInput/Result now live in ../actions.ts (v2 Task
+// 6, Lane D) alongside the server action itself, since that action moved
+// out of page.tsx's inline definition into the shared jobs/actions.ts
+// module. This form imports them back as types only — same
+// type-only-import-into-a-Client-Component pattern as before, just
+// sourced from actions.ts instead of page.tsx.
 // ------------------------------------------------------------
-
-/** What the client sends — everything `resolveDeletedCalendarEvent` needs
- *  EXCEPT `actorName`, which the server action supplies itself from the
- *  re-validated picker name (never trusted from the client directly). */
-export type ResolveExceptionActionInput = Omit<
-  ResolveDeletedCalendarEventInput,
-  "actorName"
->;
-
-export type ResolveExceptionActionResult =
-  | { ok: true; result: ResolvedException }
-  | { ok: false; error: string; code?: ResolveExceptionErrorCode };
 
 interface ResolveExceptionFormProps {
   exception: OpenScheduleException;

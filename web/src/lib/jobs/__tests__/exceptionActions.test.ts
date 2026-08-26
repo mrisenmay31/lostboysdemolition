@@ -400,6 +400,7 @@ describe("listOpenScheduleExceptions", () => {
       "id, job_number, external_event_id, kind, previous_schedule, opened_at",
     );
     expect(query.eq).toHaveBeenCalledWith("status", "open");
+    expect(query.eq).toHaveBeenCalledWith("kind", "calendar_deleted");
     expect(query.order).toHaveBeenCalledWith("opened_at", { ascending: false });
 
     expect(rows).toHaveLength(1);
