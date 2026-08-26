@@ -393,6 +393,112 @@ describe("buildJobHealthInput", () => {
     expect(input.hoursPerDay).toBe(8);
     expect(input.remainingCostOverrides).toEqual({});
   });
+
+  // Postgres `numeric` columns (job_forecast_overrides.expected_remaining_cost /
+  // remaining_workdays / expected_crew_size / hours_per_day, and the
+  // equivalent checklist fields) deserialize as STRINGS over the wire.
+  // buildJobHealthInput must coerce them defensively — see review finding
+  // fixed in this pass — rather than silently dropping a string-valued
+  // override or feeding a string into the engine's non-nullable-number
+  // contract.
+  it("coerces a numeric-string expected_remaining_cost into remainingCostOverrides as a number", () => {
+    const overrides = [
+      {
+        id: "o1",
+        job_number: "JOB-1",
+        category: "dump",
+        remaining_workdays: null,
+        expected_crew_size: null,
+        hours_per_day: null,
+        expected_remaining_cost: "120.50", // simulated raw Postgres numeric string
+        reason: "dump adj",
+        created_by_name: "Dane",
+        created_at: "2026-08-19T00:00:00Z",
+      },
+    ] as unknown as ForecastOverrideRow[];
+
+    const input = buildJobHealthInput({
+      job: makeJobRow(),
+      currentBudget: makeBudget(),
+      ledger: {
+        approved: emptyCategoryAmounts(),
+        provisional: emptyCategoryAmounts(),
+        committed: emptyCategoryAmounts(),
+        approvedHours: 0,
+        provisionalHours: 0,
+        timeUpdatedAt: null,
+        expenseUpdatedAt: null,
+        needsReviewCount: 0,
+      },
+      overrides,
+      latestChecklistSubmittedAt: null,
+      latestChecklist: null,
+      unresolvedScopeChange: false,
+    });
+
+    expect(input.remainingCostOverrides).toEqual({ dump: 120.5 });
+    expect(typeof input.remainingCostOverrides.dump).toBe("number");
+  });
+
+  it("coerces a numeric-string labor triple — from a labor override, and from a checklist — into numbers", () => {
+    const overridesFromOverride = [
+      {
+        id: "o1",
+        job_number: "JOB-1",
+        category: null,
+        remaining_workdays: "3", // simulated raw Postgres numeric strings
+        expected_crew_size: "2",
+        hours_per_day: "6",
+        expected_remaining_cost: null,
+        reason: "crew adj",
+        created_by_name: "Dane",
+        created_at: "2026-08-20T00:00:00Z",
+      },
+    ] as unknown as ForecastOverrideRow[];
+
+    const baseLedger = {
+      approved: emptyCategoryAmounts(),
+      provisional: emptyCategoryAmounts(),
+      committed: emptyCategoryAmounts(),
+      approvedHours: 0,
+      provisionalHours: 0,
+      timeUpdatedAt: null,
+      expenseUpdatedAt: null,
+      needsReviewCount: 0,
+    };
+
+    const inputFromOverride = buildJobHealthInput({
+      job: makeJobRow(),
+      currentBudget: makeBudget(),
+      ledger: baseLedger,
+      overrides: overridesFromOverride,
+      latestChecklistSubmittedAt: null,
+      latestChecklist: null,
+      unresolvedScopeChange: false,
+    });
+
+    expect(inputFromOverride.remainingWorkdays).toBe(3);
+    expect(inputFromOverride.expectedCrewSize).toBe(2);
+    expect(inputFromOverride.hoursPerDay).toBe(6);
+
+    const inputFromChecklist = buildJobHealthInput({
+      job: makeJobRow(),
+      currentBudget: makeBudget(),
+      ledger: baseLedger,
+      overrides: [],
+      latestChecklistSubmittedAt: "2026-08-15T00:00:00Z",
+      latestChecklist: {
+        remaining_workdays: "9",
+        expected_crew_size: "5",
+        hours_per_day: "7",
+      } as unknown as { remaining_workdays: number | null; expected_crew_size: number | null; hours_per_day: number | null },
+      unresolvedScopeChange: false,
+    });
+
+    expect(inputFromChecklist.remainingWorkdays).toBe(9);
+    expect(inputFromChecklist.expectedCrewSize).toBe(5);
+    expect(inputFromChecklist.hoursPerDay).toBe(7);
+  });
 });
 
 // ---- 5 & 6. buildFinancialComparison ---------------------------------------

@@ -325,12 +325,29 @@ interface LaborForecastSource {
   hoursPerDay: number;
 }
 
+/** `toNullableNum` plus a finite check, so a garbage/non-numeric string
+ *  coerces to `null` (treated as "unset") rather than propagating `NaN`
+ *  into the engine's non-nullable-number contract. Postgres `numeric`
+ *  columns — `job_forecast_overrides.expected_remaining_cost`/
+ *  `remaining_workdays`/`expected_crew_size`/`hours_per_day` and the
+ *  equivalent checklist fields — deserialize as STRINGS over the wire
+ *  (the same gotcha `toNum`/`toNullableNum` exist to guard against), and
+ *  this module has no dedicated normalizer for override/checklist rows,
+ *  so every numeric field read from them here must be defensively
+ *  coerced regardless of what shape an upstream caller (e.g. Task 2's
+ *  repo layer) actually passes in. */
+function coerceNullableNum(value: unknown): number | null {
+  const n = toNullableNum(value);
+  return n === null || !Number.isFinite(n) ? null : n;
+}
+
 /** Chooses the remainingWorkdays/expectedCrewSize/hoursPerDay triple: the
  *  latest labor override (category `null`) wins outright if it is newer
  *  than the latest checklist (or there is no checklist at all); otherwise
  *  the latest checklist's values; otherwise null/null/8. `hoursPerDay`
- *  defaults to 8 whenever the chosen source leaves it unset — the engine's
- *  `JobHealthInput.hoursPerDay` is non-nullable. */
+ *  defaults to 8 whenever the chosen source leaves it unset (or leaves it
+ *  a non-numeric string) — the engine's `JobHealthInput.hoursPerDay` is
+ *  non-nullable. */
 function pickLaborForecastSource(
   overrides: ForecastOverrideRow[],
   checklistAt: string | null,
@@ -343,17 +360,17 @@ function pickLaborForecastSource(
 
   if (overrideIsNewer && laborOverride !== null) {
     return {
-      remainingWorkdays: laborOverride.remaining_workdays,
-      expectedCrewSize: laborOverride.expected_crew_size,
-      hoursPerDay: laborOverride.hours_per_day ?? 8,
+      remainingWorkdays: coerceNullableNum(laborOverride.remaining_workdays),
+      expectedCrewSize: coerceNullableNum(laborOverride.expected_crew_size),
+      hoursPerDay: coerceNullableNum(laborOverride.hours_per_day) ?? 8,
     };
   }
 
   if (checklist !== null) {
     return {
-      remainingWorkdays: checklist.remaining_workdays,
-      expectedCrewSize: checklist.expected_crew_size,
-      hoursPerDay: checklist.hours_per_day ?? 8,
+      remainingWorkdays: coerceNullableNum(checklist.remaining_workdays),
+      expectedCrewSize: coerceNullableNum(checklist.expected_crew_size),
+      hoursPerDay: coerceNullableNum(checklist.hours_per_day) ?? 8,
     };
   }
 
@@ -372,18 +389,19 @@ export function buildJobHealthInput(args: BuildHealthInputArgs): JobHealthInput 
 
   // Latest override PER CATEGORY (rows where category != null) — overrides
   // arrive newest first, so the first row seen for a given category is the
-  // one that wins; a stray null/non-finite expected_remaining_cost is
-  // skipped rather than poisoning the map with a non-number value (the
-  // engine's forecastNonlaborCategory treats an absent key the same as a
+  // one that wins. `expected_remaining_cost` is coerced via
+  // `coerceNullableNum` before use — it's a Postgres `numeric` column and
+  // can arrive as a STRING — and a stray null/non-finite value is skipped
+  // rather than poisoning the map with a non-number value (the engine's
+  // forecastNonlaborCategory treats an absent key the same as a
   // legitimate "no override" signal — see calculateJobHealth.ts).
   const remainingCostOverrides: Partial<CategoryAmounts> = {};
   for (const override of overrides) {
     if (override.category === null) continue;
     if (remainingCostOverrides[override.category] !== undefined) continue;
-    if (typeof override.expected_remaining_cost !== "number" || !Number.isFinite(override.expected_remaining_cost)) {
-      continue;
-    }
-    remainingCostOverrides[override.category] = override.expected_remaining_cost;
+    const expectedRemainingCost = coerceNullableNum(override.expected_remaining_cost);
+    if (expectedRemainingCost === null) continue;
+    remainingCostOverrides[override.category] = expectedRemainingCost;
   }
 
   const labor = pickLaborForecastSource(overrides, latestChecklistSubmittedAt, latestChecklist);
