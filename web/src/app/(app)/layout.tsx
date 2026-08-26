@@ -9,9 +9,10 @@ import EstimatorChip from "./EstimatorChip";
  * convenience, not an auth boundary, and every write is re-validated
  * server-side against the fixed estimator allowlist.
  *
- * Bottom nav is intentionally minimal: just the two destinations this
- * slice cares about (Estimates, New). Later tasks build what those routes
- * render; this task only builds the shell.
+ * Bottom nav reflects the 2026-08-25 home-surface decision's Task 6 slice:
+ * the Job Dashboard is now reachable at `/jobs` alongside Estimates and
+ * New. `/` still redirects to `/estimates` until v2 Task 8 flips the home
+ * route — this nav does not change that, it only adds a destination.
  */
 export default function AppLayout({
   children,
@@ -26,7 +27,13 @@ export default function AppLayout({
 
       <main className="flex-1">{children}</main>
 
-      <nav className="grid grid-cols-2 border-t border-zinc-200 dark:border-zinc-800">
+      <nav className="grid grid-cols-3 border-t border-zinc-200 dark:border-zinc-800">
+        <Link
+          href="/jobs"
+          className="flex h-16 items-center justify-center text-base font-medium"
+        >
+          Jobs
+        </Link>
         <Link
           href="/estimates"
           className="flex h-16 items-center justify-center text-base font-medium"
