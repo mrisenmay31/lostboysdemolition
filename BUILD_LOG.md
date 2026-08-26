@@ -36,13 +36,110 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2** | 2026-08-26 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2. **Session 12 (2026-08-26, same day): v2 Task 7 SHIPPED — migration `manual_ledger_rpcs` APPLIED TO PRODUCTION (version `20260826180811`, 39 applied), 4 ledger writer RPCs live, all reviews clean (2 review-caught defects fixed), live smoke on JOB-1107 proved every leg incl. the overrun alert + note preservation + snapshot invariant, MERGED TO MAIN (`a0a92a2..0e893aa`) + production deploy VERIFIED — `/jobs/[jobNumber]/costs` + `/revenue` LIVE. Phase 2 BUILD COMPLETE; the Phase 2 gate E2E (staged job + full fact list, burns estimate ≥1430) is the remaining Phase 2 item** | 2026-08-26 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-26 — Session 12: v2 TASK 7 SHIPPED — manual ledger LIVE (migration applied, merged, deployed); v2 PHASE 2 BUILD COMPLETE, gate E2E pending
+
+**What shipped.** v2 Task 7 (manual cost, commitment, and revenue capture) end to end in one
+session: plan written and Matt-approved (`docs/superpowers/plans/2026-08-26-v2-task7-manual-ledger.md`),
+built on branch `claude/v2-task7-manual-ledger` in 5 concurrent lanes (SDD; Sonnet implements,
+strongest model reviews every task + whole branch), **migration `manual_ledger_rpcs` APPLIED TO
+PRODUCTION** (version `20260826180811`, head advanced from `20260825171051`, 39 applied), then
+**merged to main (fast-forward `a0a92a2..0e893aa`, 7 commits) and production Vercel deploy
+VERIFIED** — `/jobs/[jobNumber]/costs` and `/jobs/[jobNumber]/revenue` are LIVE on
+https://lostboysdemolition.vercel.app (both 200 with real data; `/` still 307→`/estimates`,
+Task 8's flip untouched).
+
+**The new write path (the ONLY ledger write path — never bare inserts):** four service-role-only
+RPCs, search_path-pinned, EXECUTE revoked from public/anon/authenticated —
+`create_job_cost_entry(p_entry jsonb, p_actor uuid, p_actor_name text)`,
+`correct_job_cost_entry(p_id, p_patch, p_reason, p_actor, p_actor_name)` (FOR UPDATE lock,
+whitelisted patch keys, `source_system='manual'` only, same-transaction `job_cost_entry_audit`
+row, `source_revision`+`updated_at` bump — the updated_at bump is what moves the forecast-snapshot
+watermark), `create_job_revenue_entry`, and helper `open_category_overrun_alert` (fingerprint
+`category_overrun:<category>`, severity `watch`, dedup via the partial-unique open-fingerprint
+index, deliberately NO Slack outbox — Task 12 owns Slack). Both cost RPCs invoke
+`mark_job_reconciliation_required` + the overrun check in-transaction; revenue invokes mark only.
+Key conventions now LOCKED in production: **credit/refund amounts are stored NEGATIVE** (RPC-enforced;
+forms capture positive, repo negates — matches `map.ts`'s signed economic-revenue sum);
+**cost amounts strictly positive** (adjust via correction, remove via void — no delete path);
+**dates are Denver business dates stored as Denver NOON** (`(date::timestamp + interval '12 hours')
+at time zone 'America/Denver'`) so Denver rendering round-trips; **attribution =
+`metadata.entered_by`** (no created_by_name column on ledger tables; `p_actor` always null);
+**RPC raise texts are a cross-lane API** matched by substring in `web/src/lib/ledger/repo.ts`'s
+`classifyLedgerError` — never reword one side alone. **No revenue correction path by design**
+(no state column, no audit table) — offsetting credit/refund is the correction.
+
+**Web:** `web/src/lib/ledger/` (types + pure Zod validate — `z.number()` only, empty-string/NaN
+rejected per the Task-6 carry; repo with error classification + `loadLedgerJobContext` carrying
+the Task-6 `QUERY_ROW_CAP=1000` truncation sentinel), three estimator-gated server actions in
+`jobs/actions.ts`, the two entry screens (budget-vs-entered table with the locked
+payment_processing footnote; per-entry Correct/void disclosures on manual non-void entries only;
+the verbatim payments-affect-collection-not-profit explainer), and the detail page's two Task-7
+stubs swapped for real links. `map.ts` change: one word (`export` on `CATEGORY_LABELS`).
+
+**Validation chain.** pgTAP `manual_ledger_rpcs_test.sql` RED→GREEN **41/41 on a disposable
+branch** (schema-only — note: **Supabase branches do NOT clone data**; the brief's
+`auth.users limit 1` closure fixture was defective on a branch and was replaced by a synthetic
+in-transaction auth.users row — migration proven byte-identical to the approved plan SQL);
+sibling core-schema suite 102/102 unchanged; branch deleted. Suites at merge: **web 728/728**
+(650 baseline verified intact + 57 ledger + 21 actions), lint 0 errors/1 pre-existing warning,
+build green, **deno 411/411** (golden-321 untouched). Reviews: 5 task gates + whole-branch
+(MERGE-READY), **two review-caught defects fixed**: (1) the correction form's unconditional
+`note: null` silently wiped an entry's original note on every note-less correction
+(absent-vs-null contract misuse — fixed presence-conditional, `8686996`); (2) `loadLedgerJobContext`
+lacked the row-cap sentinel + a misleading test comment (`0e893aa`).
+
+**Live smoke on JOB-1107 (post-apply, pre-merge) — every leg proven in production:** $65 dump
+create (no false alert; Denver date round-trips; entered_by stamped) → $150 second entry →
+**overrun alert opened live** ("Dump actuals plus committed ($215.00) exceed the current budget
+($195.00)", watch) → correction 65→80 (revision 2, audit row, **note preserved through a
+note-less patch — the review fix proven live**) → dedup held → **positive credit rejected live**
+(P0001 sign guard) → both entries voided (exclusion proven: live sum $0; rendered budget table
+$195.00 vs $0.00) → invoice +$100 / credit −$100 nets $0.00 → reconcile hook correctly no-ops
+(no closure snapshots until Task 11) → **snapshot invariant HELD through local AND production
+detail renders (0 `job_forecast_snapshots` rows — cancelled jobs are never engine-scored)** →
+alert resolved `[Matt] Task 7 live smoke`. **Residue on JOB-1107 (permanent, flagged to Matt
+pre-apply): 2 voided cost entries, 3 audit rows, 2 net-zero revenue rows, 1 resolved alert.**
+Removal only with Matt's per-item OK via SQL.
+
+**Gotcha for future SQL probes:** a SELECT-only CTE wrapping one of these RPCs can be optimized
+away silently (the alert probe "ran" but the entry was never created). Probe RPCs with a direct
+`select * from fn(...)`, never via an unreferenced-output CTE. The app's `.rpc()` transport is
+unaffected.
+
+**Decisions taken (Matt):** plan approved as written (incl. the two extra writer RPCs beyond the
+spec-named one, the sign convention, corrections restricted to `source_system='manual'` until
+Task 14, in-RPC overrun alerts with no Slack); migration apply approved; merge+deploy approved.
+The two copy-glyph deviations (sentence-cased credit/refund explainer with terminal period;
+double-quoted source-note example) were flagged pre-apply and waved through by proceeding.
+Known accepted minors (full triage in the whole-branch review, ledgered): $0-budget categories
+alert on their first entry (noise, spec-consistent); stale-tab un-void via the correction form's
+unconditional seeded `state` (same accepted class as the Phase-B UI-only protections; 3 users);
+no double-submit idempotency on manual create (void is the remedy); overrun can under-fire under
+concurrent same-category inserts (self-heals on next entry).
+
+**Defects found, not fixed:** none blocking. Deferred-minor ledger lives in
+`.superpowers/sdd/2026-08-26-v2-task7-manual-ledger/progress.md` (git-ignored scratch, KEPT —
+delete only with Matt's per-item OK; branch + worktree `.claude/worktrees/task7` also kept).
+
+**What the next session needs to know:** Phase 2's build is complete; **the Phase 2 gate E2E is
+the remaining Phase 2 item** — stage a fresh TEST estimate (burns ≥1430, pushing first-real to
+≥1431, Matt's call), schedule it into a real scheduled job, enter the gate's full fact list
+(labor/materials/rental/dump/subcontractor/other-direct/processing/invoice/credit/refund/payment),
+verify Dane's four-column view + health/confidence + leading variance + audit detail, golden
+tests unchanged. After the gate: v2 Phase 3 (Task 8 owner auth + `/` flip; Task 9 forecast
+overrides — its brief MUST Zod-reject empty-string numerics and require positive
+`hours_per_day`/`expected_crew_size`, and both 9/13 need the crew-days zero-divisor guard).
+BL-8 unchanged (Slack bot invitations etc., Matt-only). Migration head is now `20260826180811`
+(39 applied) — the repo file `20260826150000_manual_ledger_rpcs.sql` is the same SQL under the
+MCP-stamped version, same cosmetic mismatch class as prior applies.
 
 ### 2026-08-26 — Session 11: v2 Phase 2 OPENED — Task 6 (Job Dashboard) BUILT, reviewed clean, MERGED TO MAIN and DEPLOYED (production verified)
 
