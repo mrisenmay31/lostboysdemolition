@@ -71,10 +71,12 @@ vi.mock("@/lib/jobs/alertActions", () => ({
   resolveJobAlert: resolveJobAlertMock,
 }));
 
-// @/lib/ledger/repo (Task 3, Lane B) is mocked the same way
-// @/lib/jobs/repo is above — its real module may not exist yet while
-// that lane is mid-flight; this factory replaces it entirely, so
-// actions.ts never needs the real file to resolve at test time.
+// @/lib/ledger/repo (Task 3, Lane B) is mocked the same way @/lib/jobs/repo
+// is above: the factory below supplies the implementation actions.ts calls,
+// but Vitest still resolves the real module specifier even when it's
+// mocked — the real repo.ts file must exist on disk for this mock to
+// resolve at test time (mocking a module does not remove the requirement
+// that it can be found).
 const { createCostEntryMock, correctCostEntryMock, createRevenueEntryMock } = vi.hoisted(() => ({
   createCostEntryMock: vi.fn(),
   correctCostEntryMock: vi.fn(),
@@ -615,7 +617,10 @@ describe("correctCostEntryAction — error mapping", () => {
   it("surfaces a LedgerError with its code and message", async () => {
     const { LedgerError } = await import("@/lib/ledger/types");
     correctCostEntryMock.mockRejectedValue(
-      new LedgerError("entry is void and cannot be corrected again", "not_correctable"),
+      new LedgerError(
+        "correct_job_cost_entry: only manual entries can be corrected (entry cost-1 came from bill)",
+        "not_correctable",
+      ),
     );
     const { correctCostEntryAction } = await importActions();
 
@@ -623,7 +628,7 @@ describe("correctCostEntryAction — error mapping", () => {
 
     expect(result).toEqual({
       ok: false,
-      error: "entry is void and cannot be corrected again",
+      error: "correct_job_cost_entry: only manual entries can be corrected (entry cost-1 came from bill)",
       code: "not_correctable",
     });
   });

@@ -278,6 +278,32 @@ export interface LedgerJobContext {
 
 const JOB_NUMBER_RE = /^JOB-\d+$/;
 
+/** PostgREST caps any un-ranged select at its `max-rows` setting (default
+ *  1000) and returns HTTP 200 with the truncated set — no error, no
+ *  warning. This is the same house standard `@/lib/jobs/healthRepo.ts`
+ *  established for these exact two tables (commit `3e05af3`): every
+ *  unbounded multi-row load gets an explicit `.limit(QUERY_ROW_CAP)` PLUS
+ *  an `assertNotTruncated` check immediately after, so a result landing
+ *  exactly on the cap throws a loud, named error instead of silently
+ *  feeding the ledger UI a partial cost/revenue history. Replicated here
+ *  (rather than imported) because `healthRepo.ts` does not export either
+ *  symbol — see that file's matching doc comment for the canonical
+ *  statement of the standard. */
+const QUERY_ROW_CAP = 1000;
+
+/** See `QUERY_ROW_CAP`'s doc comment. Call immediately after every
+ *  unbounded `.limit(QUERY_ROW_CAP)` load's `.error` check, before the
+ *  rows are normalized/used for anything. Names both the table and the
+ *  job so a failure in `loadLedgerJobContext` is traceable to one job's
+ *  entry history without re-deriving it from the stack trace alone. */
+function assertNotTruncated(table: string, jobNumber: string, rows: unknown[]): void {
+  if (rows.length === QUERY_ROW_CAP) {
+    throw new Error(
+      `loadLedgerJobContext: ${table} load for ${jobNumber} hit the ${QUERY_ROW_CAP}-row cap for this query — results would be silently truncated; paginate before this data volume (tracked for Phase C)`,
+    );
+  }
+}
+
 /**
  * Assembles everything the manual-ledger UI (Tasks 4-5) needs for one
  * job: the job row itself, its current budget version (skipped entirely
@@ -321,12 +347,14 @@ export async function loadLedgerJobContext(jobNumber: string): Promise<LedgerJob
       .from("job_cost_entries")
       .select("*")
       .eq("job_number", jobNumber)
-      .order("incurred_at", { ascending: false }),
+      .order("incurred_at", { ascending: false })
+      .limit(QUERY_ROW_CAP),
     admin
       .from("job_revenue_entries")
       .select("*")
       .eq("job_number", jobNumber)
-      .order("occurred_at", { ascending: false }),
+      .order("occurred_at", { ascending: false })
+      .limit(QUERY_ROW_CAP),
   ]);
 
   if (budgetResult.error) {
@@ -342,6 +370,9 @@ export async function loadLedgerJobContext(jobNumber: string): Promise<LedgerJob
       `loadLedgerJobContext: job_revenue_entries query failed: ${revenueEntriesResult.error.message}`,
     );
   }
+
+  assertNotTruncated("job_cost_entries", jobNumber, costEntriesResult.data ?? []);
+  assertNotTruncated("job_revenue_entries", jobNumber, revenueEntriesResult.data ?? []);
 
   const currentBudget = budgetResult.data
     ? normalizeBudgetRow(budgetResult.data as Record<string, unknown>)

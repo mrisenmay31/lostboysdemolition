@@ -37,14 +37,18 @@ afterEach(() => {
 // ── Fake query-builder for `.from(table).select(...).eq(...)....` chains ──
 // Mirrors exceptionActions.test.ts's chainableQuery fake — every link
 // except the terminal one returns the builder itself; the terminal call
-// (whichever is invoked — `.maybeSingle()` or `.order()`) resolves to the
-// queued result.
+// (whichever is invoked — `.maybeSingle()` or `.limit()`) resolves to the
+// queued result. `.order()` chains back to the builder (rather than
+// resolving directly) so `job_cost_entries`/`job_revenue_entries`'s real
+// `.order(...).limit(QUERY_ROW_CAP)` shape — the row-cap sentinel added
+// alongside `healthRepo.ts`'s house standard — resolves through `.limit()`.
 function chainableQuery(result: { data?: unknown; error?: unknown }) {
   const builder: Record<string, unknown> = {
     select: vi.fn(() => builder),
     eq: vi.fn(() => builder),
-    order: vi.fn(() => Promise.resolve(result)),
+    order: vi.fn(() => builder),
     maybeSingle: vi.fn(() => Promise.resolve(result)),
+    limit: vi.fn(() => Promise.resolve(result)),
   };
   return builder;
 }
