@@ -71,6 +71,21 @@ vi.mock("@/lib/jobs/alertActions", () => ({
   resolveJobAlert: resolveJobAlertMock,
 }));
 
+// @/lib/ledger/repo (Task 3, Lane B) is mocked the same way
+// @/lib/jobs/repo is above — its real module may not exist yet while
+// that lane is mid-flight; this factory replaces it entirely, so
+// actions.ts never needs the real file to resolve at test time.
+const { createCostEntryMock, correctCostEntryMock, createRevenueEntryMock } = vi.hoisted(() => ({
+  createCostEntryMock: vi.fn(),
+  correctCostEntryMock: vi.fn(),
+  createRevenueEntryMock: vi.fn(),
+}));
+vi.mock("@/lib/ledger/repo", () => ({
+  createCostEntry: createCostEntryMock,
+  correctCostEntry: correctCostEntryMock,
+  createRevenueEntry: createRevenueEntryMock,
+}));
+
 vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
@@ -97,6 +112,9 @@ beforeEach(() => {
   resolveDeletedCalendarEventMock.mockReset();
   friendlyResolveErrorMessageMock.mockClear();
   resolveJobAlertMock.mockReset();
+  createCostEntryMock.mockReset();
+  correctCostEntryMock.mockReset();
+  createRevenueEntryMock.mockReset();
 });
 
 afterEach(() => {
@@ -437,5 +455,258 @@ describe("resolveJobAlertAction — error mapping", () => {
     const result = await resolveJobAlertAction(ALERT_INPUT, "Dane");
 
     expect(result).toEqual({ ok: false, error: "alert not found or already resolved" });
+  });
+});
+
+// ============================================================
+// createCostEntryAction / correctCostEntryAction / createRevenueEntryAction
+// (v2 Task 7, Lane C)
+// ============================================================
+
+const COST_ENTRY_INPUT = {
+  jobNumber: "JOB-1105",
+  category: "dump" as const,
+  state: "provisional" as const,
+  amount: 450,
+  quantity: 1,
+  unitCost: 450,
+  employeeName: null,
+  vendorName: "ABC Disposal",
+  incurredOn: "2026-08-20",
+  note: "Load 1",
+};
+
+const COST_CORRECTION_INPUT = {
+  entryId: "33333333-3333-3333-3333-333333333333",
+  reason: "Fixed amount typo",
+  patch: { amount: 475 },
+};
+
+const REVENUE_ENTRY_INPUT = {
+  jobNumber: "JOB-1105",
+  entryType: "invoice" as const,
+  amount: 2000,
+  occurredOn: "2026-08-20",
+  note: "Invoice #123",
+};
+
+describe("createCostEntryAction — allowlist rejection", () => {
+  it.each(INVALID_NAMES)(
+    "rejects estimatorName=%j with a friendly error, without calling createCostEntry",
+    async (name) => {
+      const { createCostEntryAction } = await importActions();
+
+      const result = await createCostEntryAction(COST_ENTRY_INPUT, name);
+
+      expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+      expect(createCostEntryMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("createCostEntryAction — input validation", () => {
+  it("rejects a non-numeric amount before calling createCostEntry", async () => {
+    const { createCostEntryAction } = await importActions();
+
+    const result = await createCostEntryAction(
+      { ...COST_ENTRY_INPUT, amount: "" },
+      "Dane",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.length).toBeGreaterThan(0);
+    }
+    expect(createCostEntryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createCostEntryAction — success path", () => {
+  it("forwards (validatedInput, actorName) and revalidates /jobs, the job route, and the costs sub-route", async () => {
+    const row = { id: "cost-1", job_number: "JOB-1105", amount: 450 };
+    createCostEntryMock.mockResolvedValue(row);
+    const { createCostEntryAction } = await importActions();
+    const revalidatePath = await importRevalidatePath();
+    revalidatePath.mockClear();
+
+    const result = await createCostEntryAction(COST_ENTRY_INPUT, "Dane");
+
+    expect(createCostEntryMock).toHaveBeenCalledWith(COST_ENTRY_INPUT, "Dane");
+    expect(result).toEqual({ ok: true, entry: row });
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs");
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/JOB-1105");
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/JOB-1105/costs");
+    expect(revalidatePath).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("createCostEntryAction — error mapping", () => {
+  it("surfaces a LedgerError with its code and message", async () => {
+    const { LedgerError } = await import("@/lib/ledger/types");
+    createCostEntryMock.mockRejectedValue(new LedgerError("job JOB-1105 not found", "not_found"));
+    const { createCostEntryAction } = await importActions();
+
+    const result = await createCostEntryAction(COST_ENTRY_INPUT, "Dane");
+
+    expect(result).toEqual({ ok: false, error: "job JOB-1105 not found", code: "not_found" });
+  });
+
+  it("surfaces a non-LedgerError as a generic error message without a code", async () => {
+    createCostEntryMock.mockRejectedValue(new Error("boom"));
+    const { createCostEntryAction } = await importActions();
+
+    const result = await createCostEntryAction(COST_ENTRY_INPUT, "Dane");
+
+    expect(result).toEqual({ ok: false, error: "boom" });
+  });
+});
+
+describe("correctCostEntryAction — allowlist rejection", () => {
+  it.each(INVALID_NAMES)(
+    "rejects estimatorName=%j with a friendly error, without calling correctCostEntry",
+    async (name) => {
+      const { correctCostEntryAction } = await importActions();
+
+      const result = await correctCostEntryAction(COST_CORRECTION_INPUT, name);
+
+      expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+      expect(correctCostEntryMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("correctCostEntryAction — input validation", () => {
+  it("rejects an empty patch before calling correctCostEntry", async () => {
+    const { correctCostEntryAction } = await importActions();
+
+    const result = await correctCostEntryAction(
+      { ...COST_CORRECTION_INPUT, patch: {} },
+      "Dane",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.length).toBeGreaterThan(0);
+    }
+    expect(correctCostEntryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("correctCostEntryAction — success path", () => {
+  it("forwards (validatedInput, actorName) and revalidates using the RETURNED row's job_number, not any job number in the input", async () => {
+    const row = { id: "cost-1", job_number: "JOB-1106", amount: 475 };
+    correctCostEntryMock.mockResolvedValue(row);
+    const { correctCostEntryAction } = await importActions();
+    const revalidatePath = await importRevalidatePath();
+    revalidatePath.mockClear();
+
+    const result = await correctCostEntryAction(COST_CORRECTION_INPUT, "Dane");
+
+    expect(correctCostEntryMock).toHaveBeenCalledWith(COST_CORRECTION_INPUT, "Dane");
+    expect(result).toEqual({ ok: true, entry: row });
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs");
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/JOB-1106");
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/JOB-1106/costs");
+    expect(revalidatePath).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("correctCostEntryAction — error mapping", () => {
+  it("surfaces a LedgerError with its code and message", async () => {
+    const { LedgerError } = await import("@/lib/ledger/types");
+    correctCostEntryMock.mockRejectedValue(
+      new LedgerError("entry is void and cannot be corrected again", "not_correctable"),
+    );
+    const { correctCostEntryAction } = await importActions();
+
+    const result = await correctCostEntryAction(COST_CORRECTION_INPUT, "Dane");
+
+    expect(result).toEqual({
+      ok: false,
+      error: "entry is void and cannot be corrected again",
+      code: "not_correctable",
+    });
+  });
+
+  it("surfaces a non-LedgerError as a generic error message without a code", async () => {
+    correctCostEntryMock.mockRejectedValue(new Error("boom"));
+    const { correctCostEntryAction } = await importActions();
+
+    const result = await correctCostEntryAction(COST_CORRECTION_INPUT, "Dane");
+
+    expect(result).toEqual({ ok: false, error: "boom" });
+  });
+});
+
+describe("createRevenueEntryAction — allowlist rejection", () => {
+  it.each(INVALID_NAMES)(
+    "rejects estimatorName=%j with a friendly error, without calling createRevenueEntry",
+    async (name) => {
+      const { createRevenueEntryAction } = await importActions();
+
+      const result = await createRevenueEntryAction(REVENUE_ENTRY_INPUT, name);
+
+      expect(result).toEqual({ ok: false, error: "Pick who's estimating first." });
+      expect(createRevenueEntryMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("createRevenueEntryAction — input validation", () => {
+  it("rejects a blank note before calling createRevenueEntry", async () => {
+    const { createRevenueEntryAction } = await importActions();
+
+    const result = await createRevenueEntryAction(
+      { ...REVENUE_ENTRY_INPUT, note: "" },
+      "Dane",
+    );
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.fieldErrors?.length).toBeGreaterThan(0);
+    }
+    expect(createRevenueEntryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("createRevenueEntryAction — success path", () => {
+  it("forwards (validatedInput, actorName) and revalidates /jobs, the job route, and the revenue sub-route", async () => {
+    const row = { id: "rev-1", job_number: "JOB-1105", amount: 2000 };
+    createRevenueEntryMock.mockResolvedValue(row);
+    const { createRevenueEntryAction } = await importActions();
+    const revalidatePath = await importRevalidatePath();
+    revalidatePath.mockClear();
+
+    const result = await createRevenueEntryAction(REVENUE_ENTRY_INPUT, "Dane");
+
+    expect(createRevenueEntryMock).toHaveBeenCalledWith(REVENUE_ENTRY_INPUT, "Dane");
+    expect(result).toEqual({ ok: true, entry: row });
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs");
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/JOB-1105");
+    expect(revalidatePath).toHaveBeenCalledWith("/jobs/JOB-1105/revenue");
+    expect(revalidatePath).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("createRevenueEntryAction — error mapping", () => {
+  it("surfaces a LedgerError with its code and message", async () => {
+    const { LedgerError } = await import("@/lib/ledger/types");
+    createRevenueEntryMock.mockRejectedValue(
+      new LedgerError("job JOB-1105 not found", "not_found"),
+    );
+    const { createRevenueEntryAction } = await importActions();
+
+    const result = await createRevenueEntryAction(REVENUE_ENTRY_INPUT, "Dane");
+
+    expect(result).toEqual({ ok: false, error: "job JOB-1105 not found", code: "not_found" });
+  });
+
+  it("surfaces a non-LedgerError as a generic error message without a code", async () => {
+    createRevenueEntryMock.mockRejectedValue(new Error("boom"));
+    const { createRevenueEntryAction } = await importActions();
+
+    const result = await createRevenueEntryAction(REVENUE_ENTRY_INPUT, "Dane");
+
+    expect(result).toEqual({ ok: false, error: "boom" });
   });
 });

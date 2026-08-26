@@ -19,6 +19,15 @@ import type {
   ResolvedException,
 } from "@/lib/jobs/exceptionActions";
 import { resolveJobAlert } from "@/lib/jobs/alertActions";
+import {
+  validateCostEntryInput,
+  validateCostCorrectionInput,
+  validateRevenueEntryInput,
+} from "@/lib/ledger/validate";
+import { LedgerError } from "@/lib/ledger/types";
+import type { LedgerErrorCode } from "@/lib/ledger/types";
+import { createCostEntry, correctCostEntry, createRevenueEntry } from "@/lib/ledger/repo";
+import type { JobCostEntryRow, JobRevenueEntryRow } from "@/lib/jobs/map";
 
 /**
  * Server action for the atomic schedule-to-job promotion (Phase 1, v2
@@ -213,6 +222,140 @@ export async function resolveJobAlertAction(
     revalidatePath("/jobs");
     return { ok: true };
   } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ============================================================
+// Manual ledger entries (v2 Task 7, Lane C)
+//
+// All three follow scheduleEstimateAction's exact shape at the top of
+// this file: isEstimatorName gate first (estimatorName is always the
+// separately-validated argument — never taken from the client `input`
+// object), a validate* call next (fieldErrors on failure, the repo layer
+// never touched), the repo call in try/catch, typed LedgerError `code`
+// passthrough, then revalidatePath. Consumes @/lib/ledger/repo.ts's
+// createCostEntry/correctCostEntry/createRevenueEntry (Task 3) against
+// the fixed signatures this plan specifies: `(input, actorName) =>
+// Promise<Row>`, every failure mode a thrown LedgerError.
+// ============================================================
+
+export type LedgerActionResult<T> =
+  | { ok: true; entry: T }
+  | { ok: false; error: string; code?: LedgerErrorCode; fieldErrors?: string[] };
+
+/**
+ * Validates a cost-entry-creation payload, then calls
+ * @/lib/ledger/repo.ts's createCostEntry. Revalidates `/jobs`, the job's
+ * own detail route, and its costs sub-route — the job number comes from
+ * the VALIDATED INPUT here (a new cost entry always names its own
+ * `jobNumber`; contrast with correctCostEntryAction below, whose input
+ * carries only an entry id).
+ */
+export async function createCostEntryAction(
+  input: unknown,
+  estimatorName: string,
+): Promise<LedgerActionResult<JobCostEntryRow>> {
+  if (!isEstimatorName(estimatorName)) {
+    return { ok: false, error: "Pick who's estimating first." };
+  }
+
+  const validated = validateCostEntryInput(input);
+  if (!validated.success) {
+    return {
+      ok: false,
+      error: validated.errors.join("; "),
+      fieldErrors: validated.errors,
+    };
+  }
+
+  try {
+    const entry = await createCostEntry(validated.data, estimatorName);
+    revalidatePath("/jobs");
+    revalidatePath(`/jobs/${validated.data.jobNumber}`);
+    revalidatePath(`/jobs/${validated.data.jobNumber}/costs`);
+    return { ok: true, entry };
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      return { ok: false, error: err.message, code: err.code };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Validates a cost-correction payload, then calls
+ * @/lib/ledger/repo.ts's correctCostEntry. Revalidates `/jobs`, the job's
+ * own detail route, and its costs sub-route using the RETURNED row's
+ * `job_number` — a correction's client input carries only `entryId` and a
+ * patch, never a job number, so there is nothing to revalidate against
+ * until the repo call resolves.
+ */
+export async function correctCostEntryAction(
+  input: unknown,
+  estimatorName: string,
+): Promise<LedgerActionResult<JobCostEntryRow>> {
+  if (!isEstimatorName(estimatorName)) {
+    return { ok: false, error: "Pick who's estimating first." };
+  }
+
+  const validated = validateCostCorrectionInput(input);
+  if (!validated.success) {
+    return {
+      ok: false,
+      error: validated.errors.join("; "),
+      fieldErrors: validated.errors,
+    };
+  }
+
+  try {
+    const entry = await correctCostEntry(validated.data, estimatorName);
+    revalidatePath("/jobs");
+    revalidatePath(`/jobs/${entry.job_number}`);
+    revalidatePath(`/jobs/${entry.job_number}/costs`);
+    return { ok: true, entry };
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      return { ok: false, error: err.message, code: err.code };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Validates a revenue-entry payload, then calls
+ * @/lib/ledger/repo.ts's createRevenueEntry. Revalidates `/jobs`, the
+ * job's own detail route, and its revenue sub-route — the job number
+ * comes from the VALIDATED INPUT (a revenue entry always names its own
+ * `jobNumber`, same as a cost-entry creation above).
+ */
+export async function createRevenueEntryAction(
+  input: unknown,
+  estimatorName: string,
+): Promise<LedgerActionResult<JobRevenueEntryRow>> {
+  if (!isEstimatorName(estimatorName)) {
+    return { ok: false, error: "Pick who's estimating first." };
+  }
+
+  const validated = validateRevenueEntryInput(input);
+  if (!validated.success) {
+    return {
+      ok: false,
+      error: validated.errors.join("; "),
+      fieldErrors: validated.errors,
+    };
+  }
+
+  try {
+    const entry = await createRevenueEntry(validated.data, estimatorName);
+    revalidatePath("/jobs");
+    revalidatePath(`/jobs/${validated.data.jobNumber}`);
+    revalidatePath(`/jobs/${validated.data.jobNumber}/revenue`);
+    return { ok: true, entry };
+  } catch (err) {
+    if (err instanceof LedgerError) {
+      return { ok: false, error: err.message, code: err.code };
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
