@@ -36,13 +36,87 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE. Next = Task 7, the Phase 1 gate** (blockers: Slack bot invitations, phone smoke + real estimate ≥1429, authenticated JOB-1104 fire) | 2026-08-25 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. MERGE AWAITS MATT; Task 7 (manual ledger) completes Phase 2** | 2026-08-26 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-26 — Session 11: v2 Phase 2 OPENED — Task 6 (Job Dashboard) BUILT on branch `claude/v2-task6-job-dashboard`, all reviews clean; MERGE AWAITS MATT
+
+**Phase 2 opener (docs, on main pre-branch):** the two ratified 2026-08-21 prototype decisions
+(no "portfolio" terminology; `payment_processing` capture-only presentation rule) had been written
+into the v2 plan **only on `codex/job-dashboard-prototype`** — main's copy never got them. Ported
+verbatim to main as `c3d4e48`, keeping main's 2026-08-25 Task 6/8 amendments; main's plan now
+differs from the prototype branch's only by those amendment blocks (PR #2 stays conflict-free in
+these files). **Dane's prototype feedback has NOT arrived** (artifact has zero comment threads);
+Matt ruled: plan Task 6 anyway on the ratified decisions, reconcile Dane's feedback into the v2
+plan whenever it lands.
+
+**Task 6 plan** (`docs/superpowers/plans/2026-08-26-v2-task6-job-dashboard.md`, approved by Matt)
+executed via subagent-driven development: 4 concurrent lanes, Sonnet implements, Fable reviews
+every task + whole branch. 10 commits `824f910..995dc55`. **Web-only: no migrations, no edge
+functions, no secrets** — deploy is simply the Vercel build on merge to main.
+
+**What shipped (on the branch, NOT merged — Matt decides):**
+- `web/src/lib/jobs/map.ts` — pure mapping/rollup/comparison math. The locked presentation
+  (Total Revenue − 6 direct categories = Gross Profit; − Overhead Allocation − **Processing
+  Fees** = Job Profit; `payment_processing` never in Total Direct) is single-sourced here with a
+  dedicated exclusion proof test; sort ranks, snapshot watermarks, crew-days (÷40 fallback).
+- `web/src/lib/jobs/healthRepo.ts` — batched aggregate reads feeding Task 3's
+  `calculateJobHealth`; `job_forecast_snapshots` persisted only on detail reads when input
+  watermarks change (+ `jobs.last_forecast_at`); **`QUERY_ROW_CAP` sentinel throws on PostgREST's
+  silent 1000-row cap** instead of computing wrong numbers (pagination deliberately deferred to
+  Phase C volumes).
+- `/jobs` — the Job Dashboard: six filter chips (Active default / Job Completed / Invoice /
+  Reconciliation / Financially Closed / Reconciliation Required / Cancelled), health cards,
+  exceptions banner; nav gains **Jobs** (grid-cols-3). `/` still redirects to `/estimates`
+  (Task 8 owns the flip).
+- `/jobs/[jobNumber]` — the profitability detail in the locked 8-section order:
+  header, health banner, forecast-vs-original tiles, FinancialComparisonTable
+  (Original/Current/Actual+Committed/Forecast; mobile stacks to cards), labor variance
+  (productivity only — rate variance honestly labeled unavailable until Task 13), change orders,
+  ActionQueue (alert resolution — closes the `calendar_watch:*` no-resolution-path deferral),
+  expandable cost/revenue/override/audit sections, CancelJobPanel (postponed/closed_lost).
+- Session-10 deferral ledger items discharged: inline exceptions action folded into
+  `jobs/actions.ts`; **estimator-allowlist gate on the cancel/postpone wrapper**;
+  `listOpenScheduleExceptions` filters `kind='calendar_deleted'`; alert resolution path
+  (`resolved_by` stays null under no-login — actor stamped into `resolution_note` as `[Name]`).
+
+**Suites at close:** web **650/650**, lint 0 errors / 1 pre-existing warning, `npm run build`
+green (both new routes dynamic), `deno task test` **411/411** (golden-321 intact — no Deno file
+touched). **Live-verified against production:** all six filters 200 (first-ever live run of the
+`.not-in` completed-filter form — retired); cancelled filter lists the 5 TEST jobs with real
+reasons; JOB-1107 detail cross-checks the locked chain to the cent ($1,717.25 − $460.00 − $82.25
+= $1,175.00 = budget-v1 `planned_economic_profit`); honest zeros/em-dashes everywhere; unknown
+job → 404; **snapshot invariant proven: zero `job_forecast_snapshots` rows written by
+cancelled-job renders, `last_forecast_at` untouched**. `job_checklists` column names proven
+implicitly (the 200-rendering select would 400 on unknown columns). 390×844 visual eyeball is
+environment-impossible (window min ~1300px) — markup carries both breakpoint variants; folded
+into the BL-8 phone smoke.
+
+**Review record:** 5 task gates (Fable) all Approved — notable catches: numeric-string coercion
+on forecast-override fields (silent-drop hazard before Task 2 wired live rows); the PostgREST
+truncation hazard; a back-fitted per-file test breakdown in Task 5's report (corrected with real
+output — code was unimpeached); final whole-branch review (Fable) "With fixes" → one fix wave
+`995dc55` (locked "Processing Fees" label — was rendering "Payment Processing"; Denver-formatted
+`incurred_at`/`occurred_at`; 7 lint warnings; banner copy; "Cancelled" chip spelling) → scoped
+re-review clean. Full rulings ledger:
+`.superpowers/sdd/2026-08-26-v2-task6-job-dashboard/progress.md` (git-ignored scratch, kept
+pending Matt's per-item deletion OK).
+
+**Carried forward:** Task 9's brief must Zod-reject empty-string numeric inputs
+(`coerceNullableNum("")` → 0) and require positive `hours_per_day`/`expected_crew_size`;
+Task 9/13 add a zero-divisor guard for crew-days. A hypothetical legacy `status_v2='invoiced'`
+row would match no dashboard filter (invisible, not mis-ranked) — no v2 writer produces it.
+Deferred minors triaged OK-TO-DEFER by the final review are listed in the ledger.
+
+**Next:** Matt's merge decision (merge fast-forwards main and auto-deploys via Vercel — the
+dashboard becomes reachable at `/jobs` on the live network-open app). Then v2 Task 7 (manual
+cost/revenue capture) completes Phase 2; its gate needs manual facts entered end-to-end. Dane's
+prototype feedback still reconciles into the v2 plan whenever it arrives.
 
 ### 2026-08-25 — Session 10: TASK 7 COMPLETE — whole-branch review passed (fix round `604ddc5`), gate E2E PASSED (JOB-1107, reactivation first-proven), and the PERMANENT CUTOVER IS LIVE (`ghl-job-webhook` v25, flag=false, live-verified) — Phase 1 gate PASSED; merge decision is Matt's
 
