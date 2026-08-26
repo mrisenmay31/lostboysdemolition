@@ -370,7 +370,16 @@ export function CostCorrectionForm({
             state: entryState,
             quantity: parseNullableNumber(quantityStr),
             incurredOn: incurredOn.trim() === "" ? undefined : incurredOn,
-            note: note === "" ? null : note,
+            // `note` is presence-conditional, not `null`-when-blank like the
+            // create form's note: repo.ts's mapCostCorrectionPatch treats an
+            // ABSENT key as "don't touch" and a `null` value as "explicitly
+            // clear." This field always starts blank (JobCostEntryRow carries
+            // no note to seed it from), so sending `null` on every submit
+            // where the user didn't retype a note would silently wipe
+            // whatever note the original manual entry carried. Omitting the
+            // key when blank preserves it instead — there is deliberately no
+            // UI path to explicitly clear a note here.
+            ...(note.trim() !== "" ? { note } : {}),
           },
         },
         estimator,
