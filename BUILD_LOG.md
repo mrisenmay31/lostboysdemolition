@@ -36,7 +36,7 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. MERGE AWAITS MATT; Task 7 (manual ledger) completes Phase 2** | 2026-08-26 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2** | 2026-08-26 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
@@ -44,7 +44,15 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
-### 2026-08-26 — Session 11: v2 Phase 2 OPENED — Task 6 (Job Dashboard) BUILT on branch `claude/v2-task6-job-dashboard`, all reviews clean; MERGE AWAITS MATT
+### 2026-08-26 — Session 11: v2 Phase 2 OPENED — Task 6 (Job Dashboard) BUILT, reviewed clean, MERGED TO MAIN and DEPLOYED (production verified)
+
+**MERGED same session on Matt's go:** fast-forward `c3d4e48..5663a46`, pushed
+(`283b457..5663a46` on origin — the Phase-2-opener docs commit `c3d4e48` rode along).
+**Production Vercel deploy VERIFIED ~40s after push:** `/jobs` 200, `/jobs/JOB-1107` 200
+(the locked "Processing Fees" label live), cancelled filter lists all 5 TEST jobs, `/` still
+307→`/estimates` (Task 8 deferral intact), `/estimates` 200. **The Job Dashboard is LIVE on the
+network-open app.** Branch `claude/v2-task6-job-dashboard` fully merged; kept locally (delete
+only with Matt's per-item OK).
 
 **Phase 2 opener (docs, on main pre-branch):** the two ratified 2026-08-21 prototype decisions
 (no "portfolio" terminology; `payment_processing` capture-only presentation rule) had been written
@@ -113,10 +121,11 @@ Task 9/13 add a zero-divisor guard for crew-days. A hypothetical legacy `status_
 row would match no dashboard filter (invisible, not mis-ranked) — no v2 writer produces it.
 Deferred minors triaged OK-TO-DEFER by the final review are listed in the ledger.
 
-**Next:** Matt's merge decision (merge fast-forwards main and auto-deploys via Vercel — the
-dashboard becomes reachable at `/jobs` on the live network-open app). Then v2 Task 7 (manual
-cost/revenue capture) completes Phase 2; its gate needs manual facts entered end-to-end. Dane's
-prototype feedback still reconciles into the v2 plan whenever it arrives.
+**Next:** v2 Task 7 (manual cost/revenue capture) completes Phase 2 — its gate needs manual
+facts entered end-to-end on a staged job, with Dane seeing original/current/actual+committed/
+forecast, health/confidence, leading variance, and audit detail. Dane's prototype feedback still
+reconciles into the v2 plan whenever it arrives. BL-8 items stand (Slack bot invites, phone
+smoke — which now also covers the dashboard's 390px eyeball, first real estimate ≥1430).
 
 ### 2026-08-25 — Session 10: TASK 7 COMPLETE — whole-branch review passed (fix round `604ddc5`), gate E2E PASSED (JOB-1107, reactivation first-proven), and the PERMANENT CUTOVER IS LIVE (`ghl-job-webhook` v25, flag=false, live-verified) — Phase 1 gate PASSED; merge decision is Matt's
 
