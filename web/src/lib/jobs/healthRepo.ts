@@ -141,6 +141,36 @@ const CHANGE_ORDER_COLUMNS = "id, change_order_number, status, current_version, 
 
 const JOB_EVENT_COLUMNS = "id, stage_from, stage_to, function_name, action_summary, status, created_at";
 
+/** PostgREST caps any un-ranged select at its `max-rows` setting (default
+ *  1000) and returns HTTP 200 with the truncated set — no error, no
+ *  warning. Every batched/unbounded multi-row load in this module gets an
+ *  explicit `.limit(QUERY_ROW_CAP)` PLUS an `assertNotTruncated` check
+ *  immediately after, so a result that lands exactly on the cap throws a
+ *  loud, named error instead of silently feeding `rollupLedger`/the
+ *  engine a partial ledger. At today's data volume (5 jobs, zero cost
+ *  rows) this is invisible, but `job_cost_entries` for the ever-growing
+ *  "completed" bucket alone will cross 1000 rows within months of real
+ *  use — at that point a silent truncation would compute health from a
+ *  fraction of the real actuals, a direct violation of the honest-data
+ *  rule. Pagination is the real fix and is deferred to Phase C, when
+ *  expense volumes actually demand it; this sentinel exists to make that
+ *  deferral SAFE (loud failure) rather than invisible (wrong numbers on
+ *  Dane's screen). `job_events` is exempt — its own `.limit(50)` is a
+ *  deliberate display cap (newest 50 events), not this cap, and 50 can
+ *  never collide with `QUERY_ROW_CAP`. */
+const QUERY_ROW_CAP = 1000;
+
+/** See `QUERY_ROW_CAP`'s doc comment. Call immediately after every
+ *  unbounded `.limit(QUERY_ROW_CAP)` load's `.error` check, before the
+ *  rows are normalized/used for anything. */
+function assertNotTruncated(table: string, rows: unknown[]): void {
+  if (rows.length === QUERY_ROW_CAP) {
+    throw new Error(
+      `healthRepo: ${table} load hit the ${QUERY_ROW_CAP}-row cap for this query — results would be silently truncated; paginate before this data volume (tracked for Phase C)`,
+    );
+  }
+}
+
 /** Severity ordering for `nextAction`'s highest-severity-open-alert pick:
  *  at_risk is most urgent (0), on_track least (2). Mirrors
  *  `statusSortRank`'s own health ordering in jobs/map.ts. */
@@ -400,25 +430,33 @@ export async function listJobHealthSummaries(filter: DashboardFilter): Promise<J
 
   const [budgetsResult, costEntriesResult, overridesResult, alertsResult, exceptionsResult, checklistsResult] =
     await Promise.all([
-      admin.from("job_budget_versions").select("*").in("job_number", jobNumbers),
-      admin.from("job_cost_entries").select("*").in("job_number", jobNumbers),
+      admin.from("job_budget_versions").select("*").in("job_number", jobNumbers).limit(QUERY_ROW_CAP),
+      admin.from("job_cost_entries").select("*").in("job_number", jobNumbers).limit(QUERY_ROW_CAP),
       admin
         .from("job_forecast_overrides")
         .select("*")
         .in("job_number", jobNumbers)
-        .order("created_at", { ascending: false }),
-      admin.from("job_alerts").select("*").in("job_number", jobNumbers).is("resolved_at", null),
+        .order("created_at", { ascending: false })
+        .limit(QUERY_ROW_CAP),
+      admin
+        .from("job_alerts")
+        .select("*")
+        .in("job_number", jobNumbers)
+        .is("resolved_at", null)
+        .limit(QUERY_ROW_CAP),
       admin
         .from("job_schedule_exceptions")
         .select("id, job_number, external_event_id, kind, previous_schedule, opened_at")
         .in("job_number", jobNumbers)
         .eq("status", "open")
-        .eq("kind", "calendar_deleted"),
+        .eq("kind", "calendar_deleted")
+        .limit(QUERY_ROW_CAP),
       admin
         .from("job_checklists")
         .select("job_number, submitted_at, remaining_workdays, expected_crew_size, hours_per_day")
         .in("job_number", jobNumbers)
-        .order("submitted_at", { ascending: false }),
+        .order("submitted_at", { ascending: false })
+        .limit(QUERY_ROW_CAP),
     ]);
 
   if (budgetsResult.error) {
@@ -439,6 +477,13 @@ export async function listJobHealthSummaries(filter: DashboardFilter): Promise<J
   if (checklistsResult.error) {
     throw new Error(`listJobHealthSummaries: checklists query failed: ${checklistsResult.error.message}`);
   }
+
+  assertNotTruncated("job_budget_versions", budgetsResult.data ?? []);
+  assertNotTruncated("job_cost_entries", costEntriesResult.data ?? []);
+  assertNotTruncated("job_forecast_overrides", overridesResult.data ?? []);
+  assertNotTruncated("job_alerts", alertsResult.data ?? []);
+  assertNotTruncated("job_schedule_exceptions", exceptionsResult.data ?? []);
+  assertNotTruncated("job_checklists", checklistsResult.data ?? []);
 
   const budgetsByJob = groupByJobNumber(
     ((budgetsResult.data as Record<string, unknown>[] | null) ?? []).map(normalizeBudgetRow),
@@ -664,21 +709,28 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
     changeOrdersResult,
     jobEventsResult,
   ] = await Promise.all([
-    admin.from("job_budget_versions").select("*").eq("job_number", jobNumber),
-    admin.from("job_cost_entries").select("*").eq("job_number", jobNumber),
-    admin.from("job_revenue_entries").select("*").eq("job_number", jobNumber),
+    admin.from("job_budget_versions").select("*").eq("job_number", jobNumber).limit(QUERY_ROW_CAP),
+    admin.from("job_cost_entries").select("*").eq("job_number", jobNumber).limit(QUERY_ROW_CAP),
+    admin.from("job_revenue_entries").select("*").eq("job_number", jobNumber).limit(QUERY_ROW_CAP),
     admin
       .from("job_forecast_overrides")
       .select("*")
       .eq("job_number", jobNumber)
-      .order("created_at", { ascending: false }),
-    admin.from("job_alerts").select("*").eq("job_number", jobNumber).is("resolved_at", null),
+      .order("created_at", { ascending: false })
+      .limit(QUERY_ROW_CAP),
+    admin
+      .from("job_alerts")
+      .select("*")
+      .eq("job_number", jobNumber)
+      .is("resolved_at", null)
+      .limit(QUERY_ROW_CAP),
     admin
       .from("job_schedule_exceptions")
       .select("id, job_number, external_event_id, kind, previous_schedule, opened_at")
       .eq("job_number", jobNumber)
       .eq("status", "open")
-      .eq("kind", "calendar_deleted"),
+      .eq("kind", "calendar_deleted")
+      .limit(QUERY_ROW_CAP),
     admin
       .from("job_checklists")
       .select("job_number, submitted_at, remaining_workdays, expected_crew_size, hours_per_day")
@@ -686,9 +738,15 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
       .order("submitted_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
-    admin.from("change_orders").select(CHANGE_ORDER_COLUMNS).eq("job_number", jobNumber).order("created_at", {
-      ascending: false,
-    }),
+    admin
+      .from("change_orders")
+      .select(CHANGE_ORDER_COLUMNS)
+      .eq("job_number", jobNumber)
+      .order("created_at", { ascending: false })
+      .limit(QUERY_ROW_CAP),
+    // job_events is exempt from QUERY_ROW_CAP — its .limit(50) is a
+    // deliberate display cap (newest 50 events), not the truncation
+    // sentinel; see QUERY_ROW_CAP's doc comment.
     admin
       .from("job_events")
       .select(JOB_EVENT_COLUMNS)
@@ -724,6 +782,15 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
   if (jobEventsResult.error) {
     throw new Error(`getJobHealthDetail: job events query failed: ${jobEventsResult.error.message}`);
   }
+
+  // job_events is deliberately excluded — see the comment at its query above.
+  assertNotTruncated("job_budget_versions", budgetsResult.data ?? []);
+  assertNotTruncated("job_cost_entries", costEntriesResult.data ?? []);
+  assertNotTruncated("job_revenue_entries", revenueEntriesResult.data ?? []);
+  assertNotTruncated("job_forecast_overrides", overridesResult.data ?? []);
+  assertNotTruncated("job_alerts", alertsResult.data ?? []);
+  assertNotTruncated("job_schedule_exceptions", exceptionsResult.data ?? []);
+  assertNotTruncated("change_orders", changeOrdersResult.data ?? []);
 
   const budgets = ((budgetsResult.data as Record<string, unknown>[] | null) ?? []).map(normalizeBudgetRow);
   const originalBudget = budgets.find((b) => b.version === 1) ?? null;
@@ -773,9 +840,13 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
       ? buildFinancialComparison({ originalBudget, currentBudget, ledger, revenueEntries, health })
       : null;
 
-  // Snapshot persistence — best-effort, only when the engine actually
-  // ran (health/currentBudget both non-null). Never blocks or fails this
-  // read; see persistForecastSnapshotIfStale's own doc comment.
+  // Snapshot persistence — best-effort, only when the engine actually ran
+  // (health/currentBudget both non-null). This IS awaited deliberately
+  // (serverless function lifetimes mean a fire-and-forget call here could
+  // be killed mid-write once the response is sent) — it just never FAILS
+  // this read: any error inside is caught and console.error'd, never
+  // thrown out of persistForecastSnapshotIfStale. See that function's own
+  // doc comment.
   if (health !== null && currentBudget !== null) {
     await persistForecastSnapshotIfStale(
       admin,
