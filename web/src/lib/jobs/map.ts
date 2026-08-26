@@ -501,7 +501,10 @@ export interface FinancialComparison {
   jobProfitMarginPct: ComparisonColumnSet;
 }
 
-const CATEGORY_LABELS: Record<CostCategory, string> = {
+/** Exported (v2 Task 7, Lane D) so the manual cost/revenue ledger forms
+ *  (jobs/[jobNumber]/costs, jobs/[jobNumber]/revenue) reuse these exact
+ *  display names instead of forking their own category-label map. */
+export const CATEGORY_LABELS: Record<CostCategory, string> = {
   direct_labor: "Direct Labor",
   materials: "Materials",
   rentals: "Rentals",

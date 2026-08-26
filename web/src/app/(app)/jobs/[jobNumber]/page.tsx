@@ -257,9 +257,12 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
               </table>
             </div>
           )}
-          <span className="w-fit text-xs text-zinc-400 dark:text-zinc-600">
-            Add entries — ships with v2 Task 7
-          </span>
+          <Link
+            href={`/jobs/${jobNumber}/costs`}
+            className="w-fit text-xs font-medium underline"
+          >
+            Add cost entries
+          </Link>
         </div>
       </details>
 
@@ -289,9 +292,12 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             Payments affect collection, not job profit.
           </p>
-          <span className="w-fit text-xs text-zinc-400 dark:text-zinc-600">
-            Add entries — ships with v2 Task 7
-          </span>
+          <Link
+            href={`/jobs/${jobNumber}/revenue`}
+            className="w-fit text-xs font-medium underline"
+          >
+            Add revenue entries
+          </Link>
         </div>
       </details>
 
