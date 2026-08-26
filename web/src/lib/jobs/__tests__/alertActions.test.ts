@@ -9,13 +9,28 @@ const { updateMock, eqMock, isMock, selectMock, fromMock } = vi.hoisted(() => {
   // — mirrors exceptionActions.test.ts's chainableQuery fake, but each
   // link is its own vi.fn() (rather than one shared builder object) so
   // individual call arguments can be asserted directly by name.
-  const selectMock = vi.fn((_columns: string) =>
-    Promise.resolve<{ data: unknown; error: unknown }>({ data: null, error: null }),
-  );
-  const isMock = vi.fn((_column: string, _value: unknown) => ({ select: selectMock }));
-  const eqMock = vi.fn((_column: string, _value: unknown) => ({ is: isMock }));
-  const updateMock = vi.fn((_payload: Record<string, unknown>) => ({ eq: eqMock }));
-  const fromMock = vi.fn((_table: string) => ({ update: updateMock }));
+  const selectMock = vi.fn((_columns: string) => {
+    void _columns;
+    return Promise.resolve<{ data: unknown; error: unknown }>({ data: null, error: null });
+  });
+  const isMock = vi.fn((_column: string, _value: unknown) => {
+    void _column;
+    void _value;
+    return { select: selectMock };
+  });
+  const eqMock = vi.fn((_column: string, _value: unknown) => {
+    void _column;
+    void _value;
+    return { is: isMock };
+  });
+  const updateMock = vi.fn((_payload: Record<string, unknown>) => {
+    void _payload;
+    return { eq: eqMock };
+  });
+  const fromMock = vi.fn((_table: string) => {
+    void _table;
+    return { update: updateMock };
+  });
   return { updateMock, eqMock, isMock, selectMock, fromMock };
 });
 const { createAdminClientMock } = vi.hoisted(() => ({

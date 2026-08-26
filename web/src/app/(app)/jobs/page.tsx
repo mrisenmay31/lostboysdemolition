@@ -38,7 +38,7 @@ const FILTERS: ReadonlyArray<{ value: DashboardFilter; label: string }> = [
   { value: "invoice_reconciliation", label: "Invoice / Reconciliation" },
   { value: "financially_closed", label: "Financially Closed" },
   { value: "reconciliation_required", label: "Reconciliation Required" },
-  { value: "cancelled", label: "Canceled" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 const HEALTH_PILL: Record<HealthStatus, { label: string; classes: string }> = {
@@ -97,7 +97,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           href="/jobs/exceptions"
           className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
         >
-          Open schedule exceptions need resolution → /jobs/exceptions
+          Open schedule exceptions need resolution →
         </Link>
       ) : null}
 

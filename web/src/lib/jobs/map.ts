@@ -627,9 +627,12 @@ export function buildFinancialComparison(args: {
   const totalDirect = rowFor("total_direct", "Total Direct Costs", sumDirectCategories);
   const grossProfit = rowFor("gross_profit", "Gross Profit", grossProfitOf);
   const overheadAllocation = rowFor("overhead_allocation", "Overhead Allocation", (c) => c.overhead);
+  // Row label is the locked presentation name "Processing Fees" — distinct
+  // from CATEGORY_LABELS.payment_processing ("Payment Processing"), which
+  // labels the ledger cost-entry category elsewhere and must stay as-is.
   const processingFees = rowFor(
     "payment_processing",
-    CATEGORY_LABELS.payment_processing,
+    "Processing Fees",
     (c) => c.categories.payment_processing,
   );
   const jobProfit = rowFor("job_profit", "Job Profit", jobProfitOf);

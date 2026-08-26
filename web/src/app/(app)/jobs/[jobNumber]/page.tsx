@@ -249,7 +249,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                       <td className="py-1 px-2">
                         {entry.vendor_name ?? entry.employee_name ?? "—"}
                       </td>
-                      <td className="py-1 px-2">{entry.incurred_at}</td>
+                      <td className="py-1 px-2">{formatDenver(entry.incurred_at)}</td>
                       <td className="py-1 pl-2">{entry.source_system}</td>
                     </tr>
                   ))}
@@ -280,7 +280,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
                   <span>{formatStatusLabel(entry.entry_type)}</span>
                   <span className="tabular-nums">{currency.format(entry.amount)}</span>
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {entry.occurred_at}
+                    {formatDenver(entry.occurred_at)}
                   </span>
                 </li>
               ))}

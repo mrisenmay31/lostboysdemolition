@@ -559,6 +559,10 @@ describe("buildFinancialComparison", () => {
     expect(result.processingFees.original).toBe(86.01);
     expect(result.processingFees.actualPlusCommitted).toBe(90);
 
+    // Row label is the locked presentation name "Processing Fees" — distinct
+    // from CATEGORY_LABELS.payment_processing ("Payment Processing").
+    expect(result.processingFees.label).toBe("Processing Fees");
+
     // jobProfit = grossProfit - overheadAllocation - processingFees.
     expect(result.jobProfit.original).toBe(
       result.grossProfit.original - result.overheadAllocation.original - result.processingFees.original,
