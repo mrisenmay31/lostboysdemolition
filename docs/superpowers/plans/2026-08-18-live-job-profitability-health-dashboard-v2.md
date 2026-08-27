@@ -1529,8 +1529,8 @@ git commit -m "feat: add manual job cost and revenue reconciliation"
 > `@supabase/ssr`, `shouldCreateUser: false`), owner-gating of every
 > `/jobs/*` financial route (proxy + layout defense in depth), the `/`
 > flip per the 2026-08-25 BUILD_PLAN amendment, and the owner-promotion
-> runbook (`docs/runbooks/owner-promotion.md`; Matt promoted now, Dane
-> deferred). **Task 8b — follow-on session:** everything else in this
+> runbook (`docs/runbooks/owner-promotion.md`; promotion of Matt executed
+> at the Session-14 production gate; Dane deferred). **Task 8b — follow-on session:** everything else in this
 > task (foreman mobile checklist area: offline queue, service worker,
 > `job-checklist-photos` bucket, `submit_job_checklist` RPC, GHL
 > lifecycle automation, `activateWorkforceProfile`, migration

@@ -10,7 +10,13 @@ Project `eiqqqwajmcpcwhvxxnhx` → Authentication → URL Configuration:
 - **Site URL:** `https://lostboysdemolition.vercel.app`
 - **Additional redirect URLs:**
   - `https://lostboysdemolition.vercel.app/auth/confirm`
-  - `http://localhost:3000/auth/confirm`
+  - `http://localhost:3000/auth/confirm` (moot for magic-link testing once the
+    templates below pin `{{ .SiteURL }}` — kept for completeness)
+- Before deploying, confirm `NEXT_PUBLIC_SUPABASE_URL` and
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY` are present in Vercel's PRODUCTION env — if
+  absent, the proxy throws on every matched route and `/` (the estimators'
+  front door) 500s for everyone. The gate's post-deploy `/` → 307 curl is the
+  backstop that would catch this.
 
 Authentication → Sign In / Providers → Email: magic link enabled (default).
 Signups are NOT disabled project-wide — the app passes
@@ -64,7 +70,11 @@ write in the system.
 2. `/jobs`, `/jobs/JOB-1108`, `/jobs/exceptions` render with the
    "Signed in as Matt · Sign out" bar.
 3. Incognito window: `/` → `/estimates`; `/jobs` → `/auth/sign-in?next=/jobs`;
-   `/estimates` + the picker work exactly as before.
+   `/estimates` + the picker work exactly as before. Also check a DEEP link:
+   `curl -sI https://lostboysdemolition.vercel.app/jobs/JOB-1108/costs` and
+   assert the redirect `Location` carries `next=/jobs/JOB-1108/costs` — that
+   distinguishes the proxy (deep `next`) from the layout fallback
+   (`next=/jobs`), the only external signal the proxy is registered.
 4. Sign out → `/` → `/estimates` again.
 
 ## 4. Dane, later (deferred by Matt's Session-14 ruling)

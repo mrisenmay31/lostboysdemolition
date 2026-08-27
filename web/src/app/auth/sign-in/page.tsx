@@ -40,6 +40,9 @@ function SignInForm() {
       email: email.trim(),
       options: {
         shouldCreateUser: false,
+        // The `next` round-trip through emailRedirectTo is inert under the customized
+        // email templates (they pin next=/ — see docs/runbooks/owner-promotion.md §1);
+        // kept for template-independence.
         emailRedirectTo: `${window.location.origin}/auth/confirm?next=${encodeURIComponent(nextPath)}`,
       },
     });

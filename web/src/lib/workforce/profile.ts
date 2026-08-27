@@ -51,6 +51,7 @@ export async function getWorkforceSession(): Promise<WorkforceSession> {
     .select("auth_user_id, display_name, role, active")
     .eq("auth_user_id", user.id)
     .maybeSingle();
+  if (error) console.error("getWorkforceSession: profile query failed:", error.message);
   if (error || !data) return { status: "no_profile", authUserId: user.id };
   const profile = normalizeWorkforceProfileRow(data);
   return profile ? { status: "authenticated", profile } : { status: "no_profile", authUserId: user.id };
