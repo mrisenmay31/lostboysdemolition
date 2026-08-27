@@ -50,11 +50,12 @@ dead-letter loudly and crews get NO Slack; all Slack testing stays in #ops-test)
 phone smoke + one real estimate (**now ≥1431** — 1430 burned by the Phase 2 gate);
 authenticated JOB-1104 re-drag + re-cancel; calendar eyeballs 2026-12-15/16 + 2026-12-28/29.
 **Backlogged gate findings:** alert `action_path` self-link (RPC migration); costs-edit
-discoverability (UX). Per-item OKs pending: delete GHL TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv`;
-JOB-1107 + JOB-1108 residue rows; merged branches (`claude/v2-task6-job-dashboard`,
-`claude/v2-task7-manual-ledger`, `claude/gate-audit-render`) + worktrees
-`.claude/worktrees/task7` + `.claude/worktrees/gate-audit` + the two SDD scratch ledgers under
-`.superpowers/sdd/`. BL-6 echo-guard design draft still awaiting Matt's review. **Accepted minors
+discoverability (UX). **Per-item cleanup DONE at Session 13 close (Matt's approvals):** the three
+merged task branches, both task worktrees, and the two Task 6/7 SDD scratch ledgers are deleted;
+**Matt ruled the JOB-1107 + JOB-1108 DB residue is KEPT permanently** (cancelled TEST rows;
+JOB-1108's rows are the only real example data on the audit timeline + ledger screens until real
+jobs flow — do not re-ask). Only remaining per-item OK: delete GHL TEST opportunity
+`UuTLn5Xg2Bb9EEj4UUBv`. BL-6 echo-guard design draft still awaiting Matt's review. **Accepted minors
 from Task 7's reviews** (ledgered in the SDD scratch): $0-budget categories alert on their first
 entry (CONFIRMED live at the gate — 4 of the 6 alerts; revisit if annoying); stale-tab un-void via
 the correction form's seeded `state`; no double-submit idempotency on manual create; overrun can

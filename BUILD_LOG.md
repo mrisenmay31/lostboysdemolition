@@ -102,8 +102,17 @@ alerts/exceptions, outbox fully drained, 5 calendar channels active, migration h
 `20260826180811` (39 — no migrations this session), no function deploys. Suites: web **758/758**,
 deno **411/411**.
 
-**Pending Matt per-item OKs added this session:** branch `claude/gate-audit-render` + worktree
-`.claude/worktrees/gate-audit` (merged, removable on his OK); JOB-1108 residue rows.
+**Per-item cleanup EXECUTED same session (Matt's approvals, end of session):** branches
+`claude/v2-task6-job-dashboard` / `claude/v2-task7-manual-ledger` / `claude/gate-audit-render`
+deleted (all verified merged via `git branch -d`); worktrees `.claude/worktrees/task7` +
+`.claude/worktrees/gate-audit` removed; SDD scratch ledgers
+`.superpowers/sdd/2026-08-26-v2-task6-job-dashboard` + `...-v2-task7-manual-ledger` deleted (the
+four older SDD ledgers untouched — not approved); the stale `/private/tmp` prototype worktree
+registration pruned (metadata only — branch `codex/job-dashboard-prototype` untouched).
+**KEEP decision (Matt): JOB-1107 + JOB-1108 DB residue stays permanently** — cancelled TEST rows
+that never surface in active views, and JOB-1108's rows are the only real example data exercising
+the audit timeline + ledger screens until real jobs flow. Still pending: delete GHL TEST
+opportunity `UuTLn5Xg2Bb9EEj4UUBv` (Matt's GHL hygiene call, no recommendation made).
 
 **v2 PHASE 2 IS COMPLETE. Next session opens on Phase 3: Task 8** (owner auth via
 `workforce_profiles`, owner promotion runbook, the `/` flip) **and Task 9** (forecast overrides —
