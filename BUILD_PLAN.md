@@ -88,6 +88,18 @@ auth-gated. Concretely:
 - **v2 Task 8** (owner auth) flips `/`: an authenticated active owner lands on the dashboard;
   everyone else continues to `/estimates` (the no-login estimator picker flow stays reachable).
 
+## AMENDED 2026-08-27 — v2 Task 8 split 8a/8b; owner auth ships first
+
+Matt's Session-14 rulings: (1) ratified Task 8 splits into **8a** (owner
+auth + `/jobs` financial-route gating + the `/` flip — shipped Session 14
+with Task 9) and **8b** (the authenticated foreman mobile checklist area —
+its own follow-on session, carrying the Phase 3 gate and the backlogged
+alert `action_path` migration); (2) owner promotion covers **Matt now,
+Dane later** (runbook: `docs/runbooks/owner-promotion.md`); (3) sign-in is
+**email magic link** with `shouldCreateUser: false` (invite-only — the
+deployment stays network-open for `/estimates`, while `/jobs/*` now
+requires an active owner session).
+
 ## Context
 
 Lost Boys wants a closed loop: accurate estimate → tracked actuals → job-level profitability → calibrated back into pricing. Today none of that exists in software.
