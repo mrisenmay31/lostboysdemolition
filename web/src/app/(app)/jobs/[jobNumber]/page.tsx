@@ -73,6 +73,7 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
     overrides,
     changeOrders,
     jobEvents,
+    costEntryAudit,
     estimateHref,
   } = detail;
 
@@ -343,10 +344,10 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
 
       <details className="rounded-lg border border-zinc-300 p-3 dark:border-zinc-700">
         <summary className="cursor-pointer text-sm font-medium">
-          Audit ({jobEvents.length})
+          Audit ({jobEvents.length + costEntryAudit.length})
         </summary>
         <div className="mt-3">
-          <AuditTimeline jobEvents={jobEvents} />
+          <AuditTimeline jobEvents={jobEvents} costAudit={costEntryAudit} />
         </div>
       </details>
 

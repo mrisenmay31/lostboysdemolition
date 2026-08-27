@@ -119,6 +119,13 @@ export interface JobHealthDetail {
   }>;
   // job_events live columns verified 2026-08-26: id bigint, stage_from/stage_to INTEGER
   // (pipeline stage numbers, not names), created_at timestamptz.
+  costEntryAudit: CostAuditRow[];
+  // job_cost_entry_audit live columns verified 2026-08-27 (gate-audit task):
+  // id, job_cost_entry_id, old_record, new_record, actor_id, actor_name, reason,
+  // changed_at. old_record/new_record are full-row jsonb snapshots of
+  // job_cost_entries (amount arrives as a NUMERIC STRING inside the jsonb, same
+  // wire gotcha every other numeric column in this app has). category is read off
+  // the embedded job_cost_entries row, not the audit row itself.
   estimateHref: string | null; // `/estimates/${original_estimate_id}` when linked
 }
 
@@ -141,6 +148,15 @@ const CHANGE_ORDER_COLUMNS = "id, change_order_number, status, current_version, 
 
 const JOB_EVENT_COLUMNS = "id, stage_from, stage_to, function_name, action_summary, status, created_at";
 
+/** `job_cost_entries!inner(...)` is an inner-join embed — a row here always
+ *  has a parent `job_cost_entries` row (the FK is `NOT NULL`), so the embed
+ *  is never absent. `!inner` (rather than a plain embed) is also what makes
+ *  `.eq("job_cost_entries.job_number", jobNumber)` a valid filter target —
+ *  PostgREST only accepts filters on embedded-table columns for inner
+ *  joins. */
+const COST_ENTRY_AUDIT_COLUMNS =
+  "id, reason, actor_name, changed_at, old_record, new_record, job_cost_entries!inner(job_number, category)";
+
 /** PostgREST caps any un-ranged select at its `max-rows` setting (default
  *  1000) and returns HTTP 200 with the truncated set — no error, no
  *  warning. Every batched/unbounded multi-row load in this module gets an
@@ -155,9 +171,9 @@ const JOB_EVENT_COLUMNS = "id, stage_from, stage_to, function_name, action_summa
  *  rule. Pagination is the real fix and is deferred to Phase C, when
  *  expense volumes actually demand it; this sentinel exists to make that
  *  deferral SAFE (loud failure) rather than invisible (wrong numbers on
- *  Dane's screen). `job_events` is exempt — its own `.limit(50)` is a
- *  deliberate display cap (newest 50 events), not this cap, and 50 can
- *  never collide with `QUERY_ROW_CAP`. */
+ *  Dane's screen). `job_events` and `job_cost_entry_audit` are exempt —
+ *  each one's own `.limit(50)` is a deliberate display cap (newest 50
+ *  rows), not this cap, and 50 can never collide with `QUERY_ROW_CAP`. */
 const QUERY_ROW_CAP = 1000;
 
 /** See `QUERY_ROW_CAP`'s doc comment. Call immediately after every
@@ -339,6 +355,83 @@ function normalizeJobEventRow(raw: Record<string, unknown>): JobEventRow {
     action_summary: (raw.action_summary as string | null) ?? null,
     status: (raw.status as string | null) ?? null,
     created_at: raw.created_at as string,
+  };
+}
+
+/** One `job_cost_entry_audit` row, flattened with the category read off its
+ *  embedded `job_cost_entries!inner(...)` row (the audit table itself
+ *  carries no category column). `old_amount`/`new_amount`/`old_state`/
+ *  `new_state` are pulled out of the `old_record`/`new_record` jsonb
+ *  snapshots — see `extractCostSnapshot`'s doc comment for the
+ *  never-NaN coercion rule. Consumed by AuditTimeline.tsx. */
+export interface CostAuditRow {
+  id: string;
+  category: CostCategory | string;
+  reason: string;
+  actor_name: string | null;
+  changed_at: string;
+  old_amount: number | null;
+  new_amount: number | null;
+  old_state: string | null;
+  new_state: string | null;
+}
+
+/** `toNullableNum` plus a finite check, so a missing key or a malformed
+ *  jsonb value coerces to `null` (treated as "not derivable" by
+ *  AuditTimeline's title logic) rather than propagating `NaN` — the same
+ *  belt-and-suspenders rule `coerceNullableNum` applies in jobs/map.ts for
+ *  the same class of problem (Postgres `numeric` values arriving as
+ *  strings). Not a re-export of that function — it is private to map.ts —
+ *  but built the same way, from map.ts's own exported `toNullableNum`. */
+function coerceAuditAmount(value: unknown): number | null {
+  const n = toNullableNum(value);
+  return n === null || !Number.isFinite(n) ? null : n;
+}
+
+/** Pulls `amount`/`state` out of one `old_record`/`new_record` jsonb
+ *  snapshot. A missing snapshot (`null`/`undefined` — shouldn't happen for
+ *  a real audit row, but the column is nullable jsonb) or a missing/
+ *  malformed key inside it both resolve to `null`, never `NaN` or a
+ *  non-string. */
+function extractCostSnapshot(raw: unknown): { amount: number | null; state: string | null } {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    amount: coerceAuditAmount(r.amount),
+    state: typeof r.state === "string" ? r.state : null,
+  };
+}
+
+/**
+ * Exported for direct unit testing of the numeric-string/missing-key
+ * coercion (same house convention as `classifyScheduleError`/
+ * `classifyLedgerError` — every other local normalizer in this module is
+ * unexported because nothing tests it directly yet; this one gets an
+ * explicit contract because AuditTimeline's title derivation depends on
+ * "missing/invalid -> null, never NaN" holding exactly).
+ *
+ * `job_cost_entries` arrives as a single embedded object, not an array —
+ * the FK (`job_cost_entry_audit.job_cost_entry_id -> job_cost_entries.id`)
+ * is many-to-one, and `!inner` guarantees it's always present — but this
+ * unwraps an array shape defensively too, matching this module's general
+ * posture of not trusting the wire shape more than the schema strictly
+ * guarantees.
+ */
+export function normalizeCostAuditRow(raw: Record<string, unknown>): CostAuditRow {
+  const embed = raw.job_cost_entries;
+  const entryMeta = (Array.isArray(embed) ? embed[0] : embed) as Record<string, unknown> | null | undefined;
+  const oldSnapshot = extractCostSnapshot(raw.old_record);
+  const newSnapshot = extractCostSnapshot(raw.new_record);
+
+  return {
+    id: raw.id as string,
+    category: (entryMeta?.category as CostCategory | string | undefined) ?? "",
+    reason: raw.reason as string,
+    actor_name: (raw.actor_name as string | null) ?? null,
+    changed_at: raw.changed_at as string,
+    old_amount: oldSnapshot.amount,
+    new_amount: newSnapshot.amount,
+    old_state: oldSnapshot.state,
+    new_state: newSnapshot.state,
   };
 }
 
@@ -708,6 +801,7 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
     checklistResult,
     changeOrdersResult,
     jobEventsResult,
+    costEntryAuditResult,
   ] = await Promise.all([
     admin.from("job_budget_versions").select("*").eq("job_number", jobNumber).limit(QUERY_ROW_CAP),
     admin.from("job_cost_entries").select("*").eq("job_number", jobNumber).limit(QUERY_ROW_CAP),
@@ -753,6 +847,16 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
       .eq("job_number", jobNumber)
       .order("created_at", { ascending: false })
       .limit(50),
+    // job_cost_entry_audit is exempt from QUERY_ROW_CAP for the same reason
+    // job_events is, immediately above — its own .limit(50) is a deliberate
+    // display cap (newest 50 corrections/voids), not the truncation
+    // sentinel; see QUERY_ROW_CAP's doc comment.
+    admin
+      .from("job_cost_entry_audit")
+      .select(COST_ENTRY_AUDIT_COLUMNS)
+      .eq("job_cost_entries.job_number", jobNumber)
+      .order("changed_at", { ascending: false })
+      .limit(50),
   ]);
 
   if (budgetsResult.error) {
@@ -782,8 +886,12 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
   if (jobEventsResult.error) {
     throw new Error(`getJobHealthDetail: job events query failed: ${jobEventsResult.error.message}`);
   }
+  if (costEntryAuditResult.error) {
+    throw new Error(`getJobHealthDetail: cost entry audit query failed: ${costEntryAuditResult.error.message}`);
+  }
 
-  // job_events is deliberately excluded — see the comment at its query above.
+  // job_events and job_cost_entry_audit are deliberately excluded — see the
+  // comment at each one's query above.
   assertNotTruncated("job_budget_versions", budgetsResult.data ?? []);
   assertNotTruncated("job_cost_entries", costEntriesResult.data ?? []);
   assertNotTruncated("job_revenue_entries", revenueEntriesResult.data ?? []);
@@ -810,6 +918,9 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
     normalizeChangeOrderRow,
   );
   const jobEvents = ((jobEventsResult.data as Record<string, unknown>[] | null) ?? []).map(normalizeJobEventRow);
+  const costEntryAudit = ((costEntryAuditResult.data as Record<string, unknown>[] | null) ?? []).map(
+    normalizeCostAuditRow,
+  );
 
   const unresolvedScopeChange = openAlerts.some((a) => a.fingerprint.startsWith("scope-change:"));
   const ledger = rollupLedger(costEntries);
@@ -874,6 +985,7 @@ export async function getJobHealthDetail(jobNumber: string): Promise<JobHealthDe
     overrides,
     changeOrders,
     jobEvents,
+    costEntryAudit,
     estimateHref: job.original_estimate_id ? `/estimates/${job.original_estimate_id}` : null,
   };
 }
