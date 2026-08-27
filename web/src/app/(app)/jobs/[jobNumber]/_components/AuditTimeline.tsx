@@ -83,29 +83,39 @@ function categoryLabel(category: CostAuditRow["category"]): string {
 }
 
 /**
- * Derives a `CostAuditRow`'s headline title. Priority order (locked by the
- * gate-audit brief, checked in this exact sequence):
- *   1. Amount changed (`old_amount`/`new_amount` both known and differ) ->
- *      "<label> correction: $X → $Y", regardless of any state change.
- *   2. State changed TO `void` -> "<label> voided" with the amount shown
- *      (parenthesized) when either amount is known.
- *   3. State changed to anything else -> "<label>: <old_state> → <new_state>".
+ * Derives a `CostAuditRow`'s headline title. Priority order (review-locked
+ * 2026-08-27, overriding the gate-audit brief's original ordering — the
+ * correction schema allows `state: "void"` together with an amount change
+ * in the same patch, and a title that read that as an ordinary correction
+ * would hide the void):
+ *   1. State changed TO `void` -> ALWAYS the voided form, regardless of
+ *      whether the amount also changed. Both amounts known and differing
+ *      -> "<label> voided ($X → $Y)"; otherwise "<label> voided ($X)" (one
+ *      amount known) or "<label> voided" (neither known).
+ *   2. Not a void transition, amount changed (`old_amount`/`new_amount`
+ *      both known and differ) -> "<label> correction: $X → $Y".
+ *   3. Not a void transition, state changed to anything else ->
+ *      "<label>: <old_state> → <new_state>".
  *   4. Neither derivable (e.g. a note-only correction) -> "<label> correction".
  * Exported for direct unit testing.
  */
 export function deriveCostAuditTitle(row: CostAuditRow): string {
   const label = categoryLabel(row.category);
 
+  const stateChanged = row.old_state !== null && row.new_state !== null && row.old_state !== row.new_state;
   const amountChanged =
     row.old_amount !== null && row.new_amount !== null && row.old_amount !== row.new_amount;
-  if (amountChanged) {
-    return `${label} correction: ${currency.format(row.old_amount as number)} → ${currency.format(row.new_amount as number)}`;
-  }
 
-  const stateChanged = row.old_state !== null && row.new_state !== null && row.old_state !== row.new_state;
   if (stateChanged && row.new_state === "void") {
+    if (amountChanged) {
+      return `${label} voided (${currency.format(row.old_amount as number)} → ${currency.format(row.new_amount as number)})`;
+    }
     const shownAmount = row.new_amount ?? row.old_amount;
     return shownAmount !== null ? `${label} voided (${currency.format(shownAmount)})` : `${label} voided`;
+  }
+
+  if (amountChanged) {
+    return `${label} correction: ${currency.format(row.old_amount as number)} → ${currency.format(row.new_amount as number)}`;
   }
   if (stateChanged) {
     return `${label}: ${row.old_state} → ${row.new_state}`;

@@ -126,11 +126,24 @@ describe("deriveCostAuditTitle", () => {
     expect(title).toBe("Materials voided");
   });
 
-  it("amount change takes priority over a simultaneous void transition", () => {
+  it("a void transition outranks a simultaneous amount change -> voided form shows the range, not the correction form", () => {
     const title = deriveCostAuditTitle(
       mockAudit({ old_amount: 150, new_amount: 175, old_state: "approved", new_state: "void" }),
     );
-    expect(title).toBe("Materials correction: $150.00 → $175.00");
+    expect(title).toBe("Materials voided ($150.00 → $175.00)");
+  });
+
+  it("void + amount range form still respects category label / fallback rules", () => {
+    const title = deriveCostAuditTitle(
+      mockAudit({
+        category: "some_future_category",
+        old_amount: 150,
+        new_amount: 175,
+        old_state: "approved",
+        new_state: "void",
+      }),
+    );
+    expect(title).toBe("some_future_category voided ($150.00 → $175.00)");
   });
 
   it("only state changed (non-void) -> '<label>: <old_state> → <new_state>'", () => {
