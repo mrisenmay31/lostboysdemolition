@@ -1524,6 +1524,22 @@ git commit -m "feat: add manual job cost and revenue reconciliation"
 
 ### Task 8: Authenticated mobile Job Checklist area
 
+> **AMENDED 2026-08-27 (Session 14, Matt's ruling): Task 8 is split.**
+> **Task 8a — SHIPPED Session 14:** owner auth (email magic link,
+> `@supabase/ssr`, `shouldCreateUser: false`), owner-gating of every
+> `/jobs/*` financial route (proxy + layout defense in depth), the `/`
+> flip per the 2026-08-25 BUILD_PLAN amendment, and the owner-promotion
+> runbook (`docs/runbooks/owner-promotion.md`; Matt promoted now, Dane
+> deferred). **Task 8b — follow-on session:** everything else in this
+> task (foreman mobile checklist area: offline queue, service worker,
+> `job-checklist-photos` bucket, `submit_job_checklist` RPC, GHL
+> lifecycle automation, `activateWorkforceProfile`, migration
+> `20260818160000_ops_auth_and_checklist_storage.sql`). The Phase 3 gate
+> closes at 8b. The backlogged overrun-alert `action_path` RPC fix
+> attaches to 8b's migration window. Task 9 shipped in Session 14
+> alongside 8a, with its override action gated by the authenticated
+> owner rather than the estimator picker.
+
 **Files:**
 - Modify: `web/package.json`
 - Create: `web/src/lib/supabase/browser.ts`
