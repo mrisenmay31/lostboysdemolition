@@ -29,6 +29,20 @@ import { ForecastOverridePanel } from "./_components/ForecastOverridePanel";
 // `JobBudgetVersionRow`/`JobHealthResult` field or off the pre-built
 // `FinancialComparison` (@/lib/jobs/map.ts), read here only to pick out
 // the one row LaborVarianceCard needs.
+//
+// Session-14 controller ruling (same session, after first review): the
+// new ForecastOverridePanel (section 6) REPLACES the pre-existing static
+// "Forecast overrides (n)" `<details>` block that used to live under
+// section 8/9's "Expandable sections" group — that block duplicated the
+// panel's own override-history list. It has been removed; the panel is
+// now the SINGLE override-history surface on this page. Every field the
+// old block rendered (remaining_workdays, expected_crew_size,
+// hours_per_day, expected_remaining_cost, reason, created_by_name,
+// created_at) is still shown, via the panel's overrideSummary()/
+// laborSummary() helpers — no data visibility was lost, only the
+// duplicate presentation. Net effect on the "Expandable sections" group:
+// its sub-block count drops from 4 (Cost entries, Revenue entries,
+// Forecast overrides, Audit) to 3 (Cost entries, Revenue entries, Audit).
 // ============================================================
 
 export const dynamic = "force-dynamic";
@@ -317,46 +331,6 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
           >
             Add revenue entries
           </Link>
-        </div>
-      </details>
-
-      <details className="rounded-lg border border-zinc-300 p-3 dark:border-zinc-700">
-        <summary className="cursor-pointer text-sm font-medium">
-          Forecast overrides ({overrides.length})
-        </summary>
-        <div className="mt-3">
-          {overrides.length === 0 ? (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">No forecast overrides.</p>
-          ) : (
-            <ul className="flex flex-col gap-2 text-sm">
-              {overrides.map((override) => (
-                <li
-                  key={override.id}
-                  className="rounded-lg border border-zinc-200 p-2 dark:border-zinc-800"
-                >
-                  <p className="font-medium">
-                    {override.category ? formatStatusLabel(override.category) : "Labor (all categories)"}
-                  </p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {override.remaining_workdays !== null
-                      ? `${override.remaining_workdays} remaining workdays`
-                      : null}
-                    {override.expected_crew_size !== null
-                      ? ` · crew of ${override.expected_crew_size}`
-                      : null}
-                    {override.hours_per_day !== null ? ` · ${override.hours_per_day} h/day` : null}
-                    {override.expected_remaining_cost !== null
-                      ? ` · ${currency.format(override.expected_remaining_cost)} remaining`
-                      : null}
-                  </p>
-                  <p className="text-xs text-zinc-600 dark:text-zinc-400">{override.reason}</p>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {override.created_by_name} · {formatDenver(override.created_at)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
         </div>
       </details>
 
