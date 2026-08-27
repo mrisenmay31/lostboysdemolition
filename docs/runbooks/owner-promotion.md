@@ -19,6 +19,26 @@ sign in. Note: Supabase's built-in email sender is rate-limited (a few
 emails/hour) — fine for 1–2 owners; revisit (custom SMTP) before Task 8b
 onboards foremen.
 
+Authentication → Emails (email templates) — REQUIRED, sign-in dead-ends
+without this:
+
+- **Magic Link template:** replace the default `{{ .ConfirmationURL }}`
+  link with:
+  `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=/`
+- **Invite user template** (used for Dane later, §4): replace its link
+  with:
+  `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/`
+- Why: the app's `/auth/confirm` route verifies `token_hash`+`type`
+  server-side (the Supabase SSR pattern); the default
+  `{{ .ConfirmationURL }}` flow never reaches it. `next` is pinned to `/`
+  by the template — after sign-in an active owner lands on `/`, which
+  routes to `/jobs` (the deep-link `next` passed at sign-in time is
+  intentionally not round-tripped through the email; known accepted
+  limitation).
+- Verify after saving: request a magic link from `/auth/sign-in` and
+  confirm the email's link points at
+  `https://lostboysdemolition.vercel.app/auth/confirm?token_hash=...&type=email&next=/`.
+
 ## 2. Promote Matt (one-time, service-role)
 
 Read first:
