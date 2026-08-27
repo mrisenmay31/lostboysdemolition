@@ -28,6 +28,10 @@ import { LedgerError } from "@/lib/ledger/types";
 import type { LedgerErrorCode } from "@/lib/ledger/types";
 import { createCostEntry, correctCostEntry, createRevenueEntry } from "@/lib/ledger/repo";
 import type { JobCostEntryRow, JobRevenueEntryRow } from "@/lib/jobs/map";
+import { requireActiveOwner, OwnerAuthError } from "@/lib/workforce/profile";
+import { validateForecastOverrideInput } from "@/lib/forecasts/validate";
+import { createForecastOverride, ForecastOverrideError } from "@/lib/forecasts/repo";
+import { getJobHealthDetail } from "@/lib/jobs/healthRepo";
 
 /**
  * Server action for the atomic schedule-to-job promotion (Phase 1, v2
@@ -357,5 +361,79 @@ export async function createRevenueEntryAction(
       return { ok: false, error: err.message, code: err.code };
     }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ============================================================
+// Forecast override (v2 Task 9 / Task 6, owner-gated)
+// ============================================================
+
+export type ForecastOverrideActionResult =
+  | {
+      ok: true;
+      overrideId: string;
+      previousForecastProfit: number | null;
+      newForecastProfit: number | null;
+      newHealth: "on_track" | "watch" | "at_risk" | null;
+      newConfidence: "high" | "medium" | "low" | null;
+    }
+  | { ok: false; error: string; fieldErrors?: string[] };
+
+/**
+ * v2 Task 9: append an owner forecast override and report the health
+ * delta. UNLIKE every other action in this file, the gate is the
+ * AUTHENTICATED OWNER SESSION (Task 8a), not the estimator picker —
+ * forecast overrides are Dane/Matt-only by contract, and this is the
+ * first action written after real auth exists. The before/after
+ * getJobHealthDetail reads are how "immediate recalculation" surfaces:
+ * the second read recomputes with the new override and (via healthRepo's
+ * watermark) persists a fresh job_forecast_snapshots row.
+ */
+export async function createForecastOverrideAction(
+  input: unknown,
+): Promise<ForecastOverrideActionResult> {
+  let actor;
+  try {
+    actor = await requireActiveOwner();
+  } catch (e) {
+    if (e instanceof OwnerAuthError) {
+      return {
+        ok: false,
+        error:
+          e.code === "unauthenticated"
+            ? "Sign in as an owner to override forecasts."
+            : "Your account is not an active owner.",
+      };
+    }
+    throw e;
+  }
+
+  const validated = validateForecastOverrideInput(input);
+  if (!validated.ok) {
+    return { ok: false, error: "Fix the highlighted fields.", fieldErrors: validated.errors };
+  }
+  const value = validated.value;
+
+  try {
+    const before = await getJobHealthDetail(value.jobNumber);
+    const override = await createForecastOverride(value, {
+      authUserId: actor.authUserId,
+      displayName: actor.displayName,
+    });
+    const after = await getJobHealthDetail(value.jobNumber);
+    revalidatePath(`/jobs/${value.jobNumber}`);
+    return {
+      ok: true,
+      overrideId: override.id,
+      previousForecastProfit: before?.health?.forecastProfit ?? null,
+      newForecastProfit: after?.health?.forecastProfit ?? null,
+      newHealth: after?.health?.health ?? null,
+      newConfidence: after?.health?.confidence ?? null,
+    };
+  } catch (e) {
+    if (e instanceof ForecastOverrideError) {
+      return { ok: false, error: e.message };
+    }
+    throw e;
   }
 }
