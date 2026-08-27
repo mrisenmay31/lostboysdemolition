@@ -52,12 +52,15 @@ Read first:
     select auth_user_id, display_name, role, active
     from public.workforce_profiles;
 
-Expected: exactly one row — display_name 'Matt', role 'pending',
-active false. Then:
+Expected: exactly one row — display_name 'matt' (lowercase — the backfill
+derived it from the email local-part), role 'pending', active false. Then,
+keyed on `auth_user_id` from the select above (display_name matching is
+case-sensitive and was wrong in this runbook's first draft — a
+`display_name = 'Matt'` predicate matches zero rows and silently no-ops):
 
     update public.workforce_profiles
     set role = 'owner', active = true, updated_at = now()
-    where display_name = 'Matt' and role = 'pending';
+    where auth_user_id = '<auth_user_id from the select>' and role = 'pending';
 
 Verify: re-run the select; expect role 'owner', active true. This is the
 deferred Task 0B "owner promotion" step — the only service-role identity
