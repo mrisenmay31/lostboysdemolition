@@ -7,6 +7,7 @@ import { LaborVarianceCard } from "./_components/LaborVarianceCard";
 import { ActionQueue } from "./_components/ActionQueue";
 import { AuditTimeline } from "./_components/AuditTimeline";
 import { CancelJobPanel } from "./_components/CancelJobPanel";
+import { ForecastOverridePanel } from "./_components/ForecastOverridePanel";
 
 // ============================================================
 // Lost Boys Demolition — web app — v2 Task 6 Lane C: job detail
@@ -19,11 +20,15 @@ import { CancelJobPanel } from "./_components/CancelJobPanel";
 //
 // Consumes ONE round trip — @/lib/jobs/healthRepo.ts's
 // getJobHealthDetail(jobNumber) — and renders its `JobHealthDetail`
-// verbatim in the locked 8-section order below. This page never
-// recomputes money math itself; every dollar figure either comes
-// straight off a `JobBudgetVersionRow`/`JobHealthResult` field or off the
-// pre-built `FinancialComparison` (@/lib/jobs/map.ts), read here only to
-// pick out the one row LaborVarianceCard needs.
+// verbatim in the locked 9-section order below (originally 8; Session 14
+// / v2 Task 9 inserted section 6, "Forecast override", between Labor
+// variance and Change orders, shifting every section after it down by
+// one — this comment update IS the deliberate act the task-7 brief
+// requires, not a silent renumbering). This page never recomputes money
+// math itself; every dollar figure either comes straight off a
+// `JobBudgetVersionRow`/`JobHealthResult` field or off the pre-built
+// `FinancialComparison` (@/lib/jobs/map.ts), read here only to pick out
+// the one row LaborVarianceCard needs.
 // ============================================================
 
 export const dynamic = "force-dynamic";
@@ -186,7 +191,20 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         laborCostRow={laborCostRow}
       />
 
-      {/* 6. Change orders */}
+      {/* 6. Forecast override (owner-gated, Session 14 / v2 Task 9) */}
+      <ForecastOverridePanel
+        jobNumber={job.job_number}
+        current={{
+          remainingWorkdays: healthInput?.remainingWorkdays ?? null,
+          expectedCrewSize: healthInput?.expectedCrewSize ?? null,
+          hoursPerDay: healthInput?.hoursPerDay ?? 8,
+          forecastProfit: health?.forecastProfit ?? null,
+          health: health?.health ?? null,
+        }}
+        overrides={overrides}
+      />
+
+      {/* 7. Change orders */}
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Change orders
@@ -215,10 +233,10 @@ export default async function JobDetailPage({ params }: JobDetailPageProps) {
         )}
       </section>
 
-      {/* 7. Action queue */}
+      {/* 8. Action queue */}
       <ActionQueue openAlerts={openAlerts} openExceptions={openExceptions} jobNumber={job.job_number} />
 
-      {/* 8. Expandable sections */}
+      {/* 9. Expandable sections */}
       <details className="rounded-lg border border-zinc-300 p-3 dark:border-zinc-700">
         <summary className="cursor-pointer text-sm font-medium">
           Cost entries ({costEntries.length})
