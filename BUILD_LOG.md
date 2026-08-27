@@ -44,6 +44,73 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-27 — Session 13: THE PHASE 2 GATE IS PASSED — full E2E on JOB-1108 (Matt phone-driven), audit-rendering gap found/fixed/deployed mid-gate, clean teardown; v2 PHASE 2 COMPLETE
+
+**The gate run (Matt drove every app screen from his phone — the first phone-driven probe, chipping
+at BL-8's phone smoke).** `SLACK_TEST_CHANNEL_OVERRIDE=C0BPPG8997Z` (#ops-test) set for the window,
+**unset + confirmed absent at close** (grep count 0). Estimate **1430** (TEST Phase 2 Gate,
+$1,402.43, quick mode 16 h + 1 dump load — small on purpose so the fact list would overrun the
+budget) → accepted (deviation-12 pin exact: `accepted_price` = `total_bid`) → scheduled via the app
+→ **JOB-1108** (Crew 3, 2027-01-06→07, GHL-linkless per the JOB-1106 precedent — zero GHL
+artifacts). Dispatcher **attempt 1 both directions**: `job.scheduled` → both calendar events + crew
+Slack to #ops-test (Matt confirmed shape: no pricing); `job.cancelled` at teardown → both events
+deleted, gcal ids cleared, 0 dead letters, echo self-terminating (Session 9 semantics), 0 inbound
+sync errors. Sync_log stayed empty for the schedule leg — **expected**, the dispatcher only writes
+sync_log on the GHL leg and this job had none.
+
+**All 11 manual facts entered through the live screens** (7 cost categories + invoice/credit/refund/
+payment): signs held (credit −$100, refund −$50 stored negative from positive form input), Denver-noon
+dates, `metadata.entered_by='Matt'` everywhere, `source_system='manual'`. **Two live corrections**:
+materials $150→$175 with a note-less patch — the note survived (the Session 12 review-caught fix,
+now proven through the real UI) — and a dump quantity-only patch (0.02→2, Matt's stray-decimal
+fat-finger, turned into a free quantity-patch test). Comparison table cross-checked to the cent:
+Total Direct Costs $1,225 excluding processing, Gross Profit −$375, Processing Fees on its own line
+below (locked presentation), Job Profit −$410, margin −48.2%. Dashboard card + detail banner: At
+Risk / high confidence / "Forecast profit is negative (−$154.00)" / "Category over budget".
+**Exactly the 6 predicted overrun alerts fired** (4 of them the known $0-budget-category noise;
+processing correctly fired none at $35 < $47.43 budget; materials alert deduped through the
+correction); all 6 resolved via the UI. Reconcile hook no-op'd (`financial_status='not_ready'`).
+Golden gate: `deno task test` **411/411** intact.
+
+**Gate finding #1 — FIXED AND DEPLOYED MID-GATE: `job_cost_entry_audit` had no UI surface.** The
+gate's "full audit detail" clause failed on first check: corrections were captured immutably but
+rendered nowhere (AuditTimeline was wired to `job_events` only; no task ever owned the rendering —
+Task 6 built the timeline before the audit table had writers, Task 7's UI lane built forms). Fixed
+on branch `claude/gate-audit-render` (Sonnet implemented, adversarial review found one defect —
+title logic let an amount change outrank a void transition, hiding voids; fix round reversed the
+priority): `healthRepo.ts` gains a 10th parallel query (`job_cost_entry_audit` inner-joined via
+`job_cost_entries!inner`, `.limit(50)` display-cap exempt from `QUERY_ROW_CAP` like `job_events`),
+exported `CostAuditRow` + `normalizeCostAuditRow` (never-NaN jsonb-snapshot coercion via
+`toNullableNum`), AuditTimeline merges both row kinds newest-first (`mergeAuditRows`,
+`deriveCostAuditTitle` — review-locked priority: void > amount change > state change > generic),
+combined `Audit (n)` badge. Tests 728→**758**, lint clean, build green. **MERGED TO MAIN
+(fast-forward `01d48a3..91a5531`, Matt's approval) + Vercel deploy verified**; rendering then
+live-verified against JOB-1108's real rows — `Audit (3)`: both corrections + the schedule event,
+newest-first, correct titles.
+
+**Gate findings #2/#3 — BACKLOGGED (Matt's call):** (a) **overrun alert `action_path` self-links** —
+`open_category_overrun_alert` writes `/jobs/<job>` (the page the alert renders on), so "Open"
+appears dead; should be `/jobs/<job>/costs`; fix = one-line RPC migration + runbook cycle at the
+next migration window. (b) **Costs-screen edit discoverability** — corrections are reachable only
+via the job page's "Add cost entries" link + per-entry "Correct / void" disclosures; Matt couldn't
+find them unaided. Label/UX pass later.
+
+**End state (all verified):** estimate seq **1430** burned → **first real estimate ≥1431**; 6 jobs
+all cancelled; JOB-1108 residue (permanent, Matt-flagged, per-item OK to remove): 7 cost entries,
+2 audit rows, 4 net-$850 revenue rows, 5 forecast snapshots, 6 resolved alerts. 0 open
+alerts/exceptions, outbox fully drained, 5 calendar channels active, migration head unchanged
+`20260826180811` (39 — no migrations this session), no function deploys. Suites: web **758/758**,
+deno **411/411**.
+
+**Pending Matt per-item OKs added this session:** branch `claude/gate-audit-render` + worktree
+`.claude/worktrees/gate-audit` (merged, removable on his OK); JOB-1108 residue rows.
+
+**v2 PHASE 2 IS COMPLETE. Next session opens on Phase 3: Task 8** (owner auth via
+`workforce_profiles`, owner promotion runbook, the `/` flip) **and Task 9** (forecast overrides —
+brief must Zod-reject empty-string numerics, require positive `hours_per_day`/`expected_crew_size`;
+9/13 both need the crew-days zero-divisor guard). Phase-3 obligation stands: the dispatcher's
+`slack_reconciliation_required` handler at the first Phase-3 dispatcher touch.
+
 ### 2026-08-26 — Session 12: v2 TASK 7 SHIPPED — manual ledger LIVE (migration applied, merged, deployed); v2 PHASE 2 BUILD COMPLETE, gate E2E pending
 
 **What shipped.** v2 Task 7 (manual cost, commitment, and revenue capture) end to end in one

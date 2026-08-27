@@ -1,102 +1,79 @@
 Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (business ground
 truth), then BUILD_PLAN.md, then
 `docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (the ratified
-program — the complete technical contract; **Phase 2's BUILD is complete — Tasks 6 AND 7 shipped;
-the Phase 2 gate E2E is the remaining Phase 2 item, then Phase 3 opens on Task 8**). Executed
-implementation plans: `docs/superpowers/plans/2026-08-26-v2-task6-job-dashboard.md` (Task 6) and
+program — the complete technical contract; **PHASE 2 IS COMPLETE — the Phase 2 gate PASSED
+2026-08-27; Phase 3 opens on Tasks 8 + 9**). Executed implementation plans:
+`docs/superpowers/plans/2026-08-26-v2-task6-job-dashboard.md` (Task 6) and
 `docs/superpowers/plans/2026-08-26-v2-task7-manual-ledger.md` (Task 7 — its Design decisions
 section is the canonical record of the ledger's locked conventions).
 
-## What just happened — Session 12 (2026-08-26): v2 TASK 7 SHIPPED — the manual ledger is LIVE
+## What just happened — Session 13 (2026-08-27): THE PHASE 2 GATE IS PASSED
 
-Full record: the 2026-08-26 Session 12 `BUILD_LOG.md` entry.
+Full record: the 2026-08-27 Session 13 `BUILD_LOG.md` entry.
 
-- **Migration `manual_ledger_rpcs` APPLIED TO PRODUCTION** (MCP version `20260826180811`, 39
-  applied; repo file `supabase/migrations/20260826150000_manual_ledger_rpcs.sql` is the identical
-  SQL — same cosmetic version-name mismatch class as prior MCP applies). Four service-role-only
-  RPCs are the ONLY ledger write path (never bare inserts): `create_job_cost_entry`,
-  `correct_job_cost_entry` (FOR UPDATE, whitelisted patch, same-transaction audit row,
-  `source_revision`/`updated_at` bump, `source_system='manual'` only until Task 14),
-  `create_job_revenue_entry`, `open_category_overrun_alert` (fingerprint
-  `category_overrun:<category>`, watch, dedup, NO Slack — Task 12 owns Slack delivery).
-- **Locked conventions (do not drift):** credit/refund amounts stored NEGATIVE (RPC-enforced;
-  forms capture positive, repo negates — matches `map.ts`'s signed economic-revenue sum); cost
-  amounts strictly positive (correction to adjust, void to remove; no delete path); dates are
-  Denver business dates stored as Denver NOON; attribution = `metadata.entered_by` (`p_actor`
-  always null); **RPC raise texts are a cross-lane API** matched by substring in
-  `web/src/lib/ledger/repo.ts`'s `classifyLedgerError` — never reword one side alone; NO revenue
-  correction path by design (offsetting credit/refund is the correction).
-- **MERGED TO MAIN (fast-forward `a0a92a2..0e893aa`, 7 commits, Matt's approval) and production
-  Vercel deploy VERIFIED:** `/jobs/[jobNumber]/costs` + `/jobs/[jobNumber]/revenue` are LIVE at
-  https://lostboysdemolition.vercel.app (budget-vs-entered table with the locked
-  payment_processing footnote, per-entry Correct/void on manual non-void entries, estimator-gated
-  actions). `/` still 307→`/estimates` — the flip is Task 8's.
-- **Live smoke on JOB-1107 proved every leg in production:** overrun alert opened live ($215 vs
-  $195 dump budget, correct message), correction preserved the entry's note through a note-less
-  patch (the review-caught fix, proven live), sign guard raised on a positive credit, voids
-  excluded from all sums, reconcile hook correctly no-ops (no closure snapshots until Task 11),
-  **snapshot invariant held** (0 `job_forecast_snapshots` rows — cancelled jobs never
-  engine-scored). **Residue on JOB-1107 (permanent, Matt-flagged): 2 voided cost entries, 3 audit
-  rows, 2 net-zero revenue rows, 1 resolved alert** — removal only with Matt's per-item OK.
-- Review record: 5 concurrent-lane task reviews + whole-branch review (strongest model), two
-  review-caught defects fixed (note-wiping correction `8686996`; missing `QUERY_ROW_CAP`
-  truncation sentinel + misleading test comment `0e893aa`). Suites at merge: web **728/728**,
-  lint 0 errors/1 pre-existing warning, build green, deno **411/411** (golden-321 intact).
-- Gotcha recorded: a SELECT-only CTE wrapping one of these RPCs gets optimized away silently —
-  probe RPCs with direct `select * from fn(...)`; the app's `.rpc()` transport is unaffected.
-  Also: **Supabase disposable branches do NOT clone data** (schema only) — fixtures needing
-  `auth.users` rows must create synthetic ones in-transaction.
+- **Full gate E2E on estimate 1430 → JOB-1108, Matt phone-driving every app screen** (first
+  phone-driven probe; chips at BL-8's phone smoke). All 11 manual facts, two live corrections
+  (note preservation + quantity-only patch proven through the real UI), comparison table to the
+  cent, 6 predicted overrun alerts (processing correctly none), health/confidence/leading variance
+  on card + banner, dispatcher attempt-1 both directions, Slack to #ops-test confirmed, clean
+  `closed_lost` teardown, override UNSET + confirmed absent, golden 411/411.
+- **Gate finding fixed + deployed mid-gate:** `job_cost_entry_audit` had NO UI surface ("full
+  audit detail" clause failed on first check). Branch `claude/gate-audit-render` (Sonnet build,
+  adversarial review caught void-vs-amount title priority defect, fix round) merged fast-forward
+  `01d48a3..91a5531`, Vercel deploy verified, rendering live-verified against JOB-1108's real
+  audit rows (`Audit (3)`, newest-first interleave, review-locked title priority: void > amount >
+  state > generic). Web tests 728→**758**.
+- **Two gate findings BACKLOGGED (Matt's call, not scheduled):** (1) overrun alert `action_path`
+  self-links to `/jobs/<job>` — "Open" appears dead; should be `/jobs/<job>/costs`; one-line RPC
+  migration + runbook cycle at the next migration window. (2) Costs-screen edit discoverability —
+  "Add cost entries" link + per-entry "Correct / void" disclosures don't advertise editing.
 
-## ▶️ THIS SESSION OPENS HERE — the Phase 2 gate E2E, then Phase 3
+## ▶️ THIS SESSION OPENS HERE — v2 Phase 3
 
-1. **The Phase 2 gate** (v2 doc, end of Task 7; run with Matt): stage a fresh TEST estimate
-   (burns estimate ≥1430 → first real becomes ≥1431 — Matt's call to proceed), schedule it into
-   a real scheduled job via the app, then enter manual labor/materials/rental/dump/subcontractor/
-   other-direct/processing/invoice/credit/refund/payment facts through the new screens. Verify:
-   Dane sees original/current/actual+committed/forecast in the comparison table, health/confidence
-   + leading variance on the dashboard card and detail banner, full audit detail; existing quote
-   golden tests unchanged. NOTE: scheduling a job enqueues real dispatcher work — crew-Slack will
-   dead-letter loudly per BL-8 unless `SLACK_TEST_CHANNEL_OVERRIDE=#ops-test` is set for the
-   window (Session 8/9 precedent; UNSET at close), and calendar events land on real calendars —
-   plan the teardown (cancel → closed_lost) like the 5A/5B/gate probes did.
-2. **Then v2 Phase 3:** Task 8 (owner auth via `workforce_profiles`, owner promotion runbook, the
-   `/` flip to the dashboard) and Task 9 (forecast overrides UI — its brief MUST Zod-reject
-   empty-string numerics and require positive `hours_per_day`/`expected_crew_size`; Tasks 9/13
-   both need the crew-days zero-divisor guard). Standard model: plan → Matt approval → concurrent
-   lanes → adversarial review per task → Matt's gates.
-3. **Whenever Dane's dashboard feedback arrives** (artifact still has zero comments): reconcile it
+1. **Task 8** — owner auth via `workforce_profiles` (owner promotion runbook — the backfilled
+   Matt row is still `role='pending'`/`active=false` by design), owner-gate the financial routes,
+   flip `/` to the Job Dashboard (authenticated active owner → `/jobs`, everyone else →
+   `/estimates`; the no-login estimator picker flow stays reachable). Standard model: plan → Matt
+   approval → concurrent lanes → adversarial review per task → Matt's gates.
+2. **Task 9** — forecast overrides UI. Its brief MUST Zod-reject empty-string numerics
+   (`z.number()` only) and require positive `hours_per_day`/`expected_crew_size`; Tasks 9/13 both
+   need the crew-days zero-divisor guard.
+3. **Phase-3 obligation:** build the dispatcher's `slack_reconciliation_required` handler at the
+   first Phase-3 dispatcher touch.
+4. **Whenever Dane's dashboard feedback arrives** (artifact still has zero comments): reconcile it
    into the v2 plan first; it may amend the shipped Task 6/7 surfaces.
 
 ## Standing items
 
-**BL-8 (unchanged, Matt-only):** Slack bot invitations to Crew 1–4 (until done, real jobs'
-crew-Slack legs dead-letter loudly and crews get NO Slack; all Slack testing stays in #ops-test);
-phone smoke + one real estimate (≥1430; the phone smoke also covers the dashboard's 390px eyeball
-AND now the two ledger screens); authenticated JOB-1104 re-drag + re-cancel; calendar eyeballs
-2026-12-15/16 + 2026-12-28/29. Per-item OKs pending: delete GHL TEST opportunity
-`UuTLn5Xg2Bb9EEj4UUBv`; JOB-1107 smoke residue rows; merged branches
-(`claude/v2-task6-job-dashboard`, `claude/v2-task7-manual-ledger`) + worktree
-`.claude/worktrees/task7` + the two SDD scratch ledgers under `.superpowers/sdd/`. BL-6
-echo-guard design draft still awaiting Matt's review. **Phase-3 obligation:** build the
-dispatcher's `slack_reconciliation_required` handler at the first Phase-3 dispatcher touch.
-**Accepted minors from Task 7's reviews** (ledgered in the SDD scratch): $0-budget categories
-alert on their first entry (noise — revisit if annoying); stale-tab un-void via the correction
-form's seeded `state`; no double-submit idempotency on manual create (void is the remedy);
-overrun can under-fire under concurrent same-category inserts (self-heals).
+**BL-8 (Matt-only):** Slack bot invitations to Crew 1–4 (until done, real jobs' crew-Slack legs
+dead-letter loudly and crews get NO Slack; all Slack testing stays in #ops-test); rest of the
+phone smoke + one real estimate (**now ≥1431** — 1430 burned by the Phase 2 gate);
+authenticated JOB-1104 re-drag + re-cancel; calendar eyeballs 2026-12-15/16 + 2026-12-28/29.
+**Backlogged gate findings:** alert `action_path` self-link (RPC migration); costs-edit
+discoverability (UX). Per-item OKs pending: delete GHL TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv`;
+JOB-1107 + JOB-1108 residue rows; merged branches (`claude/v2-task6-job-dashboard`,
+`claude/v2-task7-manual-ledger`, `claude/gate-audit-render`) + worktrees
+`.claude/worktrees/task7` + `.claude/worktrees/gate-audit` + the two SDD scratch ledgers under
+`.superpowers/sdd/`. BL-6 echo-guard design draft still awaiting Matt's review. **Accepted minors
+from Task 7's reviews** (ledgered in the SDD scratch): $0-budget categories alert on their first
+entry (CONFIRMED live at the gate — 4 of the 6 alerts; revisit if annoying); stale-tab un-void via
+the correction form's seeded `state`; no double-submit idempotency on manual create; overrun can
+under-fire under concurrent same-category inserts (self-heals).
 
 ## State
 
-**main == production everywhere.** Production Vercel serves main (`0e893aa` + docs commit) at
+**main == production everywhere.** Production Vercel serves main (`91a5531`) at
 https://lostboysdemolition.vercel.app — estimate builder + Phase 1 surface + Job Dashboard +
-the Task 7 ledger screens, no login, network-open. Live functions unchanged this session
-(nothing deployed to Supabase functions): `ghl-job-webhook` v25 (flag=false permanent),
+ledger screens + **audit-history rendering (new this session)**, no login, network-open. `/`
+still 307→`/estimates` (the flip is Task 8's). Live functions unchanged (nothing deployed to
+Supabase functions this session): `ghl-job-webhook` v25 (flag=false permanent),
 `crew-night-before` v11 line, `airtable-client-sync` v29 line, `integration-dispatcher` v1 line
 (cron `*/5`), `google-calendar-webhook` v2 line (cron `7,37`). **Migration head `20260826180811`
-(39 applied).** Suites at close: web **728/728**, deno **411/411** (golden-321 intact), lint 0
-errors/1 pre-existing warning, build green. `jobs` = 5 cancelled TEST rows; ledger:
-`job_cost_entries` 2 (both void, JOB-1107 smoke), `job_cost_entry_audit` 3,
-`job_revenue_entries` 2 (net $0.00, JOB-1107 smoke); `job_forecast_snapshots` 0 (by design);
-0 open alerts/exceptions; first real estimate still ≥1430.
+(39 applied — no migrations this session).** Suites at close: web **758/758**, deno **411/411**
+(golden-321 intact), lint 0 errors/1 pre-existing warning, build green. `jobs` = 6 cancelled TEST
+rows (JOB-1108 new); JOB-1108 residue: 7 cost entries, 2 audit rows, 4 revenue rows (net $850),
+5 forecast snapshots, 6 resolved alerts. 0 open alerts/exceptions; outbox drained; 5 calendar
+channels active. `SLACK_TEST_CHANNEL_OVERRIDE` ABSENT. First real estimate ≥1431.
 
 ## Standing instructions (unchanged)
 
