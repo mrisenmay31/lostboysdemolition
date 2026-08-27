@@ -44,6 +44,93 @@ Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ## Entries
 
+### 2026-08-27 — Session 14: v2 TASK 8a (owner auth slice) + TASK 9 (forecast overrides) BUILT AND FULLY REVIEWED on branch — NOT merged; next session runs the gate sequence
+
+**Phase 3 opened. Matt's three scoping rulings (recorded in the v2 plan amendment on the branch):**
+(1) **ratified Task 8 SPLITS 8a/8b** — 8a (this build): owner auth + owner-gating every `/jobs/*`
+financial route + the `/` flip; 8b (own follow-on session): the foreman mobile checklist area
+(offline queue, service worker, photo bucket, `submit_job_checklist` RPC, GHL lifecycle,
+`activateWorkforceProfile`, migration `20260818160000`), carrying the **Phase 3 gate** and the
+backlogged alert `action_path` RPC migration. (2) **Owner = Matt now, Dane later** (invite +
+promote at a later session). (3) **Sign-in = email magic link** with `shouldCreateUser: false` —
+invite-only on a network-open page; strangers cannot mint auth users.
+
+**What was built (branch `claude/v2-task8a-owner-auth`, 11 commits `654d4c4..1b0527a`, worktree
+`.claude/worktrees/task8a` — NOT merged, nothing deployed, no DB writes, no Supabase config
+touched):**
+- **Auth foundation:** `@supabase/ssr` (lockfile: +ssr@0.12.5, +cookie, six coordinated 2.112.4
+  peer bumps — audited line by line in review); cookie-bound anon-key `createSessionClient` /
+  `createBrowserSupabaseClient`; `web/src/lib/workforce/profile.ts` (`getWorkforceSession` via
+  server-verified `auth.getUser()` over the live `workforce_self_read` RLS policy — no service
+  role in the read path, legacy `get_my_role()`/`get_my_crew_id()` untouched; fail-closed
+  normalizer; `requireActiveOwner()` throwing typed `OwnerAuthError`); `signOutAction`.
+- **Sign-in surface:** `/auth/sign-in` (magic link, `shouldCreateUser:false`, friendly
+  "ask Matt to invite you" mapping), `/auth/confirm` (token_hash `verifyOtp` with `safeNextPath`
+  open-redirect guard — rejects `//host`, backslashes, non-path values), `web/src/proxy.ts`
+  (Next 16 convention verified against installed 16.3.1 AND independently confirmed registered in
+  the build manifest by the final review; matcher `/`, `/jobs/:path*`, `/auth/:path*`; session
+  refresh + unauthenticated `/jobs` bounce; pure `decideProxyAction` unit-tested).
+- **Gating + flip:** `(app)/jobs/layout.tsx` — ONE server-side active-owner check covering
+  `/jobs`, `[jobNumber]`, costs, revenue, exceptions (bypass sweep in review: no route.ts under
+  the segment); pending/foreman/no-profile → `/estimates`; "Signed in as … · Sign out" bar.
+  `(app)/page.tsx`: active owner → `/jobs`, everyone else → `/estimates` (anonymous estimators:
+  zero change). **Estimator picker surface byte-untouched** (diff over estimator.ts / estimates /
+  layout / EstimatorChip verified EMPTY); `supabase/` diff EMPTY — a zero-migration session.
+- **Task 9:** `lib/forecasts/validate.ts` (pure Zod, `z.number()` ONLY — empty string/numeric
+  string/NaN/Infinity rejected; labor triple XOR one category ETC via strict discriminated union;
+  `expectedCrewSize` positive int + `0<hoursPerDay≤24` = the crew-days zero-divisor guard;
+  `remainingWorkdays ≥ 0` allowed); `lib/forecasts/repo.ts` append-only insert into
+  `job_forecast_overrides` — **the system's first non-null `created_by`** (real auth uid);
+  `createForecastOverrideAction` in `(app)/jobs/actions.ts` — **the first authenticated-owner-
+  gated action** (auth → validation → I/O; OwnerAuthError → friendly result; before/after
+  `getJobHealthDetail` reads deliver the health + forecast-profit delta and persist a fresh
+  snapshot via the existing watermark); `ForecastOverridePanel` on job detail (closed by default,
+  labor/category modes, `parseRequiredNumber` empty-string→undefined carry, history list
+  append-only, Denver timestamps).
+- **Docs on the branch:** `docs/runbooks/owner-promotion.md` (auth config incl. **REQUIRED email
+  template customization** — see finding below — promotion SQL, smoke script incl. deep-link
+  proxy probe, Dane-later flow); v2-plan 8a/8b amendment; BUILD_PLAN 2026-08-27 amendment;
+  the session implementation plan.
+
+**Process record (SDD, 3 concurrency waves per the plan: W0 T1∥T4∥T5, W1 T2∥T3∥T6, W2 T7):**
+7 tasks, each Sonnet-implemented + adversarially reviewed (strongest model). 6 first-pass clean;
+2 fix rounds total, both review-caught or ruling-driven: **(a) Task 2's Important — Supabase's
+DEFAULT email templates use `{{ .ConfirmationURL }}` and never carry `token_hash`, so with default
+templates EVERY live sign-in dead-ends at `error=confirm`.** No code can fix it (it's dashboard
+config); the runbook now mandates customized Magic Link AND Invite templates
+(`{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email|invite&next=/`), verified 1:1
+against the confirm route by re-review. **(b) Task 7's flagged duplicate:** the job detail page
+already had a static "Forecast overrides" block (Task 6 era); ruled consolidation — the panel is
+the single override surface, field-parity verified in review, locked-section comment updated 8→9
+deliberately. **Final whole-branch review: READY TO MERGE (0 Critical)** — traced every session
+state for redirect loops (none), secrets posture clean, all 18 deferred minors triaged
+OK-TO-DEFER, 0 controller rulings contested; its 4 polish recommendations (profile-query
+`console.error`, runbook Vercel-env check + deep-link smoke probe + localhost-moot note, doc
+wording) applied as fix wave `1b0527a` and re-review-verified. **Suites at close: web 811/811
+(+53 over the 758 baseline), deno 411/411 (golden-321 intact), lint 0 errors/1 pre-existing
+warning, build green.**
+
+**Ruled boundary — restate at the gate:** `/jobs` PAGES are now owner-only, but the pre-existing
+cost/revenue/schedule/cancel WRITES behind them remain picker-gated and network-invocable — the
+pre-existing posture, unchanged, per 8a's ratified scope. Only the new override action is
+owner-gated. Hardening candidate for 8b.
+
+**Carries for 8b:** action-level auth-branch tests, `DEFAULT_HOURS_PER_DAY` shared constant,
+custom SMTP before foreman onboarding (Supabase built-in sender is a-few-emails-per-hour),
+picker-gated-writes hardening decision, the alert `action_path` migration.
+
+**Merge mechanics note:** this session-close docs commit advances main past the branch point, and
+the identical plan doc is committed on BOTH main and the branch — so next session's merge is a
+normal (non-fast-forward) merge; the both-added-identical plan file auto-resolves. SDD workspace
+(`.claude/worktrees/task8a/.superpowers/sdd/...`) and the worktree/branch are KEPT pending Matt's
+per-item cleanup OK.
+
+**Next session = the 8a gate sequence, each step on Matt's go (runbook is the script):**
+(1) Supabase Auth config — Site URL, redirect URLs, **both email templates (sign-in fails 100%
+without them)**, Vercel `NEXT_PUBLIC_*` env presence; (2) owner promotion (service-role SQL,
+runbook §2); (3) merge + push; (4) deploy verify curls; (5) Matt's read-only phone smoke
+(runbook §3); (6) close docs (CLAUDE.md gains the "/estimates open, /jobs owner-gated" posture).
+
 ### 2026-08-27 — Session 13: THE PHASE 2 GATE IS PASSED — full E2E on JOB-1108 (Matt phone-driven), audit-rendering gap found/fixed/deployed mid-gate, clean teardown; v2 PHASE 2 COMPLETE
 
 **The gate run (Matt drove every app screen from his phone — the first phone-driven probe, chipping
