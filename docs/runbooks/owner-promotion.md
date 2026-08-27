@@ -66,9 +66,20 @@ Verify: re-run the select; expect role 'owner', active true. This is the
 deferred Task 0B "owner promotion" step — the only service-role identity
 write in the system.
 
+**EXECUTED 2026-08-27 (Session 15 gate).** ⚠️ **Matt's owner sign-in email is
+`matt@lostboysdemolition.com`, NOT `matt@ctaintegrity.com`** — the sole
+`auth.users` row (created 2026-05-05, the May clock-in-era test user) carries
+the client-domain address, and it is the row the Task 0B backfill profiled and
+this runbook promoted. `matt@ctaintegrity.com` has no auth user, so
+`shouldCreateUser: false` rejects it at sign-in (observed live during the
+gate smoke; working as designed). **Matt ruled Session 15: keep
+`matt@lostboysdemolition.com` as the owner sign-in address** — do not invite
+the ctaintegrity address and do not edit the user's email.
+
 ## 3. Live smoke (read-only)
 
-1. Matt: `/auth/sign-in` → email → tap the emailed link → lands `/`,
+1. Matt: `/auth/sign-in` → email (`matt@lostboysdemolition.com` — see §2's
+   warning) → tap the emailed link → lands `/`,
    which redirects to `/jobs`.
 2. `/jobs`, `/jobs/JOB-1108`, `/jobs/exceptions` render with the
    "Signed in as Matt · Sign out" bar.

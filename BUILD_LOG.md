@@ -36,13 +36,76 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2. **Session 12 (2026-08-26, same day): v2 Task 7 SHIPPED — migration `manual_ledger_rpcs` APPLIED TO PRODUCTION (version `20260826180811`, 39 applied), 4 ledger writer RPCs live, all reviews clean (2 review-caught defects fixed), live smoke on JOB-1107 proved every leg incl. the overrun alert + note preservation + snapshot invariant, MERGED TO MAIN (`a0a92a2..0e893aa`) + production deploy VERIFIED — `/jobs/[jobNumber]/costs` + `/revenue` LIVE. Phase 2 BUILD COMPLETE; the Phase 2 gate E2E (staged job + full fact list, burns estimate ≥1430) is the remaining Phase 2 item** | 2026-08-26 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2. **Session 12 (2026-08-26, same day): v2 Task 7 SHIPPED — migration `manual_ledger_rpcs` APPLIED TO PRODUCTION (version `20260826180811`, 39 applied), 4 ledger writer RPCs live, all reviews clean (2 review-caught defects fixed), live smoke on JOB-1107 proved every leg incl. the overrun alert + note preservation + snapshot invariant, MERGED TO MAIN (`a0a92a2..0e893aa`) + production deploy VERIFIED — `/jobs/[jobNumber]/costs` + `/revenue` LIVE. Phase 2 BUILD COMPLETE. **Session 13 (2026-08-27): the Phase 2 gate PASSED (estimate 1430 → JOB-1108, phone-driven E2E; audit-render gap fixed+deployed mid-gate `01d48a3..91a5531`) — v2 PHASE 2 COMPLETE. Session 14 (2026-08-27): Phase 3 opened — Task 8 split 8a/8b; 8a (owner auth) + Task 9 (forecast overrides) built + review-clean on branch. Session 15 (2026-08-27): the 8a gate sequence ran clean — Supabase Auth configured (token_hash templates), Matt promoted to owner (`matt@lostboysdemolition.com` is the ruled sign-in address), non-FF merge `34ab995` pushed, deploy verified (proxy proven via deep-link `next=`), phone smoke PASSED. 8a + Task 9 LIVE: `/jobs/*` owner-gated, `/` flip live, estimator surface unchanged. TASKS 8a + 9 CLOSED; next = 8b (foreman checklists + Phase 3 gate + `action_path` migration)** | 2026-08-27 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-08-27 — Session 15: THE 8a GATE SEQUENCE RAN CLEAN — 8a + Task 9 MERGED TO MAIN (`34ab995`) AND LIVE; Matt is the promoted owner; TASKS 8a + 9 CLOSED
+
+Six steps, each on Matt's explicit go. Zero migrations, zero edge-function changes, zero
+`supabase/` diffs — this session's writes were one dashboard config pass (Matt), one service-role
+UPDATE, one merge/push, and docs.
+
+**Step 1 — Supabase Auth config (Matt, dashboard) + env verify (MCP/CLI).** Site URL
+`https://lostboysdemolition.vercel.app`; both redirect URLs added; **Magic Link AND Invite email
+templates customized to the `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=…&next=/`
+form** — closing the Session-14 review's critical config finding (defaults never carry
+`token_hash`; sign-in would have dead-ended 100%). Verified `NEXT_PUBLIC_SUPABASE_URL` +
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` both present in Vercel PRODUCTION env (names-only check via
+`vercel env ls production`) — the proxy-500 failure mode was ruled out before merge.
+
+**Step 2 — Owner promotion EXECUTED (the deferred Task 0B step).** ⚠️ Runbook defect caught at
+execution: the live `workforce_profiles.display_name` is lowercase **`matt`** (backfill derived it
+from the email local-part), so the runbook's `where display_name = 'Matt'` would have matched
+ZERO rows and silently no-opped. Promoted keyed on `auth_user_id`
+(`91722779-dc5d-44c1-9662-9ffbceb03287`) instead; verified `role='owner'`, `active=true`. Runbook
+corrected on the branch pre-merge (`d19566d`).
+
+**Step 3 — Merge + push (Matt's go).** Non-FF merge `8cfe920..34ab995` (plan doc identical on
+both sides auto-resolved, as predicted). Pre-push integrity check: `git diff` of `web/` +
+`supabase/` between the reviewed branch head and merged main — **byte-identical**, so the
+production deploy is exactly the reviewed tree. Pushed; Vercel built in ~40s.
+
+**Step 4 — Deploy verified (curl probe set, all pass):** `/` 307→`/estimates` (anon);
+`/jobs` 307→`/auth/sign-in?next=%2Fjobs`; **deep link `/jobs/JOB-1108/costs` → Location carries
+`next=%2Fjobs%2FJOB-1108%2Fcosts`** — the full-path `next` only the proxy produces (the layout
+fallback would say `next=/jobs`), i.e. **`web/src/proxy.ts` is registered and live in
+production**; `/estimates` 200; `/auth/sign-in` 200; `/jobs/exceptions` 307-gated.
+
+**Step 5 — Matt's phone smoke PASSED (all four runbook §3 checks)** — after one finding worth
+remembering: **Matt's first sign-in attempt with `matt@ctaintegrity.com` was rejected** ("isn't
+set up yet for sign-in"). Root cause: the sole `auth.users` row is
+**`matt@lostboysdemolition.com`** (created 2026-05-05 — the May clock-in-era test user; it is the
+row Task 0B backfilled and step 2 promoted, and the source of the lowercase `matt`).
+`shouldCreateUser: false` rejecting the unknown ctaintegrity address is the invite-only design
+working correctly. **Matt ruled: keep `matt@lostboysdemolition.com` as the owner sign-in
+address** (over editing the user's email or inviting the CTA address). Recorded in the runbook
+§2. Retry with the right address: magic-link email link carried the correct
+`token_hash` shape (validating the step-1 template edit), sign-in landed `/` → `/jobs`, all three
+`/jobs` pages rendered with the signed-in bar, incognito checks clean, sign-out returned `/` →
+`/estimates`.
+
+**Step 6 — docs closed:** this entry; CLAUDE.md v2 row + the no-login section rewritten to the
+shipped posture (`/estimates` open + picker; `/jobs/*` owner-gated; anon key now load-bearing;
+ruled writes boundary restated); runbook owner-email warning; NEXT_SESSION_PROMPT regenerated
+toward 8b.
+
+**Ruled boundary (restated at the gate, unchanged):** `/jobs` PAGES are owner-only; the
+pre-existing cost/revenue/schedule/cancel WRITES stay picker-gated and network-invocable — 8b
+hardening candidate. Only the Task 9 forecast-override action is owner-gated.
+
+**State at close:** main `34ab995`+docs, pushed; production serving the 8a posture. Matt =
+active owner. Dane's invite = runbook §4, later. Branch `claude/v2-task8a-owner-auth` +
+worktree `.claude/worktrees/task8a` still exist (deletion needs Matt's per-item OK). First real
+estimate still ≥1431. **Next session = 8b:** foreman checklist area, the Phase 3 gate, the
+`action_path` RPC migration, plus the Session-14 carries (action-level auth-branch tests,
+`DEFAULT_HOURS_PER_DAY` shared constant, custom SMTP before foreman onboarding — note the
+built-in sender's few-emails/hour rate limit is fine for 1–2 owners but NOT for foremen —
+and the picker-gated-writes hardening decision).
 
 ### 2026-08-27 — Session 14: v2 TASK 8a (owner auth slice) + TASK 9 (forecast overrides) BUILT AND FULLY REVIEWED on branch — NOT merged; next session runs the gate sequence
 
