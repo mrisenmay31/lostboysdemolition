@@ -36,13 +36,76 @@ shipped.
 | `stripe-webhook` | 9–11 | 🔴 Not Built — now owned by Profitability Program v2 Task 15 | — |
 | Job Completed Airtable Auto | 8 | 🟡 In Progress | 2026-05-07 |
 | GHL Custom Fields + Mapping | — | 🟢 Live (19 fields) | 2026-05-15 |
-| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2. **Session 12 (2026-08-26, same day): v2 Task 7 SHIPPED — migration `manual_ledger_rpcs` APPLIED TO PRODUCTION (version `20260826180811`, 39 applied), 4 ledger writer RPCs live, all reviews clean (2 review-caught defects fixed), live smoke on JOB-1107 proved every leg incl. the overrun alert + note preservation + snapshot invariant, MERGED TO MAIN (`a0a92a2..0e893aa`) + production deploy VERIFIED — `/jobs/[jobNumber]/costs` + `/revenue` LIVE. Phase 2 BUILD COMPLETE. **Session 13 (2026-08-27): the Phase 2 gate PASSED (estimate 1430 → JOB-1108, phone-driven E2E; audit-render gap fixed+deployed mid-gate `01d48a3..91a5531`) — v2 PHASE 2 COMPLETE. Session 14 (2026-08-27): Phase 3 opened — Task 8 split 8a/8b; 8a (owner auth) + Task 9 (forecast overrides) built + review-clean on branch. Session 15 (2026-08-27): the 8a gate sequence ran clean — Supabase Auth configured (token_hash templates), Matt promoted to owner (`matt@lostboysdemolition.com` is the ruled sign-in address), non-FF merge `34ab995` pushed, deploy verified (proxy proven via deep-link `next=`), phone smoke PASSED. 8a + Task 9 LIVE: `/jobs/*` owner-gated, `/` flip live, estimator surface unchanged. TASKS 8a + 9 CLOSED; next = 8b (foreman checklists + Phase 3 gate + `action_path` migration)** | 2026-08-27 |
+| Profitability Program v2 (plan) | 0–6 | 🟢 **Phase 0 COMPLETE 2026-08-18; Phase 1 Sessions 1+2 SHIPPED 2026-08-19** — Task 1 schema + Task 2 economics/commercial-lifecycle migrations **ALL APPLIED TO PRODUCTION** (heads `20260819052245` → `20260819141318`, 31 applied; pgTAP 102/102 + 78/78; identity backfill seeded families 1419/1420/1423); Task 3 forecast engine + Task 2 web integration (economics module, GHL pipeline/prefill, commercial lifecycle UI) merged to branch `claude/last-session-review-f7tqxw` (web 471/471, deno 317/317) — **web NOT yet deployed to Vercel** (separate Matt ask). Deviations 1–12 recorded in the phase plan. **Session 3 (Task 4) SHIPPED 2026-08-19:** `schedule_estimate` RPC **APPLIED TO PRODUCTION** (head `20260819191046`, 32 applied; branch GREEN 82/82), scheduling UI on the branch (web 537/537), `ghl-job-webhook` **v20 deployed** flag-UNSET (behavior-neutral). Matt to-dos (non-blocking): phone smoke + real estimate ≥1426 on the branch preview; authenticated webhook live fire. GHL-minting cutover still flips only at Phase 1 gate pass. **Sessions 4–5 (2026-08-20): Task 5A SHIPPED TO PROD + probed live (JOB-1105); 5B spike PASSED. Session 6 (2026-08-24): Task 5B Step 2 BUILT + FULLY REVIEWED on the branch** — 3 migrations + `google-calendar-webhook` rewrite + `/jobs/exceptions` UI; branch pgTAP 147/147, deno 411/411, web 596/596; **prod apply + deploy + probe await Matt**. **Session 8 (2026-08-25): Task 5B SHIPPED TO PROD** — 3 migrations applied (head `20260825171051`, 38 applied), `google-calendar-webhook` v2 deployed via the invariant, `SLACK_TEST_CHANNEL_OVERRIDE` set to #ops-test for the probe (unset it at probe close), probe legs 1/2 + echo termination proven live (estimate 1428 → JOB-1106; first-ever dispatcher Slack delivery; first real estimate ≥1429). **Session 9 (2026-08-25, same day): probe legs 3/5/6 COMPLETE — all six legs proven live, JOB-1106 torn down (`closed_lost`), override UNSET + confirmed absent. Task 5B is DONE.** **Session 10 (2026-08-25): Task 7 gate PASSED, permanent cutover live, MERGED TO MAIN — v2 PHASE 1 COMPLETE.** **Session 11 (2026-08-26): Phase 2 opened — v2 Task 6 (Job Dashboard `/jobs` + job detail `/jobs/[jobNumber]`) BUILT on branch `claude/v2-task6-job-dashboard` (10 commits, web-only, no migrations), all 5 task reviews + final whole-branch review clean after one fix wave; web 650/650, deno 411/411, build green, live-verified against prod. **MERGED TO MAIN (`c3d4e48..5663a46`, Matt's go) + production deploy VERIFIED — `/jobs` is LIVE; `/` flip still Task 8's.** Task 7 (manual ledger) completes Phase 2. **Session 12 (2026-08-26, same day): v2 Task 7 SHIPPED — migration `manual_ledger_rpcs` APPLIED TO PRODUCTION (version `20260826180811`, 39 applied), 4 ledger writer RPCs live, all reviews clean (2 review-caught defects fixed), live smoke on JOB-1107 proved every leg incl. the overrun alert + note preservation + snapshot invariant, MERGED TO MAIN (`a0a92a2..0e893aa`) + production deploy VERIFIED — `/jobs/[jobNumber]/costs` + `/revenue` LIVE. Phase 2 BUILD COMPLETE. **Session 13 (2026-08-27): the Phase 2 gate PASSED (estimate 1430 → JOB-1108, phone-driven E2E; audit-render gap fixed+deployed mid-gate `01d48a3..91a5531`) — v2 PHASE 2 COMPLETE. Session 14 (2026-08-27): Phase 3 opened — Task 8 split 8a/8b; 8a (owner auth) + Task 9 (forecast overrides) built + review-clean on branch. Session 15 (2026-08-27): the 8a gate sequence ran clean — Supabase Auth configured (token_hash templates), Matt promoted to owner (`matt@lostboysdemolition.com` is the ruled sign-in address), non-FF merge `34ab995` pushed, deploy verified (proxy proven via deep-link `next=`), phone smoke PASSED. 8a + Task 9 LIVE: `/jobs/*` owner-gated, `/` flip live, estimator surface unchanged. TASKS 8a + 9 CLOSED; next = 8b (foreman checklists + Phase 3 gate + `action_path` migration)** **Session 16 (2026-09-02, docs-only): ADOPTION CHECKPOINT — zero real usage found (64 real Fillout estimates since discovery vs 0 in the app); Matt ruled "dashboard is the product, bare bones first, manual OK"; 8b NOT built; proposal (owner "Mark started/completed" action instead of the foreman area; freeze Phases 4–6; 30-day manual loop) + 3 open questions PENDING — see `docs/superpowers/plans/2026-09-02-adoption-checkpoint-assessment.md`** | 2026-09-02 |
 
 Supabase project for all functions: `eiqqqwajmcpcwhvxxnhx`.
 
 ---
 
 ## Entries
+
+### 2026-09-02 — Session 16 (docs-only): ADOPTION CHECKPOINT — whole-build assessment; 8b NOT built; proposal + three open questions PENDING MATT'S RULING
+
+Matt opened the session intending v2 Task 8b, then redirected mid-planning: "investigate this
+repo in its entirety and give me an update on where we are in this build plan in relation to
+the scope of this project … in case we need to make any adjustments to the overall build." He
+closed the session before answering the resulting questions. **Nothing shipped: no code, no
+deploys, no migrations, no data writes** — every check was read-only. Full record:
+`docs/superpowers/plans/2026-09-02-adoption-checkpoint-assessment.md`.
+
+**The critical finding — the business has not started using any of it.** Live checks the same
+morning: the web builder holds **21 estimates, all test-created**, none since 2026-08-27; the
+live Airtable base holds **64 real Fillout estimates created 2026-07-31 → 2026-09-02**
+(Estimate IDs 297 → 360, ~2 per business day, every one at the never-maintained status
+"Draft"); `jobs` = 6 cancelled test rows; zero prototype comments from Dane, Dane never invited,
+no foreman accounts, Slack bot still not in the crew channels, Vercel analytics not enabled.
+The only path with real daily traffic is the Airtable↔GHL client sync. Ratified decision 1's
+precondition ("the estimate builder is the committed path for every job") was backlogged to
+BL-8 and both gates passed on synthetic probes; it is now empirically unmet — because nobody
+has been asked to switch, not because anything is broken. By task count v2 is ~50% done; by
+business value delivered, near zero, because every automated actuals source is Phase 5 and no
+real estimate has entered the loop.
+
+**Scope gaps found (no owner in v2, grep-verified):** Track B lead intake, the Phase G
+scope-calibration loop, Fillout/Airtable/Zapier retirement + any estimating cutover criterion,
+deposit policy, callbacks table, client sign-off, BL-1/BL-2 checklist hooks.
+
+**Matt's ruling on direction (in-session):** adoption sprint first; **"the profitability
+dashboard is the product"**, everything else feeds it; bare bones first (estimate tool live →
+real jobs → estimate + labor/expense estimates and actuals into the dashboard), manual entry
+acceptable, automation later; add features along the way.
+
+**Proposal presented (NOT ruled on):** the bare-bones loop is nearly built — the one gap is
+that only the unbuilt foreman checklist moves a job to `in_progress`/`completed`. Replace
+8b-as-specced with an **owner-side "Mark started / Mark completed" action** (service-role
+RPC + GHL stage projection through the existing dispatcher, which already resolves both stage
+names; optional crew-days fields) — ~1 day vs a session-plus for the full foreman area, whose
+`authenticated`-callable RPC has a wide RLS blast radius per the exploration. Freeze v2
+Phases 4–6 as backlog; milestone = 30 days of real jobs through the manual loop; then automate
+the most painful step (bet: BILL/Task 14, then time/Task 13). No-code blockers first
+(Matt-only): Slack bot invites, Dane's owner invite, a timed side-by-side Fillout-vs-app
+estimate by Jackson.
+
+**THREE OPEN QUESTIONS — first item next session:** (1) 8b scope: owner action (recommended)
+/ foreman area as specced / owner action now + foreman area later; (2) who enters actuals
+during the manual phase (Matt's team weekly from Gusto+BILL / Dane at completion / foremen
+report hours + Matt's team the rest); (3) how a quote reaches the customer today (GHL estimate
+doc / texted number / mixed) — this decides whether the GHL push or entry speed is the
+adoption pitch.
+
+**Also recorded** (assessment §9): exploration findings that shape 8b either way —
+`job_time_entries` absent until Task 13 (open-clock gate leg unbuildable now); dispatcher needs
+no change for the two new GHL stages; `job.checklist.submitted` and `slack_reconciliation_required`
+both dead-letter today (no switch arm, no ops Slack channel secret exists); INVOKER-vs-DEFINER
+is the open design question for any foreman-callable RPC; Storage is greenfield; three
+hard-coded hours-per-day 8s; the `action_path` self-link shape also exists in
+`mark_job_reconciliation_required`.
+
+**Docs updated:** this entry; `CLAUDE.md` (checkpoint note + v2 row); `BUILD_PLAN.md`
+(2026-09-02 amendment, proposal pending); `NEXT_SESSION_PROMPT.md` regenerated to open on the
+three questions; the assessment doc above. State otherwise unchanged from Session 15: main
+`162f64a` line, production serving the 8a posture, migration head `20260826180811` (39), first
+real estimate ≥1431, standing items (BL-8, BL-6 review, cleanup OKs) all still open.
 
 ### 2026-08-27 — Session 15: THE 8a GATE SEQUENCE RAN CLEAN — 8a + Task 9 MERGED TO MAIN (`34ab995`) AND LIVE; Matt is the promoted owner; TASKS 8a + 9 CLOSED
 

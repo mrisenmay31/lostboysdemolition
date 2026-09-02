@@ -1,82 +1,76 @@
 Lost Boys Demolition ops system. Read CLAUDE.md, then DISCOVERY_2026-07-31.md (business ground
-truth), then BUILD_PLAN.md, then
-`docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (the ratified
-program — **Phase 3 in progress: Tasks 8a + 9 are SHIPPED AND LIVE; this session builds Task 8b**:
-the foreman mobile checklist area + the Phase 3 gate + the backlogged `action_path` RPC
-migration). Session-14 build plan (context for what 8a/9 are):
-`docs/superpowers/plans/2026-08-27-v2-task8a-owner-auth-task9-forecast-overrides.md`. Owner auth
-operations: `docs/runbooks/owner-promotion.md` (now on main, corrected).
+truth), then BUILD_PLAN.md, then **`docs/superpowers/plans/2026-09-02-adoption-checkpoint-assessment.md`**
+(Session 16's whole-build assessment + proposal + the open questions — READ THIS BEFORE ANYTHING
+ELSE THIS SESSION), then the ratified program
+`docs/superpowers/plans/2026-08-18-live-job-profitability-health-dashboard-v2.md` (Phase 3 in
+progress: 8a + 9 shipped; **8b was NOT built — Session 16 paused it pending Matt's rulings**).
 
-## What just happened — Session 15 (2026-08-27): the 8a gate sequence ran clean; 8a + Task 9 LIVE
+## ▶️ THIS SESSION OPENS HERE — Matt answers three questions, THEN we plan
 
-Full record: the 2026-08-27 Session 15 `BUILD_LOG.md` entry.
+Session 16 (2026-09-02) found the business has not started using any of the built system:
+**0 real estimates in the app vs 64 real Fillout estimates since 2026-07-31** (Airtable IDs
+297→360), 0 real jobs, Dane never invited, no foreman accounts, Slack bot not in the crew
+channels. Matt ruled: **adoption sprint first; the profitability dashboard IS the product; bare
+bones first, manual actuals acceptable, automate later, add features along the way.** He closed
+before answering these — **ask them first, one at a time, and record the rulings in BUILD_PLAN
+(2026-09-02 amendment) before writing any plan:**
 
-- **Merged to main non-FF `8cfe920..34ab995` and deployed** — merged `web/`+`supabase/` trees
-  proven byte-identical to the reviewed branch head before push. Zero migrations, zero
-  edge-function changes.
-- **Production posture now:** `/estimates/*` open + estimator picker (unchanged, by design);
-  **`/jobs/*` owner-gated** (magic link, `shouldCreateUser:false` invite-only; proxy + layout
-  defense in depth — deep-link probe proved the proxy registered); `/` routes an active owner to
-  `/jobs`, everyone else 307→`/estimates`. `NEXT_PUBLIC_SUPABASE_ANON_KEY` is now load-bearing.
-- **Matt is the promoted, smoke-tested owner.** Supabase Auth configured (Site URL, redirect
-  URLs, **both token_hash email templates** — the review's 100%-dead-end config finding closed).
-  Phone smoke passed all four runbook §3 checks.
-- **Two execution findings, both recorded in the runbook:** (1) the live profile
-  `display_name` is lowercase `matt` — promotion had to key on `auth_user_id` (the runbook's
-  original `display_name='Matt'` would have zero-row no-opped; fixed `d19566d`); (2) **the owner
-  sign-in email is `matt@lostboysdemolition.com`, NOT matt@ctaintegrity.com** — the sole
-  auth.users row is the 2026-05-05 May test user; the CTA address was rejected by
-  `shouldCreateUser:false` (working as designed). **Matt ruled: the lostboysdemolition address
-  stays.** Dane's later invite = runbook §4.
-- **Ruled boundary (unchanged):** `/jobs` PAGES owner-only; pre-existing
-  cost/revenue/schedule/cancel WRITES stay picker-gated + network-invocable — 8b hardening
-  candidate. Only the Task 9 forecast-override action is owner-gated.
+1. **8b scope.** Replace the foreman checklist area with an owner-side **"Mark started / Mark
+   completed"** action on the job detail page (status RPC + GHL stage projection via the existing
+   dispatcher + optional crew-days fields) — recommended, ~1 day; OR keep 8b as specced (foreman
+   auth, offline queue, photos, SMTP — session-plus, synthetic gate until real jobs exist); OR
+   owner action now + foreman area as the next build after one real job.
+2. **Who enters actuals** (labor hours, dump loads, card spend, invoice amount) per job during
+   the manual phase: Matt/CTA bookkeeping weekly from Gusto + BILL exports (hours per job still
+   need a source) / Dane at completion / foremen report crew + hours, Matt's team enters the rest.
+3. **How does a quote reach the customer today** — GHL estimate document (the app's GHL push
+   replaces real rekeying = the adoption pitch) / texted or emailed number (entry speed on a
+   phone is the whole pitch) / mixed by client type.
 
-## ▶️ THIS SESSION OPENS HERE — v2 Task 8b (a build session: plan → Matt's approval → lanes)
+Then, per the rulings: write the implementation plan for the chosen 8b shape (written for
+concurrent lanes; Build Planning Rule applies — Matt approves before code), and draft the
+adoption-sprint checklist (estimating cutover date + mandate, Jackson's timed side-by-side
+Fillout-vs-app estimate, Dane's owner invite via runbook §4, Slack bot invites, what to do with
+in-flight Fillout estimates that get scheduled after cutover = re-enter in quick mode). Proposal
+also on the table: freeze v2 Phases 4–6 as backlog; milestone = 30 days of real jobs through the
+manual loop; then automate the most painful step (bet: BILL/Task 14 first, then time/Task 13);
+amend the v2 plan to own the scope gaps (Track B, calibration loop, Fillout/Airtable
+retirement, deposit policy, callbacks, sign-off) or drop each deliberately.
 
-Scope per Matt's Session-14 split ruling (v2 plan amendment + Session 14 BUILD_LOG entry):
+**Exploration findings already gathered (assessment §9 — do not re-derive):** the dispatcher
+needs NO change for "Job In Progress"/"Job Completed" (SQL-side enqueue with the
+`ghl_opportunity_id is not null` guard + a non-`:rev` idempotency key; add the two stages to the
+test fixture); `job_time_entries` does not exist until Task 13 (open-clock gate leg deferred);
+`job.checklist.submitted` and `slack_reconciliation_required` both dead-letter today (no switch
+arm; no ops Slack channel secret exists anywhere); INVOKER-vs-DEFINER is the open question for
+any `authenticated`-callable RPC (house = INVOKER service-role-only; the owner action avoids it);
+Storage is greenfield; three hard-coded hours-per-day 8s (`map.ts` ×3 sites, job detail page,
+DB default); `action_path` self-link also in `mark_job_reconciliation_required`;
+`crew-night-before` drops `in_progress` jobs; `jobs` has no `updated_at` trigger.
 
-1. **Foreman mobile checklist area** — offline queue, service worker, photo bucket,
-   `submit_job_checklist` RPC, GHL lifecycle, `activateWorkforceProfile`, migration
-   `20260818160000` (numbering per the Session-14 entry — re-derive the real timestamp at
-   write time).
-2. **The backlogged alert `action_path` migration** — overrun alerts should link
-   `/jobs/<job>/costs`, not self-link (one-line RPC change; attach to 8b's migration window).
-3. **The Phase 3 gate** at the end.
-4. **Session-14/15 carries to fold into the 8b plan:** action-level auth-branch tests;
-   `DEFAULT_HOURS_PER_DAY` shared constant (map.ts + job detail both hard-code 8); **custom SMTP
-   BEFORE foreman onboarding** (built-in sender is a few emails/hour — fine for 1–2 owners, not
-   for 4 foremen); the picker-gated-writes hardening decision (Matt's call: harden in 8b or
-   defer); costs-edit discoverability (UX, from the Phase 2 gate).
-5. **Phase-3 obligation (standing):** build the dispatcher's `slack_reconciliation_required`
-   handler at the first dispatcher touch this phase.
-
-This is a **build**: produce the implementation plan (written for concurrent lanes), get Matt's
-explicit approval, then execute with per-task adversarial reviews + final whole-branch review.
-
-## Standing items
+## Standing items (unchanged)
 
 **BL-8 (Matt-only):** Slack bot invitations to Crew 1–4 (until done, real jobs' crew-Slack legs
-dead-letter loudly); rest of the phone smoke + one real estimate (**≥1431**); authenticated
-JOB-1104 re-drag + re-cancel; calendar eyeballs 2026-12-15/16 + 2026-12-28/29. **Cleanup pending
-Matt's per-item OK:** branch `claude/v2-task8a-owner-auth` + worktree `.claude/worktrees/task8a`
-(now merged), its SDD workspace ledger, the GHL TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv`. BL-6
-echo-guard design draft still awaiting Matt's review. JOB-1107/1108 residue KEPT permanently (do
-not re-ask). Dane's dashboard-prototype feedback still not received — reconcile into the v2 plan
-whenever it lands. Dane's owner invite = deferred (runbook §4).
+dead-letter loudly); phone smoke + one real estimate (**≥1431**); authenticated JOB-1104 re-drag +
+re-cancel; calendar eyeballs 2026-12-15/16 + 2026-12-28/29. **Cleanup pending Matt's per-item
+OK:** branch `claude/v2-task8a-owner-auth` + worktree `.claude/worktrees/task8a` (merged), its
+SDD ledger, GHL TEST opportunity `UuTLn5Xg2Bb9EEj4UUBv`. BL-6 echo-guard design draft awaiting
+Matt's review. JOB-1107/1108 residue KEPT permanently (do not re-ask). Dane's
+dashboard-prototype feedback never received (zero artifact comments). Dane's owner invite =
+runbook §4, now part of the adoption sprint.
 
 ## State
 
-**Production = main (`34ab995` line) at https://lostboysdemolition.vercel.app, serving the 8a
-posture** (verified: `/` 307→`/estimates` anon; `/jobs`+`/jobs/exceptions`+deep links
-307→`/auth/sign-in` with full `next=`; `/estimates` + `/auth/sign-in` 200). Live functions
-unchanged: `ghl-job-webhook` v25 (flag=false permanent), `crew-night-before` v11 line,
-`airtable-client-sync` v29 line, `integration-dispatcher` v1 (cron `*/5`),
-`google-calendar-webhook` v2 (cron `7,37`). **Migration head `20260826180811` (39 applied — zero
-migrations Sessions 14–15).** `jobs` = 6 cancelled TEST rows; 0 open alerts/exceptions; outbox
-drained; 5 calendar channels active; `SLACK_TEST_CHANNEL_OVERRIDE` ABSENT. Matt's
-`workforce_profiles` row = `owner`/active (`matt@lostboysdemolition.com`). Suites at merge: web
-811/811, deno 411/411 (golden intact). First real estimate ≥1431.
+**Production = main (`162f64a` + Session 16 docs) at https://lostboysdemolition.vercel.app,
+serving the 8a posture** (`/` 307→`/estimates` anon; `/jobs/*` owner-gated with full `next=`;
+`/estimates` + `/auth/sign-in` 200). Live functions unchanged: `ghl-job-webhook` v25
+(flag=false permanent), `crew-night-before` v11 line, `airtable-client-sync` v29 line,
+`integration-dispatcher` v1 (cron `*/5`), `google-calendar-webhook` v2 (cron `7,37`).
+**Migration head `20260826180811` (39 applied — zero migrations Sessions 14–16).** `jobs` = 6
+cancelled TEST rows; 0 open alerts/exceptions; outbox drained (16 succeeded); 5 calendar
+channels active; `SLACK_TEST_CHANNEL_OVERRIDE` ABSENT. Matt = `workforce_profiles` owner/active,
+sign-in `matt@lostboysdemolition.com` (ruled). Suites at last merge: web 811/811, deno 411/411
+(golden intact). First real estimate ≥1431.
 
 ## Standing instructions (unchanged)
 
