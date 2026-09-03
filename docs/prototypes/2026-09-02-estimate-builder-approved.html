@@ -1,0 +1,262 @@
+<title>Lost Boys Estimate Builder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  :root{
+    --ink:#192534;--ink-soft:#2b3949;--muted:#697585;--muted-light:#98a2ae;
+    --surface:#ffffff;--canvas:#edf0f3;--canvas-warm:#f7f8fa;--line:#dfe4e9;--line-soft:#edf0f3;
+    --accent:#e45a34;--accent-strong:#cf4d29;--accent-soft:#fff0ea;
+    --success:#27834e;--success-soft:#e8f6ee;--warning:#9f6700;--warning-soft:#fff4d8;--danger:#b63831;--danger-soft:#fde9e7;
+    --band:#192534;--band-line:#374657;--band-muted:#adb8c5;--band-good:#7dd5a3;
+    --radius:14px;--shadow:0 14px 36px rgba(25,37,52,.10);--focus:0 0 0 3px rgba(228,90,52,.32);--phone-bezel:#0f1720;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#e8edf2;--ink-soft:#c9d2dc;--muted:#97a3b1;--muted-light:#6f7b89;--surface:#1b2431;--canvas:#0f151d;--canvas-warm:#151d27;--line:#2c3947;--line-soft:#222d3a;
+      --accent:#f0724d;--accent-strong:#ff8560;--accent-soft:#3a2219;--success:#6fcf95;--success-soft:#16301f;--warning:#e8b84a;--warning-soft:#3a2d0c;--danger:#f08a83;--danger-soft:#3d1a18;
+      --band:#0b1119;--band-line:#26323f;--band-muted:#8d9aa8;--band-good:#6fcf95;--shadow:0 14px 36px rgba(0,0,0,.45);--phone-bezel:#05080c;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#e8edf2;--ink-soft:#c9d2dc;--muted:#97a3b1;--muted-light:#6f7b89;--surface:#1b2431;--canvas:#0f151d;--canvas-warm:#151d27;--line:#2c3947;--line-soft:#222d3a;
+    --accent:#f0724d;--accent-strong:#ff8560;--accent-soft:#3a2219;--success:#6fcf95;--success-soft:#16301f;--warning:#e8b84a;--warning-soft:#3a2d0c;--danger:#f08a83;--danger-soft:#3d1a18;
+    --band:#0b1119;--band-line:#26323f;--band-muted:#8d9aa8;--band-good:#6fcf95;--shadow:0 14px 36px rgba(0,0,0,.45);--phone-bezel:#05080c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.45}
+  button,input,textarea{font:inherit;color:inherit} button{cursor:pointer}
+  :focus-visible{outline:none;box-shadow:var(--focus)}
+  .stage{max-width:1100px;margin:0 auto;padding:36px 20px 60px;display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:40px;align-items:start}
+  @media (max-width:860px){.stage{grid-template-columns:1fr;gap:28px}}
+  .brief h1{margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:-.02em;text-wrap:balance}
+  .brief .eyebrow{display:inline-block;margin-bottom:12px;padding:5px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .brief p{margin:0 0 14px;color:var(--ink-soft);max-width:60ch}.brief ul{margin:0;padding-left:18px;color:var(--ink-soft);max-width:60ch}.brief li{margin:6px 0}
+  .brief ol{margin:0 0 14px;padding-left:20px;color:var(--ink-soft);max-width:60ch}.brief ol li{margin:4px 0}
+  .brief .note{margin-top:22px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:13px;color:var(--muted)}.brief kbd{font:inherit;font-weight:700;color:var(--ink)}
+  .phone{width:390px;height:844px;margin:0 auto;border-radius:44px;background:var(--phone-bezel);padding:12px;box-shadow:var(--shadow);position:sticky;top:24px}
+  .screen{height:100%;border-radius:34px;background:var(--canvas);overflow:hidden;display:flex;flex-direction:column;position:relative}
+  .statusbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-weight:600}
+  .appbar{display:flex;align-items:center;gap:10px;padding:6px 16px 10px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .logo{width:32px;height:32px;border-radius:9px;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800;flex:none;background:repeating-linear-gradient(135deg,var(--accent) 0 4px,var(--accent-strong) 4px 8px)}
+  .appbar h2{margin:0;font-size:16px;font-weight:700;flex:1}
+  .who{display:flex;gap:4px}.who button{height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:transparent;font-size:12px;font-weight:600;color:var(--muted)}.who button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:12px 14px 4px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .step{display:grid;gap:6px;justify-items:center;border:0;background:none;padding:0;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .step .bar{width:100%;height:4px;border-radius:999px;background:var(--line)}
+  .step[data-state="done"] .bar{background:var(--success)}.step[data-state="current"] .bar{background:var(--accent)}.step[data-state="current"]{color:var(--ink)}
+  .content{flex:1;overflow-y:auto;padding:14px 14px 100px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin}
+  .stephead{display:flex;align-items:baseline;justify-content:space-between}
+  .stephead h3{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em}.stephead span{font-size:12px;color:var(--muted);font-weight:600}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px;display:grid;gap:12px}
+  .card h4{margin:0;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .field{display:grid;gap:6px}.field label{font-size:13px;font-weight:600}.field .hint{font-size:12px;color:var(--muted)}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .input{height:48px;width:100%;border:1px solid var(--line);border-radius:11px;background:var(--surface);padding:0 12px;font-size:16px}.input:focus{border-color:var(--accent)}
+  textarea.input{height:auto;min-height:80px;padding:10px 12px;resize:vertical}
+  .unit{position:relative}.unit .input{padding-right:54px;font-variant-numeric:tabular-nums;font-weight:600}.unit span{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:600;color:var(--muted)}
+  .seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:11px;overflow:hidden}.seg button{height:44px;border:0;background:var(--surface);font-weight:600;color:var(--muted)}.seg button+button{border-left:1px solid var(--line)}.seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}.chip{height:38px;padding:0 13px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink-soft)}.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+  .search{position:relative}.search .input{padding-left:38px}.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--muted)}
+  .lib{display:flex;flex-wrap:wrap;gap:6px}.lib .chip{height:34px;font-size:13px;padding:0 11px}.lib .chip.add{border-style:dashed;color:var(--accent)}
+  .picked{display:grid;gap:6px}
+  .picked .item{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:var(--canvas-warm)}
+  .picked .item .n{flex:1;font-size:14px;font-weight:600}
+  .picked .item .x{border:0;background:none;color:var(--muted);font-size:18px;line-height:1;padding:0 4px}
+  .tag{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:10px;font-weight:800;text-transform:uppercase;vertical-align:middle}
+  .disclose{border:0;background:none;padding:0;color:var(--accent);font-size:13px;font-weight:700;justify-self:start}
+  .breakdown{display:grid;grid-template-columns:1fr 1fr;gap:8px}.breakdown .field label{font-size:12px;color:var(--muted)}.breakdown .input{height:42px;font-size:15px}
+  .band{border-radius:18px;background:var(--band);color:#fff;padding:16px 18px 14px;box-shadow:var(--shadow)}
+  .band .label{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--band-muted)}
+  .band .total{margin-top:2px;font-size:36px;font-weight:800;letter-spacing:-.045em;font-variant-numeric:tabular-nums;line-height:1.05}
+  .band .sub{margin-top:4px;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--band-muted)}.band .sub b{color:var(--band-good)}
+  .band details{margin-top:8px;border-top:1px solid var(--band-line);padding-top:6px}
+  .band summary{cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:var(--band-muted);display:flex;justify-content:space-between}.band summary::-webkit-details-marker{display:none}
+  .band dl{margin:6px 0 0;display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:13px}.band dt{color:var(--band-muted)}.band dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.band dd.strong{font-weight:700}
+  .doc{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:grid;gap:10px}
+  .doc .hd{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.doc .hd b{font-size:15px}.doc .hd span{font-size:12px;color:var(--muted)}
+  .doc .co{font-size:12px;color:var(--muted);line-height:1.4}
+  .doc table{width:100%;border-collapse:collapse;font-size:14px}
+  .doc th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-align:left;padding:0 0 6px;border-bottom:1px solid var(--line)}
+  .doc th:last-child,.doc td:last-child{text-align:right;font-variant-numeric:tabular-nums}
+  .doc td{padding:9px 0;border-bottom:1px solid var(--line-soft);vertical-align:top}
+  .doc td .input{height:36px;width:96px;text-align:right;font-weight:700;font-size:14px;margin-left:auto}
+  .doc tfoot td{border:0;padding-top:10px;font-weight:800;font-size:16px}
+  .doc .desc{font-size:13px;color:var(--ink-soft);white-space:pre-wrap}
+  .recon{display:flex;justify-content:space-between;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:600}.recon.ok{background:var(--success-soft);color:var(--success)}.recon.off{background:var(--warning-soft);color:var(--warning)}
+  .summary{display:grid;gap:6px;font-size:13px}.summary div{display:flex;justify-content:space-between;gap:12px}.summary span{color:var(--muted)}.summary b{font-weight:600;text-align:right}
+  .actions{position:absolute;left:0;right:0;bottom:0;padding:12px 14px 22px;background:linear-gradient(to top,var(--canvas) 70%,transparent);display:grid;grid-template-columns:1fr 2fr;gap:8px}
+  .btn{height:50px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:15px;font-weight:700}.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .actions #back[hidden] + #next{grid-column:1 / -1}
+  [hidden]{display:none!important}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="stage">
+  <aside class="brief">
+    <span class="eyebrow">Chosen direction · revision 1</span>
+    <h1>Job, Client, Financial, Review</h1>
+    <p>Flow C with your step order and fields. Scope on the Job step names the customer's lines; hours and dumps are entered once on Financial; the Review step shows the estimate as the customer will see it, with each line's price editable.</p>
+    <ol>
+      <li><b>Job</b> — job name, address, job type, job scope (library or custom), estimate date, start date if known, notes.</li>
+      <li><b>Client</b> — client name, client type, business name (contractors only), phone, email.</li>
+      <li><b>Financial</b> — total bid band on top; direct costs: total labor hours, dumps, other job costs with a tap-to-expand breakdown; then profit margin chips with true margin shown.</li>
+      <li><b>Review</b> — the same total band, the customer document with editable line prices, and the notes as the description.</li>
+    </ol>
+    <ul>
+      <li>Line prices start as an even split of the total across the scope lines (scope carries no hours in this flow) and each is editable; the bar under the table confirms the lines still add up.</li>
+      <li>Business name appears only when Client type is Contractor.</li>
+      <li>Record-only is left out per your call; logo and palette are token placeholders.</li>
+    </ul>
+    <div class="note">Try it: add a scope chip on <kbd>Job</kbd>, switch Client type to <kbd>Contractor</kbd>, change hours on <kbd>Financial</kbd>, then edit a line price on <kbd>Review</kbd>.</div>
+  </aside>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●● ⌁</span></div>
+      <div class="appbar">
+        <div class="logo" title="Logo placeholder">LB</div>
+        <h2>New estimate</h2>
+        <div class="who" role="group" aria-label="Who's estimating"><button aria-pressed="true">Dane</button><button aria-pressed="false">Jackson</button></div>
+      </div>
+      <div class="steps">
+        <button class="step" data-i="0" data-state="current"><span class="bar"></span>Job</button>
+        <button class="step" data-i="1" data-state="todo"><span class="bar"></span>Client</button>
+        <button class="step" data-i="2" data-state="todo"><span class="bar"></span>Financial</button>
+        <button class="step" data-i="3" data-state="todo"><span class="bar"></span>Review</button>
+      </div>
+      <div class="content">
+
+        <!-- 1 JOB -->
+        <section data-step="0">
+          <div class="stephead"><h3>Job</h3><span>Step 1 of 4</span></div>
+          <div class="card" style="margin-top:12px">
+            <div class="field"><label>Job name</label><input class="input" id="jobname" value="Ryan's cinderblock shed"></div>
+            <div class="field"><label>Job address</label><input class="input" id="addr" value="1420 W 800 N, Orem"></div>
+            <div class="field"><label>Job type</label><div class="seg"><button aria-pressed="true">Residential</button><button aria-pressed="false">Commercial</button></div></div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h4>Job scope</h4>
+            <div class="search"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg><input class="input" id="scopesearch" placeholder="Search scope or type a custom line"></div>
+            <div class="lib" id="lib"></div>
+            <div class="picked" id="picked"></div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <div class="row2">
+              <div class="field"><label>Estimate date</label><input class="input" type="date" value="2026-09-02"></div>
+              <div class="field"><label>Start date <span class="hint">if known</span></label><input class="input" type="date"></div>
+            </div>
+            <div class="field"><label>Additional notes</label><textarea class="input" id="notes">Remove cinderblock shed and concrete pad, haul all debris, leave the site broom-clean. Dust-controlled demo.</textarea></div>
+          </div>
+        </section>
+
+        <!-- 2 CLIENT -->
+        <section data-step="1" hidden>
+          <div class="stephead"><h3>Client</h3><span>Step 2 of 4</span></div>
+          <div class="card" style="margin-top:12px">
+            <div class="field"><label>Client name</label><input class="input" id="client" value="Ryan Halvorsen"></div>
+            <div class="field"><label>Client type</label><div class="seg" id="ctype"><button aria-pressed="true" data-t="home">Homeowner</button><button aria-pressed="false" data-t="contractor">Contractor</button></div></div>
+            <div class="field" id="bizfield" hidden><label>Business name</label><input class="input" id="biz" placeholder="Company the invoice goes to"></div>
+            <div class="field"><label>Phone</label><input class="input" inputmode="tel" value="(801) 555-0142"></div>
+            <div class="field"><label>Email</label><input class="input" inputmode="email" placeholder="Needed to send the estimate from GHL"></div>
+          </div>
+        </section>
+
+        <!-- 3 FINANCIAL -->
+        <section data-step="2" hidden>
+          <div class="stephead"><h3>Financial</h3><span>Step 3 of 4</span></div>
+          <div class="band" style="margin-top:12px" data-band>
+            <div class="label">Total bid</div>
+            <div class="total" data-total>$0</div>
+            <div class="sub"><span>true margin <b data-margin></b></span><span data-hrs></span><span data-loads></span></div>
+            <details><summary><span>How it adds up</span><span>▾</span></summary>
+              <dl><dt>Labor</dt><dd data-o="labor"></dd><dt>Dump fees</dt><dd data-o="dump"></dd><dt>Other job costs</dt><dd data-o="jsc"></dd><dt>Overhead</dt><dd data-o="oh"></dd><dt>Profit</dt><dd data-o="profit"></dd><dt>Card fee 3.5%</dt><dd data-o="cc"></dd><dt>Total bid</dt><dd class="strong" data-o="total"></dd></dl>
+            </details>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h4>Direct costs</h4>
+            <div class="field"><label for="hours">Total labor hours</label><div class="unit"><input class="input" id="hours" inputmode="decimal" value="46"><span>hrs</span></div></div>
+            <div class="field"><label for="dumps">Dumps</label><div class="unit"><input class="input" id="dumps" inputmode="decimal" value="1.5"><span>loads</span></div><div class="hint">Half loads are fine. Charged at $300 a load.</div></div>
+            <div class="field"><label for="jsc">Other job costs</label><div class="unit"><input class="input" id="jsc" inputmode="decimal" value="200"><span>$</span></div>
+              <button class="disclose" id="bd-toggle" aria-expanded="false">+ Break it down</button>
+              <div class="breakdown" id="bd" hidden>
+                <div class="field"><label>Materials</label><input class="input" inputmode="decimal" value="200" data-bd></div>
+                <div class="field"><label>Rentals</label><input class="input" inputmode="decimal" value="0" data-bd></div>
+                <div class="field"><label>Subcontractors</label><input class="input" inputmode="decimal" value="0" data-bd></div>
+                <div class="field"><label>Other direct costs</label><input class="input" inputmode="decimal" value="0" data-bd></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h4>Profit margin</h4>
+            <div class="chips" id="markup"><button class="chip" data-m="20">20%</button><button class="chip" data-m="25" aria-pressed="true">25%</button><button class="chip" data-m="30">30%</button><button class="chip" data-m="35">35%</button><button class="chip" data-m="custom">Other…</button></div>
+            <div class="hint">Applied on top of direct costs and overhead. The realized share of the price shows as true margin above.</div>
+          </div>
+        </section>
+
+        <!-- 4 REVIEW -->
+        <section data-step="3" hidden>
+          <div class="stephead"><h3>Review</h3><span>Step 4 of 4</span></div>
+          <div class="band" style="margin-top:12px" data-band>
+            <div class="label">Total bid</div>
+            <div class="total" data-total>$0</div>
+            <div class="sub"><span>true margin <b data-margin></b></span><span data-hrs></span><span data-loads></span></div>
+            <details><summary><span>How it adds up</span><span>▾</span></summary>
+              <dl><dt>Labor</dt><dd data-o="labor"></dd><dt>Dump fees</dt><dd data-o="dump"></dd><dt>Other job costs</dt><dd data-o="jsc"></dd><dt>Overhead</dt><dd data-o="oh"></dd><dt>Profit</dt><dd data-o="profit"></dd><dt>Card fee 3.5%</dt><dd data-o="cc"></dd><dt>Total bid</dt><dd class="strong" data-o="total"></dd></dl>
+            </details>
+          </div>
+          <div class="doc" style="margin-top:12px">
+            <div class="hd"><div><b>Estimate</b><br><span id="doc-sub"></span></div><span>Valid 30 days</span></div>
+            <div class="co" id="doc-client"></div>
+            <table><thead><tr><th>Scope</th><th>Price</th></tr></thead><tbody id="doc-lines"></tbody><tfoot><tr><td>Total</td><td id="doc-total"></td></tr></tfoot></table>
+            <div class="recon ok" id="recon"><span>Lines match the total</span><span id="recon-amt"></span></div>
+            <div class="desc" id="doc-desc"></div>
+          </div>
+          <div class="card" style="margin-top:12px">
+            <h4>Internal summary</h4>
+            <div class="summary"><div><span>Estimator</span><b>Dane</b></div><div><span>Job type</span><b>Residential</b></div><div><span>Hours · dumps</span><b id="sum-hd"></b></div><div><span>Profit margin</span><b id="sum-m"></b></div></div>
+          </div>
+        </section>
+      </div>
+      <div class="actions"><button class="btn" id="back">Back</button><button class="btn primary" id="next">Next: Client</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const R={labor:26,oh:23,dump:300,cc:0.035};
+  const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+  const money=n=>n.toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+  const money2=n=>n.toLocaleString("en-US",{style:"currency",currency:"USD"});
+  const num=el=>{const v=parseFloat(String(el.value).replace(/[^0-9.]/g,""));return isFinite(v)&&v>=0?v:0};
+  const r2=n=>Math.round(n*100)/100; let markup=25, step=0;
+  const LIB=["Shed-Structure Removal","Concrete Demo","Junk Removal-Cleanout","Jobsite Cleanup","Exterior Demo","Bathroom Demo","Kitchen Demo","Flooring Removal","Drywall-Wall Demo","Deck-Patio Removal"];
+  const scope=[{name:"Shed-Structure Removal"},{name:"Concrete Demo"},{name:"Tree and stump haul-off",custom:true}];
+  scope.forEach(s=>s.price=null);
+  const names=["Job","Client","Financial","Review"];
+
+  function renderLib(){const q=$("#scopesearch").value.trim().toLowerCase();const box=$("#lib");box.innerHTML="";LIB.filter(n=>!q||n.toLowerCase().includes(q)).forEach(n=>{const b=document.createElement("button");b.className="chip";b.textContent=n;b.setAttribute("aria-pressed",String(scope.some(s=>s.name===n)));b.addEventListener("click",()=>{const i=scope.findIndex(s=>s.name===n);if(i>=0)scope.splice(i,1);else scope.push({name:n,price:null});scope.forEach(s=>s.price=null);renderLib();renderPicked()});box.appendChild(b)});
+    if(q&&!LIB.some(n=>n.toLowerCase()===q)){const b=document.createElement("button");b.className="chip add";b.textContent=`+ Add "${$("#scopesearch").value.trim()}" as a custom line`;b.addEventListener("click",()=>{scope.push({name:$("#scopesearch").value.trim(),custom:true,price:null});$("#scopesearch").value="";scope.forEach(s=>s.price=null);renderLib();renderPicked()});box.appendChild(b)}}
+  function renderPicked(){const box=$("#picked");box.innerHTML="";scope.forEach((s,i)=>{const d=document.createElement("div");d.className="item";d.innerHTML=`<span class="n">${s.name}${s.custom?'<span class="tag">custom</span>':''}</span><button class="x" aria-label="Remove ${s.name}">×</button>`;d.querySelector(".x").addEventListener("click",()=>{scope.splice(i,1);scope.forEach(x=>x.price=null);renderLib();renderPicked()});box.appendChild(d)});if(!scope.length){box.innerHTML='<div class="hint">No scope picked yet. The estimate will show one line, "Demolition services".</div>'}}
+  function compute(){const h=num($("#hours")),d=num($("#dumps")),j=num($("#jsc"));const labor=r2(R.labor*h),dump=r2(R.dump*d),td=r2(labor+dump+j),oh=r2(R.oh*h),profit=r2((td+oh)*markup/100),cc=r2((td+oh+profit)*R.cc),total=r2(td+oh+profit+cc);return{h,d,j,labor,dump,td,oh,profit,cc,total,margin:total?r2(profit/total*100):0}}
+  function renderBands(o){$$("[data-band]").forEach(b=>{b.querySelector("[data-total]").textContent=money(o.total);b.querySelector("[data-margin]").textContent=o.margin.toFixed(1)+"%";b.querySelector("[data-hrs]").textContent=o.h+" hrs";b.querySelector("[data-loads]").textContent=o.d+" loads";const m={labor:o.labor,dump:o.dump,jsc:o.j,oh:o.oh,profit:o.profit,cc:o.cc,total:o.total};b.querySelectorAll("[data-o]").forEach(dd=>dd.textContent=money2(m[dd.dataset.o]))})}
+  function recon(o,lines){const sum=lines.reduce((a,l)=>a+(l.price??l.auto),0);$("#doc-total").textContent=money(sum);const diff=r2(sum-o.total);const rc=$("#recon");if(Math.abs(diff)<0.5){rc.className="recon ok";rc.firstElementChild.textContent="Lines match the total";$("#recon-amt").textContent=money(sum)}else{rc.className="recon off";rc.firstElementChild.textContent=(diff>0?"Over the total by ":"Under the total by ")+money(Math.abs(diff));$("#recon-amt").textContent=money(sum)+" of "+money(o.total)}}
+  function renderReview(o){const lines=scope.length?scope:[{name:"Demolition services",price:null}];let acc=0;lines.forEach((l,i)=>{if(l.price===null){l.auto=i<lines.length-1?r2(o.total/lines.length):r2(o.total-acc);acc+=l.auto}else acc+=l.price});
+    const tb=$("#doc-lines");tb.innerHTML="";lines.forEach((l,i)=>{const tr=document.createElement("tr");tr.innerHTML=`<td>${l.name}${l.custom?'<span class="tag">custom</span>':''}</td><td><input class="input" inputmode="decimal" value="${(l.price??l.auto).toFixed(0)}" data-i="${i}" aria-label="Price for ${l.name}"></td>`;tr.querySelector("input").addEventListener("input",e=>{l.price=num(e.target);recon(compute(),lines)});tb.appendChild(tr)});
+    $("#doc-sub").textContent=$("#jobname").value+" · "+$("#addr").value;
+    const contractor=$("#ctype [data-t=contractor]").getAttribute("aria-pressed")==="true";const biz=$("#biz").value.trim();
+    $("#doc-client").textContent="Prepared for "+$("#client").value+(contractor&&biz?" · "+biz:"")+" · Lost Boys Demolition and Junk Removal · Dust-free demo. Effective, efficient, clean.";
+    $("#doc-desc").textContent=$("#notes").value;$("#sum-hd").textContent=o.h+" hrs · "+o.d+" loads";$("#sum-m").textContent=markup+"% (true "+o.margin.toFixed(1)+"%)";recon(o,lines)}
+  function render(){const o=compute();renderBands(o);if(step===3)renderReview(o)}
+  function go(n){step=Math.max(0,Math.min(3,n));$$("[data-step]").forEach(s=>s.hidden=+s.dataset.step!==step);$$(".step").forEach(b=>{const i=+b.dataset.i;b.dataset.state=i<step?"done":i===step?"current":"todo"});$("#back").hidden=step===0;$("#next").textContent=step<3?"Next: "+names[step+1]:"Save and send to GHL";$(".content").scrollTop=0;render()}
+  ["#hours","#dumps","#jsc"].forEach(s=>$(s).addEventListener("input",()=>{scope.forEach(l=>l.price=null);render()}));
+  $("#bd-toggle").addEventListener("click",()=>{const open=$("#bd").hidden;$("#bd").hidden=!open;$("#bd-toggle").setAttribute("aria-expanded",String(open));$("#bd-toggle").textContent=open?"− Hide breakdown":"+ Break it down"});
+  $$("[data-bd]").forEach(i=>i.addEventListener("input",()=>{$("#jsc").value=$$("[data-bd]").reduce((a,x)=>a+num(x),0);scope.forEach(l=>l.price=null);render()}));
+  $("#markup").addEventListener("click",e=>{const c=e.target.closest(".chip");if(!c)return;$$("#markup .chip").forEach(x=>x.setAttribute("aria-pressed","false"));c.setAttribute("aria-pressed","true");markup=c.dataset.m==="custom"?22:parseFloat(c.dataset.m);if(c.dataset.m==="custom")c.textContent="22%";scope.forEach(l=>l.price=null);render()});
+  $("#ctype").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;$$("#ctype button").forEach(x=>x.setAttribute("aria-pressed","false"));b.setAttribute("aria-pressed","true");$("#bizfield").hidden=b.dataset.t!=="contractor"});
+  $("#scopesearch").addEventListener("input",renderLib);
+  $("#next").addEventListener("click",()=>go(step+1));$("#back").addEventListener("click",()=>go(step-1));
+  $$(".step").forEach(b=>b.addEventListener("click",()=>go(+b.dataset.i)));
+  $$(".seg:not(#ctype) button, .who button").forEach(b=>b.addEventListener("click",()=>{[...b.parentElement.children].forEach(x=>x.setAttribute("aria-pressed","false"));b.setAttribute("aria-pressed","true")}));
+  renderLib();renderPicked();go(0);
+})();
+</script>

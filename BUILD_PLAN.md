@@ -100,30 +100,49 @@ Dane later** (runbook: `docs/runbooks/owner-promotion.md`); (3) sign-in is
 deployment stays network-open for `/estimates`, while `/jobs/*` now
 requires an active owner session).
 
-## AMENDED 2026-09-02 — adoption checkpoint; proposal PENDING Matt's ruling
+## AMENDED 2026-09-02 — adoption checkpoint RULED; estimate builder redesign APPROVED and builds first
 
 Session 16 (docs-only) assessed the whole build against this plan's scope. Finding: ~half the v2
 program is live and **none of it is in use** — 0 real estimates in the app vs 64 real Fillout
 estimates since 2026-07-31; 0 real jobs; Dane never invited; no foreman accounts; Slack bot not in
 the crew channels. **Matt's ruling on direction:** adoption sprint before v2 Task 8b; **the
-profitability dashboard is the product**, everything else feeds it; bare bones first (estimate
-tool live → real jobs → estimate + labor/expense estimates and actuals in the dashboard), manual
+profitability dashboard is the product**, everything else feeds it; bare bones first, manual
 entry acceptable, automation later, features added along the way.
 
-**Proposal on the table (not yet ruled):** (1) replace 8b-as-specced with an owner-side "Mark
-started / Mark completed" action (the only gap in the bare-bones loop is that nothing but the
-unbuilt foreman checklist moves a job past `scheduled`); (2) freeze v2 Phases 4–6 as backlog;
-(3) milestone = 30 days of real jobs through the manual loop, then automate the most painful
-step (BILL/Task 14 first, then time/Task 13); (4) no-code blockers first — Slack bot invites,
-Dane's owner invite, a timed side-by-side Fillout-vs-app estimate; (5) amend the v2 plan to own
-the scope gaps this plan names but v2 does not — Track B lead intake, the Phase G calibration
-loop, Fillout/Airtable/Zapier retirement + cutover criterion, deposit policy (decision 3),
-callbacks, client sign-off — or drop each deliberately.
+**Session 17 rulings (Matt, 2026-09-02), all recorded here:**
+1. **8b scope** → replace the foreman checklist area with a picker-side **"Mark started / Mark
+   completed" action** on job detail (status RPC + GHL stage projection via the existing
+   dispatcher). Foreman auth/offline queue/photos/SMTP/`submit_job_checklist` → backlog.
+   Plan staged: `docs/superpowers/plans/2026-09-02-v2-task8b-status-action-staged.md`.
+2. **Who enters actuals** → anyone with app access (Matt, Dane, Jackson; foremen via them).
+   Consequence, ruled: **owner auth goes DORMANT behind `OWNER_AUTH_ENABLED` (default off)** —
+   the 8a code stays; `/` → `/jobs` for everyone; no separate logins. Picker stays
+   Dane / Jackson / Matt.
+3. **Quote delivery** → the **GHL estimate document, itemized scope lines with prices**; the
+   app's GHL push replaces Fillout→GHL rekeying. That is the adoption pitch.
+4. **Engine in the manual phase** → status-aware freshness (only `in_progress`), 7-day
+   thresholds in one constant block; completed/invoiced/paid → forecast = actuals. (Builds with 8b.)
+5. **THE ESTIMATE BUILDER REDESIGN BUILDS FIRST** (Matt: "before we get to 8b"). Approved spec:
+   `docs/superpowers/specs/2026-09-02-estimate-builder-redesign-design.md`; approved plan:
+   `docs/superpowers/plans/2026-09-02-estimate-builder-redesign.md`; approved mockup
+   `docs/prototypes/2026-09-02-estimate-builder-approved.html`. Four steps Job → Client →
+   Financial → Review; scope names the customer lines, hours/dumps entered once; total bid
+   computed, lines broken out with **editable prices** (line sum = quoted price, reason chip);
+   one "Other job costs" field with breakdown; "Profit margin" chips + true margin; dates on
+   Job; **Save as draft on every step → server-side `estimate_drafts`, promoted on finish**;
+   dashboard-prototype tokens app-wide as placeholders (logo + palette swappable); `/jobs`
+   re-skinned, styling only. Build starts Session 18.
+6. **v2 Phases 4–6 frozen as backlog.** Milestone = 30 days of real jobs through the manual loop,
+   then automate the most painful step (bet: BILL / Task 14, then time / Task 13).
+7. **Adoption sprint checklist** (Matt-owned, no-code):
+   `docs/superpowers/plans/2026-09-02-adoption-sprint-checklist.md` — Slack bot invites, phone
+   walkthrough, Jackson's timed side-by-side, cutover date + mandate, weekly actuals ritual,
+   the Airtable-vs-app metric (baseline Estimate ID 360 / app ≥1431).
 
-**Three open questions Matt must answer first next session** (8b shape; who enters actuals in
-the manual phase; how quotes reach customers today) — full text and rationale in
-`docs/superpowers/plans/2026-09-02-adoption-checkpoint-assessment.md` §8. Record the rulings
-here when given.
+Scope gaps this plan names but v2 does not (Track B lead intake, Phase G calibration loop,
+Fillout/Airtable/Zapier retirement criterion, deposit policy, callbacks, client sign-off) remain
+**open, not dropped** — the cutover mandate in the checklist is the first retirement criterion.
+Full record of the checkpoint: `docs/superpowers/plans/2026-09-02-adoption-checkpoint-assessment.md`.
 
 ## Context
 

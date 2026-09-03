@@ -1524,6 +1524,14 @@ git commit -m "feat: add manual job cost and revenue reconciliation"
 
 ### Task 8: Authenticated mobile Job Checklist area
 
+> **AMENDED 2026-09-02 (Session 17, Matt's ruling): Task 8b is REPLACED.** The foreman checklist area
+> (offline queue, photos, storage bucket, `submit_job_checklist`, `activateWorkforceProfile`, SMTP) moves to
+> backlog. 8b is now a picker-side **"Mark started / Mark completed"** action on job detail with GHL stage
+> projection through the existing dispatcher, plus the manual-phase engine rules — staged in
+> `docs/superpowers/plans/2026-09-02-v2-task8b-status-action-staged.md` and built AFTER the estimate builder
+> redesign (`2026-09-02-estimate-builder-redesign.md`). Owner auth (8a) goes dormant behind
+> `OWNER_AUTH_ENABLED` in that redesign build; the Phase 3 gate is restated there.
+
 > **AMENDED 2026-08-27 (Session 14, Matt's ruling): Task 8 is split.**
 > **Task 8a — SHIPPED Session 14:** owner auth (email magic link,
 > `@supabase/ssr`, `shouldCreateUser: false`), owner-gating of every
@@ -1695,6 +1703,10 @@ git commit -m "feat: add audited owner forecast overrides"
 
 ## Phase 4 — Change orders, completion, invoicing state, and financial history
 
+> **FROZEN AS BACKLOG 2026-09-02 (Matt, Session 17)** — Phases 4–6 do not start until 30 days of real jobs have
+> run through the manual loop; the first automation after that is chosen by which manual step hurt most
+> (bet: Task 14 BILL, then Task 13 time). See BUILD_PLAN `AMENDED 2026-09-02`.
+
 ### Task 10: Versioned change orders and dual approval
 
 **Files:**
@@ -1825,6 +1837,8 @@ git commit -m "feat: add audited job financial reconciliation and close"
 ---
 
 ## Phase 5 — External automation
+
+> **FROZEN AS BACKLOG 2026-09-02 (Matt, Session 17)** — see the Phase 4 note.
 
 ### Task 12: Slack profitability alerts and daily digest
 
@@ -2142,6 +2156,8 @@ git commit -m "feat: preserve stripe invoicing and project financial stages"
 ---
 
 ## Phase 6 — Launch and feedback substrate
+
+> **FROZEN AS BACKLOG 2026-09-02 (Matt, Session 17)** — see the Phase 4 note.
 
 ### Task 16: Pricing-feedback facts without automatic rate changes
 

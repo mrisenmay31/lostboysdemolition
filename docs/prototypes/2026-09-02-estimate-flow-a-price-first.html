@@ -1,0 +1,346 @@
+<title>Price-First Estimate Builder</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  :root{
+    --ink:#192534;--ink-soft:#2b3949;--muted:#697585;--muted-light:#98a2ae;
+    --surface:#ffffff;--canvas:#edf0f3;--canvas-warm:#f7f8fa;--line:#dfe4e9;--line-soft:#edf0f3;
+    --accent:#e45a34;--accent-strong:#cf4d29;--accent-soft:#fff0ea;
+    --success:#27834e;--success-soft:#e8f6ee;--warning:#9f6700;--warning-soft:#fff4d8;--danger:#b63831;--danger-soft:#fde9e7;
+    --band:#192534;--band-card:#222f3f;--band-line:#374657;--band-muted:#adb8c5;--band-good:#7dd5a3;
+    --radius:14px;--shadow:0 14px 36px rgba(25,37,52,.10);--focus:0 0 0 3px rgba(228,90,52,.32);
+    --phone-bezel:#0f1720;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ink:#e8edf2;--ink-soft:#c9d2dc;--muted:#97a3b1;--muted-light:#6f7b89;
+      --surface:#1b2431;--canvas:#0f151d;--canvas-warm:#151d27;--line:#2c3947;--line-soft:#222d3a;
+      --accent:#f0724d;--accent-strong:#ff8560;--accent-soft:#3a2219;
+      --success:#6fcf95;--success-soft:#16301f;--warning:#e8b84a;--warning-soft:#3a2d0c;--danger:#f08a83;--danger-soft:#3d1a18;
+      --band:#0b1119;--band-card:#141d29;--band-line:#26323f;--band-muted:#8d9aa8;--band-good:#6fcf95;
+      --shadow:0 14px 36px rgba(0,0,0,.45);--phone-bezel:#05080c;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ink:#e8edf2;--ink-soft:#c9d2dc;--muted:#97a3b1;--muted-light:#6f7b89;
+    --surface:#1b2431;--canvas:#0f151d;--canvas-warm:#151d27;--line:#2c3947;--line-soft:#222d3a;
+    --accent:#f0724d;--accent-strong:#ff8560;--accent-soft:#3a2219;
+    --success:#6fcf95;--success-soft:#16301f;--warning:#e8b84a;--warning-soft:#3a2d0c;--danger:#f08a83;--danger-soft:#3d1a18;
+    --band:#0b1119;--band-card:#141d29;--band-line:#26323f;--band-muted:#8d9aa8;--band-good:#6fcf95;
+    --shadow:0 14px 36px rgba(0,0,0,.45);--phone-bezel:#05080c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:15px;line-height:1.45}
+  button,input,select,textarea{font:inherit;color:inherit}
+  button{cursor:pointer}
+  :focus-visible{outline:none;box-shadow:var(--focus)}
+  .stage{max-width:1100px;margin:0 auto;padding:36px 20px 60px;display:grid;grid-template-columns:minmax(0,1fr) 410px;gap:40px;align-items:start}
+  @media (max-width:860px){.stage{grid-template-columns:1fr;gap:28px}}
+  .brief h1{margin:0 0 6px;font-size:26px;font-weight:800;letter-spacing:-.02em;text-wrap:balance}
+  .brief .eyebrow{display:inline-block;margin-bottom:12px;padding:5px 9px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .brief p{margin:0 0 14px;color:var(--ink-soft);max-width:60ch}
+  .brief ul{margin:0;padding-left:18px;color:var(--ink-soft);max-width:60ch}
+  .brief li{margin:6px 0}
+  .brief .note{margin-top:22px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:13px;color:var(--muted)}
+  .brief kbd{font:inherit;font-weight:700;color:var(--ink)}
+
+  /* phone */
+  .phone{width:390px;height:844px;margin:0 auto;border-radius:44px;background:var(--phone-bezel);padding:12px;box-shadow:var(--shadow);position:sticky;top:24px}
+  .screen{height:100%;border-radius:34px;background:var(--canvas);overflow:hidden;display:flex;flex-direction:column;position:relative}
+  .statusbar{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 24px;font-size:13px;font-weight:600;color:var(--ink)}
+  .appbar{display:flex;align-items:center;gap:10px;padding:6px 16px 10px;background:var(--surface);border-bottom:1px solid var(--line)}
+  .logo{width:32px;height:32px;border-radius:9px;background:var(--accent);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800;letter-spacing:-.02em;flex:none}
+  .logo[data-placeholder]{background:repeating-linear-gradient(135deg,var(--accent) 0 4px,var(--accent-strong) 4px 8px)}
+  .appbar h2{margin:0;font-size:16px;font-weight:700;flex:1;letter-spacing:-.01em}
+  .who{display:flex;gap:4px}
+  .who button{height:28px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:transparent;font-size:12px;font-weight:600;color:var(--muted)}
+  .who button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+  .content{flex:1;overflow-y:auto;padding:14px 14px 110px;display:flex;flex-direction:column;gap:14px;scrollbar-width:thin}
+
+  .switch{display:grid;grid-template-columns:1fr 1fr;padding:3px;border-radius:12px;background:var(--line-soft);border:1px solid var(--line)}
+  .switch button{height:38px;border:0;border-radius:9px;background:transparent;font-size:14px;font-weight:600;color:var(--muted)}
+  .switch button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(25,37,52,.12)}
+
+  .band{border-radius:18px;background:var(--band);color:#fff;padding:16px 18px 14px;box-shadow:var(--shadow)}
+  .band .label{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--band-muted)}
+  .band .total{margin-top:4px;font-size:38px;font-weight:800;letter-spacing:-.045em;font-variant-numeric:tabular-nums;line-height:1.05}
+  .band .sub{margin-top:6px;display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:var(--band-muted)}
+  .band .sub b{color:var(--band-good);font-weight:700}
+  .band details{margin-top:10px;border-top:1px solid var(--band-line);padding-top:8px}
+  .band summary{cursor:pointer;list-style:none;font-size:12px;font-weight:600;color:var(--band-muted);display:flex;justify-content:space-between}
+  .band summary::-webkit-details-marker{display:none}
+  .band dl{margin:8px 0 0;display:grid;grid-template-columns:1fr auto;gap:5px 12px;font-size:13px}
+  .band dt{color:var(--band-muted)}.band dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+  .band dd.strong{font-weight:700}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+  .card h3{margin:0 0 10px;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .field{display:grid;gap:6px;margin-bottom:12px}
+  .field:last-child{margin-bottom:0}
+  .field label{font-size:13px;font-weight:600}
+  .field .hint{font-size:12px;color:var(--muted)}
+  .input{height:48px;width:100%;border:1px solid var(--line);border-radius:11px;background:var(--surface);padding:0 12px;font-size:16px}
+  .input:focus{border-color:var(--accent)}
+  .numrow{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
+  .unit{position:relative}
+  .unit .input{padding-right:58px;font-variant-numeric:tabular-nums;font-weight:600}
+  .unit span{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:12px;font-weight:600;color:var(--muted)}
+  .stepper{display:flex;gap:6px}
+  .stepper button{width:44px;height:48px;border-radius:11px;border:1px solid var(--line);background:var(--canvas-warm);font-size:20px;font-weight:600}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{height:40px;padding:0 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink-soft)}
+  .chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+  .disclose{border:0;background:none;padding:0;color:var(--accent);font-size:13px;font-weight:700}
+  .breakdown{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .breakdown .field{margin:0}
+  .breakdown .field label{font-size:12px;color:var(--muted)}
+  .breakdown .input{height:42px;font-size:15px}
+  [hidden]{display:none!important}
+
+  .actions{position:absolute;left:0;right:0;bottom:0;padding:12px 14px 22px;background:linear-gradient(to top,var(--canvas) 70%,transparent);display:grid;gap:8px}
+  .btn{height:50px;border-radius:12px;border:1px solid var(--line);background:var(--surface);font-size:15px;font-weight:700;color:var(--ink)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-strong)}
+  .btn.quiet{background:transparent;border-color:transparent;color:var(--muted);height:40px}
+
+  /* write-up screen */
+  .search{position:relative}
+  .search .input{padding-left:38px}
+  .search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--muted)}
+  .lib{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .lib .chip{height:34px;font-size:13px;padding:0 11px}
+  .lib .chip.add{border-style:dashed;color:var(--accent)}
+  .lines{display:grid;gap:8px;margin-top:12px}
+  .line{display:grid;grid-template-columns:1fr 104px;gap:8px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--canvas-warm)}
+  .line .name{font-size:14px;font-weight:600}
+  .line .meta{font-size:12px;color:var(--muted)}
+  .line .price{height:40px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:15px}
+  .line .custom-tag{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;vertical-align:middle}
+  .recon{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding:10px 12px;border-radius:10px;font-size:13px;font-weight:600}
+  .recon.ok{background:var(--success-soft);color:var(--success)}
+  .recon.off{background:var(--warning-soft);color:var(--warning)}
+  .recon span{font-variant-numeric:tabular-nums}
+  .seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--line);border-radius:11px;overflow:hidden}
+  .seg button{height:44px;border:0;background:var(--surface);font-weight:600;color:var(--muted)}
+  .seg button+button{border-left:1px solid var(--line)}
+  .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+  textarea.input{height:auto;min-height:84px;padding:10px 12px;resize:vertical}
+  .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .toggle .t{font-size:14px;font-weight:600}
+  .toggle .d{font-size:12px;color:var(--muted)}
+  .sw{width:46px;height:28px;border-radius:999px;border:0;background:var(--line);position:relative;flex:none}
+  .sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+  .sw[aria-checked="true"]{background:var(--accent)}
+  .sw[aria-checked="true"]::after{transform:translateX(18px)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="stage">
+  <aside class="brief">
+    <span class="eyebrow">Flow A of 3</span>
+    <h1>Price it first, write it up second</h1>
+    <p>Two screens. The first holds only what moves the number and gets Dane or Jackson to a total on site in a handful of taps. The second is optional: contact details, scope lines with editable prices, and the push to GHL.</p>
+    <ul>
+      <li><b>The total is the hero.</b> The dark band at the top recalculates on every keystroke using the real cost-plus chain. Tap it to see labor, dump, overhead, profit, and card fee.</li>
+      <li><b>Five things to touch for a number:</b> name, hours, loads, other costs, markup. Everything else waits on the Write-up screen.</li>
+      <li><b>Write-up breaks the total into lines.</b> Lines start at their share of the total and each price is editable. A green bar confirms the lines still add up; it turns amber when they drift.</li>
+      <li><b>Custom lines are allowed</b> and tagged, so the scope library can absorb the frequent ones later.</li>
+    </ul>
+    <div class="note">Try it: change hours or loads on <kbd>Price</kbd>, then switch to <kbd>Write-up</kbd> and edit a line price. Logo and palette are placeholders wired to tokens, so both can change without touching the screens.</div>
+  </aside>
+
+  <div class="phone">
+    <div class="screen">
+      <div class="statusbar"><span>9:41</span><span>●●● ⌁</span></div>
+      <div class="appbar">
+        <div class="logo" data-placeholder title="Logo placeholder">LB</div>
+        <h2>New estimate</h2>
+        <div class="who" role="group" aria-label="Who's estimating">
+          <button aria-pressed="true">Dane</button><button aria-pressed="false">Jackson</button>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="switch" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="price">Price</button>
+          <button role="tab" aria-selected="false" data-tab="write">Write-up</button>
+        </div>
+
+        <div class="band" id="band">
+          <div class="label">Total bid</div>
+          <div class="total" id="total">$0</div>
+          <div class="sub"><span>true margin <b id="margin">0%</b></span><span id="hrs">0 hrs</span><span id="loads">0 loads</span></div>
+          <details>
+            <summary><span>How it adds up</span><span>▾</span></summary>
+            <dl>
+              <dt>Labor</dt><dd id="o-labor"></dd>
+              <dt>Dump fees</dt><dd id="o-dump"></dd>
+              <dt>Other job costs</dt><dd id="o-jsc"></dd>
+              <dt>Overhead</dt><dd id="o-oh"></dd>
+              <dt>Profit (markup)</dt><dd id="o-profit"></dd>
+              <dt>Card fee 3.5%</dt><dd id="o-cc"></dd>
+              <dt>Total bid</dt><dd class="strong" id="o-total"></dd>
+            </dl>
+          </details>
+        </div>
+
+        <!-- PRICE SCREEN -->
+        <section data-panel="price">
+          <div class="card">
+            <div class="field">
+              <label for="name">Client or job name</label>
+              <input class="input" id="name" value="Ryan's cinderblock shed">
+            </div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <h3>What moves the number</h3>
+            <div class="field">
+              <label for="hours">Labor hours</label>
+              <div class="numrow">
+                <div class="unit"><input class="input" id="hours" inputmode="decimal" value="46"><span>hrs</span></div>
+                <div class="stepper"><button data-step="hours" data-d="-2" aria-label="minus 2 hours">−</button><button data-step="hours" data-d="2" aria-label="plus 2 hours">+</button></div>
+              </div>
+            </div>
+            <div class="field">
+              <label for="dumps">Dump loads</label>
+              <div class="numrow">
+                <div class="unit"><input class="input" id="dumps" inputmode="decimal" value="1.5"><span>loads</span></div>
+                <div class="stepper"><button data-step="dumps" data-d="-0.5" aria-label="minus half load">−</button><button data-step="dumps" data-d="0.5" aria-label="plus half load">+</button></div>
+              </div>
+              <div class="hint">Half loads are fine. Charged at $300 a load.</div>
+            </div>
+            <div class="field">
+              <label for="jsc">Other job costs</label>
+              <div class="unit"><input class="input" id="jsc" inputmode="decimal" value="200"><span>$</span></div>
+              <button class="disclose" id="bd-toggle" aria-expanded="false">+ Break it down</button>
+              <div class="breakdown" id="bd" hidden>
+                <div class="field"><label>Materials</label><input class="input" inputmode="decimal" value="200" data-bd></div>
+                <div class="field"><label>Rentals</label><input class="input" inputmode="decimal" value="0" data-bd></div>
+                <div class="field"><label>Subcontractors</label><input class="input" inputmode="decimal" value="0" data-bd></div>
+                <div class="field"><label>Other</label><input class="input" inputmode="decimal" value="0" data-bd></div>
+              </div>
+            </div>
+            <div class="field">
+              <label>Markup</label>
+              <div class="chips" id="markup">
+                <button class="chip" data-m="20">20%</button>
+                <button class="chip" data-m="25" aria-pressed="true">25%</button>
+                <button class="chip" data-m="30">30%</button>
+                <button class="chip" data-m="35">35%</button>
+                <button class="chip" data-m="custom">Other…</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- WRITE-UP SCREEN -->
+        <section data-panel="write" hidden>
+          <div class="card">
+            <h3>Customer</h3>
+            <div class="field"><label>Contact name</label><input class="input" value="Ryan Halvorsen"></div>
+            <div class="field"><label>Phone</label><input class="input" inputmode="tel" value="(801) 555-0142"></div>
+            <div class="field"><label>Email</label><input class="input" inputmode="email" placeholder="Needed for the GHL estimate"></div>
+            <div class="field"><label>Job address</label><input class="input" value="1420 W 800 N, Orem"></div>
+            <div class="field"><label>Client type</label>
+              <div class="seg"><button aria-pressed="true">Homeowner</button><button aria-pressed="false">Contractor</button></div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <h3>Scope lines on the estimate</h3>
+            <div class="search">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>
+              <input class="input" placeholder="Search scope or type a custom line">
+            </div>
+            <div class="lib">
+              <button class="chip" aria-pressed="true">Shed-Structure Removal</button>
+              <button class="chip" aria-pressed="true">Concrete Demo</button>
+              <button class="chip">Junk Removal-Cleanout</button>
+              <button class="chip">Jobsite Cleanup</button>
+              <button class="chip">Exterior Demo</button>
+              <button class="chip add">+ Custom line</button>
+            </div>
+            <div class="lines" id="lines"></div>
+            <div class="recon ok" id="recon"><span>Lines match the total</span><span id="recon-amt"></span></div>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <h3>Description for the customer</h3>
+            <textarea class="input">Remove cinderblock shed and concrete pad, haul all debris, leave the site broom-clean. Dust-controlled demo.</textarea>
+          </div>
+          <div class="card" style="margin-top:14px">
+            <div class="toggle">
+              <div><div class="t">Record only</div><div class="d">Trusted contractor, invoice at completion. No estimate is sent.</div></div>
+              <button class="sw" role="switch" aria-checked="false" aria-label="Record only"></button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div class="actions" data-for="price">
+        <button class="btn primary">Save number</button>
+        <button class="btn" data-goto="write">Write it up for GHL →</button>
+      </div>
+      <div class="actions" data-for="write" hidden>
+        <button class="btn primary">Save and push to GHL</button>
+        <button class="btn quiet">Save without pushing</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const R={labor:26,oh:23,dump:300,cc:0.035};
+  const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+  const money=n=>n.toLocaleString("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+  const money2=n=>n.toLocaleString("en-US",{style:"currency",currency:"USD"});
+  const num=el=>{const v=parseFloat(String(el.value).replace(/[^0-9.]/g,""));return isFinite(v)&&v>=0?v:0};
+  const r2=n=>Math.round(n*100)/100;
+  let markup=25;
+  const lines=[
+    {name:"Shed-Structure Removal",hours:30,dumps:1,custom:false,price:null},
+    {name:"Concrete Demo",hours:12,dumps:0.5,custom:false,price:null},
+    {name:"Tree and stump haul-off",hours:4,dumps:0,custom:true,price:null},
+  ];
+  function compute(){
+    const h=num($("#hours")),d=num($("#dumps")),j=num($("#jsc"));
+    const labor=r2(R.labor*h),dump=r2(R.dump*d),td=r2(labor+dump+j),oh=r2(R.oh*h),profit=r2((td+oh)*markup/100),cc=r2((td+oh+profit)*R.cc),total=r2(td+oh+profit+cc);
+    return {h,d,j,labor,dump,td,oh,profit,cc,total,margin:total?r2(profit/total*100):0};
+  }
+  function render(){
+    const o=compute();
+    $("#total").textContent=money(o.total);
+    $("#margin").textContent=o.margin.toFixed(1)+"%";
+    $("#hrs").textContent=o.h+" hrs";$("#loads").textContent=o.d+" loads";
+    $("#o-labor").textContent=money2(o.labor);$("#o-dump").textContent=money2(o.dump);$("#o-jsc").textContent=money2(o.j);
+    $("#o-oh").textContent=money2(o.oh);$("#o-profit").textContent=money2(o.profit);$("#o-cc").textContent=money2(o.cc);$("#o-total").textContent=money2(o.total);
+    renderLines(o);
+  }
+  function renderLines(o){
+    const share=l=>l.hours*(R.labor+R.oh)+l.dumps*R.dump;
+    const sumShare=lines.reduce((a,l)=>a+share(l),0)||1;
+    let acc=0;
+    lines.forEach((l,i)=>{ if(l.price===null){ l.auto=i<lines.length-1? r2(o.total*share(l)/sumShare) : r2(o.total-acc); acc+=l.auto; } else acc+=l.price; });
+    const box=$("#lines"); box.innerHTML="";
+    lines.forEach((l,i)=>{
+      const row=document.createElement("div"); row.className="line";
+      row.innerHTML=`<div><div class="name">${l.name}${l.custom?'<span class="custom-tag">custom</span>':''}</div><div class="meta">${l.hours} hrs · ${l.dumps} loads</div></div><input class="input price" inputmode="decimal" value="${(l.price??l.auto).toFixed(0)}" data-i="${i}" aria-label="Price for ${l.name}">`;
+      box.appendChild(row);
+    });
+    const sum=lines.reduce((a,l)=>a+(l.price??l.auto),0);
+    const diff=r2(sum-o.total); const rc=$("#recon");
+    if(Math.abs(diff)<0.5){rc.className="recon ok";rc.firstElementChild.textContent="Lines match the total";$("#recon-amt").textContent=money(sum)}
+    else{rc.className="recon off";rc.firstElementChild.textContent=(diff>0?"Lines are over the total by ":"Lines are under the total by ")+money(Math.abs(diff));$("#recon-amt").textContent=money(sum)+" of "+money(o.total)}
+  }
+  ["#hours","#dumps","#jsc"].forEach(s=>$(s).addEventListener("input",()=>{lines.forEach(l=>l.price=null);render()}));
+  $$("[data-step]").forEach(b=>b.addEventListener("click",()=>{const el=$("#"+b.dataset.step);el.value=Math.max(0,r2(num(el)+parseFloat(b.dataset.d)));lines.forEach(l=>l.price=null);render()}));
+  $("#markup").addEventListener("click",e=>{const c=e.target.closest(".chip");if(!c)return;$$("#markup .chip").forEach(x=>x.setAttribute("aria-pressed","false"));c.setAttribute("aria-pressed","true");markup=c.dataset.m==="custom"?22:parseFloat(c.dataset.m);if(c.dataset.m==="custom")c.textContent="22%";lines.forEach(l=>l.price=null);render()});
+  $("#bd-toggle").addEventListener("click",()=>{const open=$("#bd").hidden;$("#bd").hidden=!open;$("#bd-toggle").setAttribute("aria-expanded",String(open));$("#bd-toggle").textContent=open?"− Hide breakdown":"+ Break it down"});
+  $$("[data-bd]").forEach(i=>i.addEventListener("input",()=>{$("#jsc").value=$$("[data-bd]").reduce((a,x)=>a+num(x),0);lines.forEach(l=>l.price=null);render()}));
+  $("#lines").addEventListener("input",e=>{const i=e.target.dataset.i;if(i===undefined)return;lines[i].price=num(e.target);const o=compute();const sum=lines.reduce((a,l)=>a+(l.price??l.auto),0);const diff=r2(sum-o.total);const rc=$("#recon");if(Math.abs(diff)<0.5){rc.className="recon ok";rc.firstElementChild.textContent="Lines match the total";$("#recon-amt").textContent=money(sum)}else{rc.className="recon off";rc.firstElementChild.textContent=(diff>0?"Lines are over the total by ":"Lines are under the total by ")+money(Math.abs(diff));$("#recon-amt").textContent=money(sum)+" of "+money(o.total)}});
+  function go(tab){$$("[role=tab]").forEach(t=>t.setAttribute("aria-selected",String(t.dataset.tab===tab)));$$("[data-panel]").forEach(p=>p.hidden=p.dataset.panel!==tab);$$(".actions").forEach(a=>a.hidden=a.dataset.for!==tab);$(".content").scrollTop=0}
+  $$("[role=tab]").forEach(t=>t.addEventListener("click",()=>go(t.dataset.tab)));
+  $$("[data-goto]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.goto)));
+  $$(".seg button, .who button, .lib .chip:not(.add)").forEach(b=>b.addEventListener("click",()=>{const grp=b.parentElement;if(grp.classList.contains("lib")){b.setAttribute("aria-pressed",String(b.getAttribute("aria-pressed")!=="true"));return}[...grp.children].forEach(x=>x.setAttribute("aria-pressed","false"));b.setAttribute("aria-pressed","true")}));
+  $(".sw").addEventListener("click",e=>e.currentTarget.setAttribute("aria-checked",String(e.currentTarget.getAttribute("aria-checked")!=="true")));
+  render();
+})();
+</script>
